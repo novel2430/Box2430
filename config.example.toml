@@ -1,0 +1,84 @@
+[workspaces]
+count = 9
+
+[focus]
+mode = "click"
+raise_on_focus = false
+focus_on_map = true
+raise_on_map = true
+monocle_fallback = "tab"
+
+[placement]
+normal = "center"
+dialog = "center"
+
+[fullscreen]
+client_policy = "fake"
+
+[appearance.border]
+width = 2
+focused = "#89b4fa"
+unfocused = "#45475a"
+urgent = "#f38ba8"
+
+[appearance.tabs]
+enabled = true
+height = 24
+padding = 8
+font = "monospace:size=10"
+font_bold = "monospace:style=Bold:size=10"
+active_fg = "#ffffff"
+active_bg = "#3b4252"
+inactive_fg = "#aaaaaa"
+inactive_bg = "#222222"
+urgent_fg = "#ffffff"
+urgent_bg = "#bf616a"
+active_bold = true
+inactive_bold = false
+urgent_bold = true
+
+[appearance.snap_preview]
+color = "#89b4fa"
+width = 2
+
+[snap]
+enabled = true
+edge_zone = 16
+side_ratio = 0.5
+corner_width_ratio = 0.5
+corner_height_ratio = 0.5
+preview = true
+
+[bindings]
+inherit_defaults = true
+
+[bindings.keys]
+"Super+m" = "mode monocle toggle"
+"Super+j" = "focus next-tab"
+"Super+k" = "focus prev-tab"
+"Alt+Tab" = "focus next-mru"
+"Super+Left" = "snap left"
+"Super+Right" = "snap right"
+"Super+Up" = "maximize toggle"
+"Super+f" = "fullscreen toggle"
+"Super+Ctrl+Left" = "monitor prev"
+"Super+Ctrl+Right" = "monitor next"
+
+[bindings.mouse]
+"Super+Button1" = "mouse move-window"
+"Super+Button3" = "mouse resize-window"
+
+[bindings.tabbar]
+"Button1" = "tab focus"
+"Button2" = "tab close"
+"Button3" = "none"
+"WheelUp" = "focus prev-tab"
+"WheelDown" = "focus next-tab"
+
+[[rules]]
+class = "Firefox"
+fullscreen_policy = "fake"
+
+[[rules]]
+class = "mpv"
+fullscreen_policy = "allow"

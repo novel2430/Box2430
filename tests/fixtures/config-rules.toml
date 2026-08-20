@@ -1,0 +1,30 @@
+[workspaces]
+count = 3
+
+[placement]
+normal = "center"
+dialog = "client"
+
+[[rules]]
+class = "Rule*"
+workspace = 2
+focus_on_map = true
+raise_on_map = false
+border = false
+fullscreen_policy = "fake"
+placement = "client"
+
+[[rules]]
+class = "RuleApp"
+instance = "rule-special"
+title = "*Special*"
+workspace = 3
+focus_on_map = false
+raise_on_map = true
+border = true
+fullscreen_policy = "deny"
+placement = "center"
+
+[[rules]]
+class = "AllowApp"
+fullscreen_policy = "allow"

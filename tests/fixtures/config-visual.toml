@@ -1,0 +1,6 @@
+[placement]
+normal = "client"
+dialog = "client"
+
+[bindings]
+inherit_defaults = true

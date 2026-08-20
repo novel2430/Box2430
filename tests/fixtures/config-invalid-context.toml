@@ -1,0 +1,8 @@
+[appearance.border]
+width = 12
+focused = "#112233"
+unfocused = "#445566"
+urgent = "#778899"
+
+[bindings.keys]
+"Super+x" = "mouse move-window"

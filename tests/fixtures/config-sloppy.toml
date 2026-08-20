@@ -1,0 +1,10 @@
+[focus]
+mode = "sloppy"
+raise_on_focus = false
+focus_on_map = false
+raise_on_map = true
+monocle_fallback = "tab"
+
+[placement]
+normal = "client"
+dialog = "client"

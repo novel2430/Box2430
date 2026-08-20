@@ -1,0 +1,8 @@
+[appearance.border]
+width = 2
+
+[bindings]
+inherit_defaults = true
+
+[bindings.keys]
+"Super+r" = "wm restart"

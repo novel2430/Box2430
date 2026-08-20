@@ -14,7 +14,7 @@ Verify with:
 
 ```sh
 pkg-config --exists x11 xinerama xft
-````
+```
 
 ## X11 test environment
 

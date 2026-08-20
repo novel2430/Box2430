@@ -1,0 +1,32 @@
+[workspaces]
+count = 2
+
+[focus]
+mode = "sloppy"
+raise_on_focus = false
+focus_on_map = false
+raise_on_map = false
+monocle_fallback = "mru"
+
+[placement]
+normal = "client"
+
+[fullscreen]
+client_policy = "deny"
+
+[appearance.border]
+width = 7
+focused = "#112233"
+unfocused = "#445566"
+urgent = "#778899"
+
+[snap]
+side_ratio = 0.25
+corner_width_ratio = 0.30
+corner_height_ratio = 0.40
+
+[bindings]
+inherit_defaults = false
+
+[bindings.keys]
+"Super+Left" = "snap left"

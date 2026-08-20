@@ -1,0 +1,15 @@
+[bindings]
+inherit_defaults = true
+
+[bindings.keys]
+"Super+m" = "mode monocle toggle"
+"Super+j" = "focus next-tab"
+"Super+k" = "focus prev-tab"
+"Super+Left" = "snap left"
+"Super+Right" = "snap right"
+"Super+Up" = "maximize toggle"
+"Super+f" = "fullscreen toggle"
+"Super+Ctrl+Left" = "monitor prev"
+"Super+Ctrl+Right" = "monitor next"
+"Super+q" = "none"
+"Super+x" = "window close"

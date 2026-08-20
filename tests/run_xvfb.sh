@@ -1,0 +1,19 @@
+#!/bin/sh
+set -eu
+
+for scenario in \
+    xvfb_bootstrap.sh \
+    xvfb_core_commands.sh \
+    xvfb_config.sh \
+    xvfb_rules.sh \
+    xvfb_special_windows.sh \
+    xvfb_mouse.sh \
+    xvfb_mru.sh \
+    xvfb_tabbar.sh \
+    xvfb_restart.sh \
+    xvfb_focus_urgency.sh \
+    xvfb_focus_history.sh \
+    xvfb_focus_protocol.sh
+do
+    "$(dirname "$0")/$scenario"
+done

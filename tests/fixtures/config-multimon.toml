@@ -1,0 +1,11 @@
+[bindings]
+inherit_defaults = true
+
+[bindings.keys]
+"Super+Ctrl+Left" = "monitor prev"
+"Super+Ctrl+Right" = "monitor next"
+"Super+Shift+Right" = "window move-monitor next"
+"Super+Shift+Left" = "window move-monitor prev --follow"
+"Super+Alt+Right" = "window move-monitor next --follow --keep-workspace"
+"Super+Alt+2" = "window move-workspace 2 --follow"
+"Super+Alt+1" = "window move-workspace 1 --follow"

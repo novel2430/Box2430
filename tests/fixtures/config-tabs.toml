@@ -1,0 +1,28 @@
+[appearance.tabs]
+enabled = true
+height = 31
+padding = 12
+font = "monospace:size=10"
+font_bold = "monospace:style=Bold:size=10"
+active_fg = "#ffffff"
+active_bg = "#315577"
+inactive_fg = "#aaaaaa"
+inactive_bg = "#182028"
+urgent_fg = "#ffffff"
+urgent_bg = "#aa2233"
+active_bold = true
+inactive_bold = false
+urgent_bold = true
+
+[bindings]
+inherit_defaults = true
+
+[bindings.keys]
+"Super+m" = "mode monocle toggle"
+
+[bindings.tabbar]
+"Button1" = "tab focus"
+"Button2" = "tab close"
+"Button3" = "none"
+"WheelUp" = "focus prev-tab"
+"WheelDown" = "focus next-tab"

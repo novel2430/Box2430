@@ -1,0 +1,77 @@
+#!/bin/sh
+set -eu
+
+display=${MICROBOX_TEST_DISPLAY:-:134}
+microbox_bin=${MICROBOX_BIN:-./build/debug/microbox}
+tmp_dir=$(mktemp -d)
+xvfb_pid= wm_pid= one_pid= two_pid=
+
+cleanup() {
+    for pid in "$two_pid" "$one_pid" "$wm_pid" "$xvfb_pid"; do
+        if [ -n "$pid" ]; then kill "$pid" 2>/dev/null || true; fi
+    done
+    rm -rf "$tmp_dir"
+}
+trap cleanup EXIT INT TERM
+fail() { echo "FAIL: $*" >&2; exit 1; }
+wait_for() {
+    attempts=0
+    while ! sh -c "$1"; do
+        attempts=$((attempts + 1))
+        if [ "$attempts" -ge 150 ]; then return 1; fi
+        sleep 0.02
+    done
+}
+wait_active() {
+    wanted=$(printf '0x%x' "$1")
+    wait_for "DISPLAY=$display xprop -root _NET_ACTIVE_WINDOW | grep -qi $wanted"
+}
+
+Xvfb "$display" -screen 0 800x600x24 -nolisten tcp >"$tmp_dir/xvfb.log" 2>&1 &
+xvfb_pid=$!
+wait_for "DISPLAY=$display xdpyinfo >/dev/null 2>&1" || fail "Xvfb did not start"
+DISPLAY=$display "$microbox_bin" -c tests/fixtures/config-tabs.toml >"$tmp_dir/wm.log" 2>&1 &
+wm_pid=$!
+wait_for "DISPLAY=$display xprop -root _NET_SUPPORTED >/dev/null 2>&1" || fail "WM did not start"
+
+DISPLAY=$display xterm -title TabOne >"$tmp_dir/one.log" 2>&1 & one_pid=$!
+wait_for "DISPLAY=$display xdotool search --name TabOne >/dev/null 2>&1" || fail "first client missing"
+one=$(DISPLAY=$display xdotool search --name TabOne | head -n 1)
+DISPLAY=$display xterm -title TabTwo >"$tmp_dir/two.log" 2>&1 & two_pid=$!
+wait_for "DISPLAY=$display xdotool search --name TabTwo >/dev/null 2>&1" || fail "second client missing"
+two=$(DISPLAY=$display xdotool search --name TabTwo | head -n 1)
+
+DISPLAY=$display xdotool key super+m
+wait_for "DISPLAY=$display xdotool search --name microbox-tabbar-0 >/dev/null 2>&1" || fail "tab bar did not map"
+bar=$(DISPLAY=$display xdotool search --name microbox-tabbar-0 | head -n 1)
+[ "$(DISPLAY=$display xwininfo -id "$bar" | awk '/Height:/ {print $2; exit}')" = 31 ] ||
+    fail "configured tab bar height was not applied"
+DISPLAY=$display xprop -root _NET_CLIENT_LIST | grep -qi "$(printf '0x%x' "$bar")" &&
+    fail "WM-owned tab bar leaked into client list"
+
+# Stable tab order is One, Two. Button1 selects the clicked first tab, while
+# WheelDown uses the same cyclic order and returns to Two.
+DISPLAY=$display xdotool mousemove --window "$bar" 10 10 click 1
+wait_active "$one" || fail "left click did not focus clicked tab"
+DISPLAY=$display xdotool mousemove --window "$bar" 10 10 click 5
+wait_active "$two" || fail "wheel down did not follow cyclic tab order"
+
+# Right click is unbound by default/config and must not change focus.
+DISPLAY=$display xdotool mousemove --window "$bar" 10 10 click 3
+wait_active "$two" || fail "right click was not a no-op"
+
+DISPLAY=$display xdotool mousemove --window "$bar" 10 10 click 2
+wait_for "! DISPLAY=$display xwininfo -id $one >/dev/null 2>&1" || fail "middle click did not close tab"
+one_pid=
+
+DISPLAY=$display xdotool key super+m
+wait_for "DISPLAY=$display xwininfo -id $bar | grep -q 'Map State: IsUnMapped'" ||
+    fail "tab bar remained mapped outside MONOCLE"
+
+kill "$two_pid" 2>/dev/null || true; two_pid=
+kill "$wm_pid"; wait "$wm_pid"; wm_pid=
+if grep -q "microbox: X11 error" "$tmp_dir/wm.log"; then
+    sed -n '1,120p' "$tmp_dir/wm.log" >&2
+    fail "unexpected X11 error"
+fi
+echo "PASS: Xvfb MONOCLE Xft tab bar/input scenario"

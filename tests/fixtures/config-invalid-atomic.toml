@@ -1,0 +1,12 @@
+[placement]
+normal = "client"
+
+[appearance.border]
+width = 9
+focused = "#112233"
+unfocused = "#445566"
+urgent = "#778899"
+
+[focus]
+mode = "click"
+focus_on_mpa = false
