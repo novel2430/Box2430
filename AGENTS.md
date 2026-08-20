@@ -1,6 +1,6 @@
-# Microbox — AGENTS.md
+# Box2430 — AGENTS.md
 
-> This file defines how Coding Agents should work inside the Microbox repository.
+> This file defines how Coding Agents should work inside the Box2430 repository.
 >
 > Keep this file operational and short.
 > Product behavior, state semantics, architecture, interaction details, public commands/config, implementation style, and final acceptance are defined elsewhere.
@@ -32,15 +32,15 @@ Before substantial implementation work, read:
 For first-time repository work, the main V1 contracts are:
 
 ```text
-docs/V1/microbox_step1_product_definition.md
-docs/V1/microbox_step2_semantic_state_contract.md
-docs/V1/microbox_step3_technical_architecture_contract.md
-docs/V1/microbox_step4_interaction_contract.md
-docs/V1/microbox_v1_command_vocabulary_and_default_config.md
-docs/V1/microbox_v1_implementation_style_and_economy_contract.md
+docs/V1/box2430_step1_product_definition.md
+docs/V1/box2430_step2_semantic_state_contract.md
+docs/V1/box2430_step3_technical_architecture_contract.md
+docs/V1/box2430_step4_interaction_contract.md
+docs/V1/box2430_v1_command_vocabulary_and_default_config.md
+docs/V1/box2430_v1_implementation_style_and_economy_contract.md
 ```
 
-`microbox_post_v1_future_directions.md` is background only.
+`box2430_post_v1_future_directions.md` is background only.
 
 Do not treat Post-V1 ideas as V1 work.
 
@@ -143,7 +143,7 @@ Prefer working increments over large batches of placeholders.
 
 Do not create the whole architecture as empty modules before the first runnable WM.
 
-Do not wait until the end of V1 to first run Microbox under a real X server.
+Do not wait until the end of V1 to first run Box2430 under a real X server.
 
 ---
 
@@ -276,10 +276,10 @@ Do not re-evaluate or replace it unless explicitly instructed.
 Any additional vendor or linked runtime dependency must satisfy the Vendor Admission Rule in:
 
 ```text
-docs/V1/microbox_v1_implementation_style_and_economy_contract.md
+docs/V1/box2430_v1_implementation_style_and_economy_contract.md
 ```
 
-Do not let vendor-specific types spread into Microbox core state or public internal boundaries.
+Do not let vendor-specific types spread into Box2430 core state or public internal boundaries.
 
 ---
 
@@ -411,6 +411,6 @@ provided it preserves the frozen semantics.
 
 The goal is not to build the cleverest WM.
 
-The goal is to build the frozen Microbox V1:
+The goal is to build the frozen Box2430 V1:
 
 > small, readable, predictable, runnable, and demonstrably correct.

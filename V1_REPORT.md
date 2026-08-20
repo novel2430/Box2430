@@ -1,12 +1,12 @@
-# Microbox V1 Delivery Report
+# Box2430 V1 Delivery Report
 
 Date: 2026-08-20
 
 ## Result
 
-`MICROBOX V1 IMPLEMENTATION COMPLETE`
+`BOX2430 V1 IMPLEMENTATION COMPLETE`
 
-Microbox is a non-reparenting, Xlib-based stacking window manager implementing
+Box2430 is a non-reparenting, Xlib-based stacking window manager implementing
 the frozen V1 product, state, architecture, interaction, command, configuration,
 and implementation-economy contracts. All verification executable in this
 environment passes. Real X.Org and XLibre session checks remain intentional
@@ -20,7 +20,7 @@ user handoffs.
 - `src/command.c`: the argv-like Command Registry and context validation
 - `src/config.c`: safe defaults and strict, whole-config-atomic TOML loading
 - `src/x11.c`: thin ICCCM/EWMH and X11 property boundary
-- `src/microbox.h`: transparent shared core types and internal boundaries
+- `src/box2430.h`: transparent shared core types and internal boundaries
 - `vendor/tomlc17/`: isolated selected TOML vendor
 - `tests/`: X11 fixture clients, Xvfb integration scenarios, Xephyr scenarios,
   fixtures, and repeatable economy measurement
@@ -140,13 +140,13 @@ Measurement environment:
 - clients: zero for idle measurements; 10 xterms for loaded RSS
 - RSS source: `/proc/<pid>/status` `VmRSS`
 - CPU method: process user+system ticks over a two-second idle interval
-- LOC method: physical lines in Microbox-owned `src/*.c` and `src/*.h`
+- LOC method: physical lines in Box2430-owned `src/*.c` and `src/*.h`
 
 Results:
 
 | Metric | Baseline |
 |---|---:|
-| Microbox-owned production LOC | 3,888 lines |
+| Box2430-owned production LOC | 3,888 lines |
 | Clean release-profile build | 1.85 s |
 | One-file compile + relink | 0.17 s |
 | Idle RSS | 10,584 KiB |
@@ -155,7 +155,7 @@ Results:
 | Stripped release binary | 118,800 bytes |
 
 The stripped artifact used for measurement is
-`build/evidence/microbox.stripped`; the normal release binary remains unstripped.
+`build/evidence/box2430.stripped`; the normal release binary remains unstripped.
 
 ## Known Limitations and UNVERIFIED Items
 
@@ -166,7 +166,7 @@ Intentional V1/non-goal limitations:
 
 - Per-monitor local workspaces are not projected as misleading global EWMH
   desktops.
-- Microbox does not configure outputs or persist physical monitor identity.
+- Box2430 does not configure outputs or persist physical monitor identity.
 - It does not include Post-V1 IPC, bars, compositing, minimize, scratchpads,
   session restore, or a general stacking-layer framework.
 - Tab glyph availability follows fonts installed on the target system; the Xft
@@ -183,11 +183,11 @@ that would conflict with the test display. Do not replace a live desktop WM.
 1. Build and stage the release:
 
    ```sh
-   cd /home/novel2430/src/microbox
+   cd /home/novel2430/src/box2430
    make release
-   mkdir -p "$HOME/.local/bin" "$HOME/.config/microbox"
-   install -m 0755 build/release/microbox "$HOME/.local/bin/microbox"
-   install -m 0644 config.example.toml "$HOME/.config/microbox/config.toml"
+   mkdir -p "$HOME/.local/bin" "$HOME/.config/box2430"
+   install -m 0755 build/release/box2430 "$HOME/.local/bin/box2430"
+   install -m 0644 config.example.toml "$HOME/.config/box2430/config.toml"
    ```
 
 2. For a convenient clean exit, add this line under `[bindings.keys]` in the
@@ -201,15 +201,15 @@ that would conflict with the test display. Do not replace a live desktop WM.
    `~/.xinitrc`:
 
    ```sh
-   printf '%s\n' 'xterm &' 'exec "$HOME/.local/bin/microbox" -c "$HOME/.config/microbox/config.toml"' > "$HOME/.xinitrc-microbox"
-   chmod 0700 "$HOME/.xinitrc-microbox"
+   printf '%s\n' 'xterm &' 'exec "$HOME/.local/bin/box2430" -c "$HOME/.config/box2430/config.toml"' > "$HOME/.xinitrc-box2430"
+   chmod 0700 "$HOME/.xinitrc-box2430"
    ```
 
 4. X.Org: from the spare VT, use the distro's normal `startx`/`xinit` command
    with that dedicated startup file and an unused display, for example:
 
    ```sh
-   startx "$HOME/.xinitrc-microbox" -- :1
+   startx "$HOME/.xinitrc-box2430" -- :1
    ```
 
 5. XLibre: select the distro's XLibre server entrypoint with `xinit`, using the
@@ -218,8 +218,8 @@ that would conflict with the test display. Do not replace a live desktop WM.
    list, then run:
 
    ```sh
-   microbox_xlibre_server=/absolute/path/to/the/XLibre-server-binary
-   xinit "$HOME/.xinitrc-microbox" -- "$microbox_xlibre_server" :2
+   box2430_xlibre_server=/absolute/path/to/the/XLibre-server-binary
+   xinit "$HOME/.xinitrc-box2430" -- "$box2430_xlibre_server" :2
    ```
 
 6. On each server verify: initial xterm management and focused border; open a

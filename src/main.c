@@ -1,4 +1,4 @@
-#include "microbox.h"
+#include "box2430.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -40,7 +40,7 @@ int main(int argc, char **argv)
     wm_destroy(&wm);
     if (restart) {
         execvp(argv[0], argv);
-        fprintf(stderr, "microbox: restart exec failed: %s\n", strerror(errno));
+        fprintf(stderr, "box2430: restart exec failed: %s\n", strerror(errno));
         return 1;
     }
     return 0;

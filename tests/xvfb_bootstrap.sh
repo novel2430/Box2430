@@ -1,8 +1,8 @@
 #!/bin/sh
 set -eu
 
-display=${MICROBOX_TEST_DISPLAY:-:124}
-microbox_bin=${MICROBOX_BIN:-./build/debug/microbox}
+display=${BOX2430_TEST_DISPLAY:-:124}
+box2430_bin=${BOX2430_BIN:-./build/debug/box2430}
 tmp_dir=$(mktemp -d)
 xvfb_pid=
 wm_pid=
@@ -45,12 +45,12 @@ client_pid=$!
 wait_for "DISPLAY=$display xdotool search --class XTerm >/dev/null 2>&1" || fail "xterm did not map"
 window=$(DISPLAY=$display xdotool search --class XTerm | head -n 1)
 
-DISPLAY=$display "$microbox_bin" >"$tmp_dir/wm.log" 2>&1 &
+DISPLAY=$display "$box2430_bin" >"$tmp_dir/wm.log" 2>&1 &
 wm_pid=$!
 wait_for "DISPLAY=$display xprop -root _NET_CLIENT_LIST | grep -q 0x" || fail "client was not managed"
 
 # A second WM must fail rather than stealing ownership.
-if DISPLAY=$display "$microbox_bin" >"$tmp_dir/second.log" 2>&1; then
+if DISPLAY=$display "$box2430_bin" >"$tmp_dir/second.log" 2>&1; then
     fail "second WM acquired ownership"
 fi
 grep -q "another window manager owns" "$tmp_dir/second.log" || fail "ownership diagnostic missing"

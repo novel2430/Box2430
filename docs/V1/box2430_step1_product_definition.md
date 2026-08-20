@@ -1,6 +1,6 @@
-# Microbox — 顶层需求与产品定义（V1 Frozen）
+# Box2430 — 顶层需求与产品定义（V1 Frozen）
 
-> 项目正式名为 **Microbox**；程序、配置目录与 companion tool 使用小写 `microbox` 命名。
+> 项目正式名为 **Box2430**；程序、配置目录与 companion tool 使用小写 `box2430` 命名。
 > 本文冻结 V1 顶层产品定位、窗口管理语义与架构约束，不进入具体实现细节。
 > 细节语义以 Step 2 / Step 4 / V1 Command & Config Contract 为准；这些文档不得反向改变本文的产品边界。
 
@@ -8,7 +8,7 @@
 
 ## 1. 项目定位
 
-microbox 是一个面向 X11 的轻量级 stacking window manager。
+box2430 是一个面向 X11 的轻量级 stacking window manager。
 
 核心目标不是重新实现一个完整 Openbox，也不是开发另一个 tiling WM，而是：
 
@@ -21,7 +21,7 @@ microbox 是一个面向 X11 的轻量级 stacking window manager。
 - i3：tabbed 模式的窗口可见性反馈
 - bspwm / river：未来 IPC 与 script-init 配置理念
 
-microbox 应保持：
+box2430 应保持：
 
 - 小
 - 可预测
@@ -33,7 +33,7 @@ microbox 应保持：
 
 # 2. 非目标
 
-microbox **不是桌面环境**。
+box2430 **不是桌面环境**。
 
 不计划承担：
 
@@ -55,7 +55,7 @@ microbox **不是桌面环境**。
 - feh
 - 其他独立工具
 
-同时，microbox 不追求：
+同时，box2430 不追求：
 
 - 完整 tiling layout system
 - BSP / layout tree
@@ -86,7 +86,7 @@ microbox **不是桌面环境**。
 - raise / lower
 - snapping
 
-microbox 不使用 layout tree 管理普通窗口。
+box2430 不使用 layout tree 管理普通窗口。
 
 ---
 
@@ -313,7 +313,7 @@ Dialog / transient 也遵守相同的简单心智模型：
 
 # 9. Window Snapping
 
-Snapping 是 microbox 的核心交互能力之一。
+Snapping 是 box2430 的核心交互能力之一。
 
 V1 snapping target：
 
@@ -385,7 +385,7 @@ move / resize / snap / maximize
 
 `fullscreen` 不属于 geometry edit；它仍可在 MONOCLE 上作为 temporary override 正常进入和退出。
 
-microbox 不因此演化成 tiling WM。
+box2430 不因此演化成 tiling WM。
 
 ---
 
@@ -440,7 +440,7 @@ A:2
 
 # 11. Window Decoration
 
-microbox 默认不实现传统完整 SSD。
+box2430 默认不实现传统完整 SSD。
 
 V1 只提供：
 
@@ -472,7 +472,7 @@ GTK / Qt / Electron 等 client 自己提供的 CSD 保持原样。
 - transparent padding
 - invisible margin
 
-microbox 不进行 visual-geometry 修正。
+box2430 不进行 visual-geometry 修正。
 
 这属于 client 自己的表现问题。
 
@@ -480,7 +480,7 @@ microbox 不进行 visual-geometry 修正。
 
 # 12. Fullscreen Policy
 
-microbox 将：
+box2430 将：
 
 ```text
 client fullscreen request
@@ -582,7 +582,7 @@ Fullscreen 是 window state，不是 workspace mode。
 
 # 13. 特殊窗口与 EWMH
 
-microbox 采用：
+box2430 采用：
 
 > practical EWMH support
 
@@ -699,7 +699,7 @@ focus_on_map = true
 
 不会触发完整重新匹配。
 
-因此 microbox 不做 reactive policy engine。
+因此 box2430 不做 reactive policy engine。
 
 ---
 
@@ -832,7 +832,7 @@ IPC 不是 V1 必须完成的功能。
 但内部结构必须允许未来自然加入：
 
 ```text
-microboxctl
+box2430ctl
     ↓
 Unix Socket
     ↓
@@ -859,15 +859,15 @@ IPC 与 keybinding 使用相同 command vocabulary。
 长期希望支持类似 bspwm / river 的配置方式：
 
 ```sh
-microboxctl set ...
-microboxctl bind ...
-microboxctl rule ...
+box2430ctl set ...
+box2430ctl bind ...
+box2430ctl rule ...
 ```
 
 用户可以使用：
 
 ```text
-~/.config/microbox/init
+~/.config/box2430/init
 ```
 
 或类似 shell script 完成完整配置。
@@ -894,7 +894,7 @@ TOML 仍可以保留。
 
 # 21. V1 核心能力摘要
 
-microbox V1 的产品核心可以压缩为：
+box2430 V1 的产品核心可以压缩为：
 
 ```text
 X11
@@ -935,7 +935,7 @@ Future IPC Ready
 
 # 22. 产品哲学总结
 
-microbox 最重要的设计思想不是“功能少”，而是：
+box2430 最重要的设计思想不是“功能少”，而是：
 
 > **只实现真正影响窗口管理体验的机制，并让这些机制保持简单、可预测、由用户控制。**
 
@@ -960,7 +960,7 @@ policy
 
 同时避免引入这些系统各自不符合需求的复杂部分。
 
-microbox 不试图成为一个“什么都能做”的 WM。
+box2430 不试图成为一个“什么都能做”的 WM。
 
 它首先应该成为一个：
 

@@ -1,9 +1,9 @@
 #!/bin/sh
 set -eu
 
-display=${MICROBOX_TEST_DISPLAY:-:139}
-microbox_bin=${MICROBOX_BIN:-./build/release/microbox}
-client_count=${MICROBOX_CLIENT_COUNT:-10}
+display=${BOX2430_TEST_DISPLAY:-:139}
+box2430_bin=${BOX2430_BIN:-./build/release/box2430}
+client_count=${BOX2430_CLIENT_COUNT:-10}
 tmp_dir=$(mktemp -d)
 xvfb_pid= wm_pid= client_pids=
 
@@ -29,7 +29,7 @@ cpu_ticks() { awk '{print $14 + $15}' "/proc/$1/stat"; }
 Xvfb "$display" -screen 0 800x600x24 -nolisten tcp >"$tmp_dir/xvfb.log" 2>&1 &
 xvfb_pid=$!
 wait_for "DISPLAY=$display xdpyinfo >/dev/null 2>&1" || fail "Xvfb did not start"
-DISPLAY=$display "$microbox_bin" -c tests/fixtures/config-core.toml \
+DISPLAY=$display "$box2430_bin" -c tests/fixtures/config-core.toml \
     >"$tmp_dir/wm.log" 2>&1 &
 wm_pid=$!
 wait_for "DISPLAY=$display xprop -root _NET_SUPPORTED 2>/dev/null | grep -q _NET_ACTIVE_WINDOW" ||

@@ -1,8 +1,8 @@
 #!/bin/sh
 set -eu
 
-display=${MICROBOX_TEST_DISPLAY:-:126}
-microbox_bin=${MICROBOX_BIN:-./build/debug/microbox}
+display=${BOX2430_TEST_DISPLAY:-:126}
+box2430_bin=${BOX2430_BIN:-./build/debug/box2430}
 tmp_dir=$(mktemp -d)
 xvfb_pid=
 wm_pid=
@@ -48,7 +48,7 @@ if ! wait_for "DISPLAY=$display xdpyinfo >/dev/null 2>&1"; then
     fail "Xvfb did not start"
 fi
 
-DISPLAY=$display "$microbox_bin" -c tests/fixtures/config-core.toml >"$tmp_dir/wm.log" 2>&1 &
+DISPLAY=$display "$box2430_bin" -c tests/fixtures/config-core.toml >"$tmp_dir/wm.log" 2>&1 &
 wm_pid=$!
 wait_for "DISPLAY=$display xprop -root _NET_SUPPORTED | grep -q _NET_WM_STATE_FULLSCREEN" || fail "WM did not initialize EWMH"
 
@@ -131,7 +131,7 @@ kill "$wm_pid"
 wait "$wm_pid"
 wm_pid=
 
-if grep -q "microbox: X11 error" "$tmp_dir/wm.log"; then
+if grep -q "box2430: X11 error" "$tmp_dir/wm.log"; then
     sed -n '1,120p' "$tmp_dir/wm.log" >&2
     fail "unexpected X11 error"
 fi

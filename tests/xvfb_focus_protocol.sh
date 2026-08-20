@@ -1,9 +1,9 @@
 #!/bin/sh
 set -eu
 
-display=${MICROBOX_TEST_DISPLAY:-:140}
-microbox_bin=${MICROBOX_BIN:-./build/debug/microbox}
-focus_bin=${MICROBOX_FOCUS_BIN:-./build/debug/x11-focus-client}
+display=${BOX2430_TEST_DISPLAY:-:140}
+box2430_bin=${BOX2430_BIN:-./build/debug/box2430}
+focus_bin=${BOX2430_FOCUS_BIN:-./build/debug/x11-focus-client}
 tmp_dir=$(mktemp -d)
 xvfb_pid= wm_pid= take_pid= none_pid=
 
@@ -27,7 +27,7 @@ wait_for() {
 Xvfb "$display" -screen 0 800x600x24 -nolisten tcp >"$tmp_dir/xvfb.log" 2>&1 &
 xvfb_pid=$!
 wait_for "DISPLAY=$display xdpyinfo >/dev/null 2>&1" || fail "Xvfb did not start"
-DISPLAY=$display "$microbox_bin" >"$tmp_dir/wm.log" 2>&1 & wm_pid=$!
+DISPLAY=$display "$box2430_bin" >"$tmp_dir/wm.log" 2>&1 & wm_pid=$!
 wait_for "DISPLAY=$display xprop -root _NET_SUPPORTED >/dev/null 2>&1" || fail "WM did not start"
 
 DISPLAY=$display "$focus_bin" take TakeFocusClient "$tmp_dir/take.marker" \
@@ -52,7 +52,7 @@ wait_for "DISPLAY=$display xprop -root _NET_ACTIVE_WINDOW | grep -q 0x0" ||
 
 kill "$none_pid" 2>/dev/null || true; none_pid=
 kill "$wm_pid"; wait "$wm_pid"; wm_pid=
-if grep -q "microbox: X11 error" "$tmp_dir/wm.log"; then
+if grep -q "box2430: X11 error" "$tmp_dir/wm.log"; then
     sed -n '1,160p' "$tmp_dir/wm.log" >&2
     fail "unexpected X11 error"
 fi

@@ -1,4 +1,4 @@
-#include "microbox.h"
+#include "box2430.h"
 
 #include <X11/Xatom.h>
 #include <X11/extensions/Xinerama.h>
@@ -38,7 +38,7 @@ static unsigned long named_color(WM *wm, const char *name, unsigned long fallbac
     return fallback;
 }
 
-static bool query_monitor_rects(WM *wm, Rect rects[MICROBOX_MAX_MONITORS],
+static bool query_monitor_rects(WM *wm, Rect rects[BOX2430_MAX_MONITORS],
                                 unsigned int *count_return)
 {
     int count = 0;
@@ -49,9 +49,9 @@ static bool query_monitor_rects(WM *wm, Rect rects[MICROBOX_MAX_MONITORS],
     if (count <= 0) {
         count = 1;
     }
-    if (count > MICROBOX_MAX_MONITORS) {
-        fprintf(stderr, "microbox: Xinerama reports more than %d monitors\n",
-                MICROBOX_MAX_MONITORS);
+    if (count > BOX2430_MAX_MONITORS) {
+        fprintf(stderr, "box2430: Xinerama reports more than %d monitors\n",
+                BOX2430_MAX_MONITORS);
         XFree(screens);
         return false;
     }
@@ -88,18 +88,18 @@ static bool init_monitor_state(WM *wm, Monitor *monitor, unsigned int index,
 
 static bool init_monitors(WM *wm)
 {
-    Rect rects[MICROBOX_MAX_MONITORS];
+    Rect rects[BOX2430_MAX_MONITORS];
     unsigned int count;
     if (!query_monitor_rects(wm, rects, &count)) return false;
-    wm->monitors = calloc(MICROBOX_MAX_MONITORS, sizeof(*wm->monitors));
+    wm->monitors = calloc(BOX2430_MAX_MONITORS, sizeof(*wm->monitors));
     if (!wm->monitors) {
-        fprintf(stderr, "microbox: out of memory creating monitor state\n");
+        fprintf(stderr, "box2430: out of memory creating monitor state\n");
         return false;
     }
     wm->monitor_count = count;
     for (unsigned int i = 0; i < count; ++i) {
         if (!init_monitor_state(wm, &wm->monitors[i], i, rects[i])) {
-            fprintf(stderr, "microbox: out of memory creating workspace state\n");
+            fprintf(stderr, "box2430: out of memory creating workspace state\n");
             for (unsigned int j = 0; j < i; ++j) free(wm->monitors[j].workspaces);
             free(wm->monitors);
             wm->monitors = NULL;
@@ -1214,7 +1214,7 @@ static void handle_key_press(WM *wm, XKeyEvent *event)
     for (unsigned int i = 0; i < wm->config.key_binding_count; ++i) {
         KeyBinding *binding = &wm->config.key_bindings[i];
         if (binding->modifiers == state && binding->symbol == symbol) {
-            const char *argv[MICROBOX_MAX_COMMAND_ARGS];
+            const char *argv[BOX2430_MAX_COMMAND_ARGS];
             for (int j = 0; j < binding->argc; ++j) argv[j] = binding->argv[j];
             CommandContext context = {
                 .type = COMMAND_CONTEXT_KEYBOARD,
@@ -1411,7 +1411,7 @@ static void manage_special_window(WM *wm, Window window, WindowType type,
     }
     SpecialWindow *special = calloc(1, sizeof(*special));
     if (!special) {
-        fprintf(stderr, "microbox: out of memory managing special window\n");
+        fprintf(stderr, "box2430: out of memory managing special window\n");
         wm->running = false;
         return;
     }
@@ -1464,7 +1464,7 @@ static void manage_window(WM *wm, Window window, bool map_window)
 
     Client *client = calloc(1, sizeof(*client));
     if (!client) {
-        fprintf(stderr, "microbox: out of memory managing window 0x%lx\n", window);
+        fprintf(stderr, "box2430: out of memory managing window 0x%lx\n", window);
         wm->running = false;
         return;
     }
@@ -1474,7 +1474,7 @@ static void manage_window(WM *wm, Window window, bool map_window)
     client->window_type = type;
     XGetTransientForHint(wm->display, window, &client->transient_for);
     if (!client->title || !client->instance || !client->class_name) {
-        fprintf(stderr, "microbox: out of memory reading window metadata\n");
+        fprintf(stderr, "box2430: out of memory reading window metadata\n");
         free(client->title);
         free(client->instance);
         free(client->class_name);
@@ -1561,7 +1561,7 @@ static bool rect_equal(Rect left, Rect right)
 
 static void reconcile_monitors(WM *wm)
 {
-    Rect rects[MICROBOX_MAX_MONITORS];
+    Rect rects[BOX2430_MAX_MONITORS];
     unsigned int new_count;
     if (!query_monitor_rects(wm, rects, &new_count)) return;
     bool changed = new_count != wm->monitor_count;
@@ -1586,7 +1586,7 @@ static void reconcile_monitors(WM *wm)
     for (unsigned int i = old_count; i < new_count; ++i) {
         if (!init_monitor_state(wm, &wm->monitors[i], i, rects[i]) ||
             (wm->tab_resources_ready && !create_tab_bar(wm, &wm->monitors[i]))) {
-            fprintf(stderr, "microbox: cannot create state for added monitor\n");
+            fprintf(stderr, "box2430: cannot create state for added monitor\n");
             wm->running = false;
             return;
         }
@@ -1725,7 +1725,7 @@ static void handle_event(WM *wm, XEvent *event)
                 }
             }
             if (matched) {
-                const char *argv[MICROBOX_MAX_COMMAND_ARGS];
+                const char *argv[BOX2430_MAX_COMMAND_ARGS];
                 for (int i = 0; i < matched->argc; ++i) argv[i] = matched->argv[i];
                 CommandContext context = {
                     .type = COMMAND_CONTEXT_TABBAR,
@@ -1752,7 +1752,7 @@ static void handle_event(WM *wm, XEvent *event)
             }
             focus_client(wm, client, event->xbutton.time);
             if (matched) {
-                const char *argv[MICROBOX_MAX_COMMAND_ARGS];
+                const char *argv[BOX2430_MAX_COMMAND_ARGS];
                 for (int i = 0; i < matched->argc; ++i) argv[i] = matched->argv[i];
                 CommandContext context = {
                     .type = COMMAND_CONTEXT_MOUSE,
@@ -1880,7 +1880,7 @@ static bool create_tab_bar(WM *wm, Monitor *monitor)
         DefaultDepth(wm->display, wm->screen), InputOutput, visual,
         CWOverrideRedirect | CWBackPixel | CWEventMask, &attributes);
     char name[64];
-    snprintf(name, sizeof(name), "microbox-tabbar-%u", monitor->index);
+    snprintf(name, sizeof(name), "box2430-tabbar-%u", monitor->index);
     XStoreName(wm->display, monitor->tab_bar, name);
     monitor->tab_draw = XftDrawCreate(
         wm->display, monitor->tab_bar, visual,
@@ -1909,7 +1909,7 @@ static unsigned int load_tab_fonts(WM *wm, const char *name, bool bold,
     };
     const char *const *fallbacks = bold ? heavy : regular;
     for (size_t i = 0; i < sizeof(regular) / sizeof(regular[0]) &&
-                       count < MICROBOX_MAX_TAB_FONTS; ++i) {
+                       count < BOX2430_MAX_TAB_FONTS; ++i) {
         XftFont *font = XftFontOpenName(wm->display, wm->screen, fallbacks[i]);
         if (font) fonts[count++] = font;
     }
@@ -1925,7 +1925,7 @@ static bool init_tab_resources(WM *wm)
     wm->tab_font_bold_count = load_tab_fonts(wm, wm->config.tab_font_bold, true,
                                              wm->tab_fonts_bold);
     if (!wm->tab_font_count || !wm->tab_font_bold_count) {
-        fprintf(stderr, "microbox: cannot open configured tab bar fonts\n");
+        fprintf(stderr, "box2430: cannot open configured tab bar fonts\n");
         return false;
     }
     XftColor *colors[] = {
@@ -1940,7 +1940,7 @@ static bool init_tab_resources(WM *wm)
     };
     for (size_t i = 0; i < sizeof(colors) / sizeof(colors[0]); ++i) {
         if (!XftColorAllocName(wm->display, visual, colormap, names[i], colors[i])) {
-            fprintf(stderr, "microbox: cannot allocate tab bar color %s\n", names[i]);
+            fprintf(stderr, "box2430: cannot allocate tab bar color %s\n", names[i]);
             for (size_t j = 0; j < i; ++j)
                 XftColorFree(wm->display, visual, colormap, colors[j]);
             return false;
@@ -1949,7 +1949,7 @@ static bool init_tab_resources(WM *wm)
     for (unsigned int i = 0; i < wm->monitor_count; ++i) {
         Monitor *monitor = &wm->monitors[i];
         if (!create_tab_bar(wm, monitor)) {
-            fprintf(stderr, "microbox: cannot create tab bar drawing context\n");
+            fprintf(stderr, "box2430: cannot create tab bar drawing context\n");
             return false;
         }
     }
@@ -1963,7 +1963,7 @@ bool wm_init(WM *wm, const char *display_name, const char *config_path)
     config_load(&wm->config, config_path);
     wm->display = XOpenDisplay(display_name);
     if (!wm->display) {
-        fprintf(stderr, "microbox: cannot open display %s\n",
+        fprintf(stderr, "box2430: cannot open display %s\n",
                 display_name ? display_name : "(default)");
         return false;
     }
@@ -2015,7 +2015,7 @@ void wm_run(WM *wm)
         if (!wm->running || stop_requested) break;
         int result = poll(&descriptor, 1, -1);
         if (result < 0 && errno != EINTR) {
-            fprintf(stderr, "microbox: poll: %s\n", strerror(errno));
+            fprintf(stderr, "box2430: poll: %s\n", strerror(errno));
             break;
         }
     }

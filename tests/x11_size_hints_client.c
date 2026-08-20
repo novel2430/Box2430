@@ -15,7 +15,7 @@ int main(void)
     const char *title = "SizeHintsClient";
     XStoreName(display, window, title);
     XClassHint class_hint = {.res_name = (char *)title,
-                             .res_class = "MicroboxFixture"};
+                             .res_class = "Box2430Fixture"};
     XSetClassHint(display, window, &class_hint);
     XSizeHints hints = {0};
     hints.flags = PMinSize | PMaxSize | PBaseSize | PResizeInc | PAspect;

@@ -1,4 +1,4 @@
-# Microbox — Step 3 Technical Architecture Contract
+# Box2430 — Step 3 Technical Architecture Contract
 
 **Document Version: V2**
 
@@ -7,7 +7,7 @@
 >
 > **V1 alignment revision:** 对齐最终 V1 stacking contract：不提供 public `always_on_top` / general layer API，仅冻结 Desktop → Normal → TabBar/Dock → Fullscreen → WM overlay 的最小 precedence。
 
-> 本文冻结 microbox 的技术架构。
+> 本文冻结 box2430 的技术架构。
 > Step 1 定义产品方向，Step 2 定义状态语义；Step 3 负责约束“这些语义应建立在怎样的技术骨架上”。
 > 本文不规定最终源码目录、struct 名称或 helper function，只锁定不能被 Agent 随意改写的技术路线。
 
@@ -15,7 +15,7 @@
 
 ## 1. Step 3 目标
 
-Step 3 需要保证 microbox：
+Step 3 需要保证 box2430：
 
 - 保持 Small-C 风格
 - 编译简单、依赖少
@@ -32,7 +32,7 @@ Step 3 需要保证 microbox：
 
 # 2. 实现语言：C
 
-microbox 使用 **C**。
+box2430 使用 **C**。
 
 选择 C 的核心原因是项目本质非常适合：
 
@@ -133,7 +133,7 @@ libXft
 
 # 4. X.Org / XLibre Compatibility
 
-microbox 必须基于标准 X11 client APIs / protocols。
+box2430 必须基于标准 X11 client APIs / protocols。
 
 正式目标：
 
@@ -150,7 +150,7 @@ XLibre
 - Xorg-specific implementation details
 - 不必要的非标准 server hack
 
-对 microbox 来说，X.Org 与 XLibre 都只是标准 X11 server implementation。
+对 box2430 来说，X.Org 与 XLibre 都只是标准 X11 server implementation。
 
 ---
 
@@ -166,7 +166,7 @@ V1 使用 **Xlib only** 作为主要 X11 client API。
 - 传统 WM 参考实现丰富
 - ICCCM helper API 实用
 - 符合 Small-C
-- microbox 的负载规模无法体现 XCB async 模型的明显收益
+- box2430 的负载规模无法体现 XCB async 模型的明显收益
 
 ## 5.1 同步 Round-Trip 纪律
 
@@ -174,7 +174,7 @@ Xlib 最大的问题不是所有操作都同步，而是部分 getter 会隐式�
 
 因此：
 
-> microbox 内部 state 是主要 truth source。
+> box2430 内部 state 是主要 truth source。
 
 已知的信息，例如：
 
@@ -207,7 +207,7 @@ V1 不使用 XCB。
 
 # 6. Strict Non-Reparenting
 
-microbox 是 **strict non-reparenting WM**。
+box2430 是 **strict non-reparenting WM**。
 
 普通 managed client 直接位于 root 下：
 
@@ -228,7 +228,7 @@ WM Frame
 
 这种传统 SSD hierarchy。
 
-原因是 microbox 已经明确：
+原因是 box2430 已经明确：
 
 ```text
 border-only
@@ -250,7 +250,7 @@ MONOCLE Tab Bar 是独立 WM-owned X window：
 
 ```text
 Root
-├── microbox TabBar
+├── box2430 TabBar
 ├── Firefox
 ├── Emacs
 └── kitty
@@ -286,9 +286,9 @@ Snap preview / necessary WM overlay
 
 # 7. Monitor：Xinerama-First
 
-microbox 使用 **Xinerama-first / dwm-like monitor model**。
+box2430 使用 **Xinerama-first / dwm-like monitor model**。
 
-microbox 眼中的 Monitor 是：
+box2430 眼中的 Monitor 是：
 
 ```text
 一个 Xinerama rectangular screen region
@@ -312,7 +312,7 @@ workspaces
 active_workspace
 ```
 
-## 7.1 microbox 不是 Display Configuration Daemon
+## 7.1 box2430 不是 Display Configuration Daemon
 
 不负责：
 
@@ -348,13 +348,13 @@ autorandr
 如果物理显示器断开，但 X11 逻辑 topology 没变化：
 
 ```text
-microbox 不主动处理
+box2430 不主动处理
 ```
 
 如果外部工具真正改变 Xinerama topology：
 
 ```text
-microbox 按新 topology reconcile monitors
+box2430 按新 topology reconcile monitors
 ```
 
 monitor 数减少时允许采用 dwm-like 的简单 client migration / cleanup。
@@ -365,7 +365,7 @@ monitor 数减少时允许采用 dwm-like 的简单 client migration / cleanup�
 
 # 8. Event Loop：单线程 FD-Driven
 
-microbox 使用：
+box2430 使用：
 
 ```text
 single process
@@ -455,11 +455,11 @@ single-threaded fd-driven architecture
 
 # 9. Practical ICCCM / EWMH
 
-microbox 不追求完整实现所有 ICCCM / EWMH。
+box2430 不追求完整实现所有 ICCCM / EWMH。
 
 原则：
 
-> 常用应用真正依赖的部分认真支持；无法自然表达 microbox workspace model 的部分，不为了“看起来兼容”而扭曲内部语义。
+> 常用应用真正依赖的部分认真支持；无法自然表达 box2430 workspace model 的部分，不为了“看起来兼容”而扭曲内部语义。
 
 ## 9.1 ICCCM Practical Subset
 
@@ -491,7 +491,7 @@ WM_TRANSIENT_FOR
 
 ## 9.2 ICCCM Urgency Mapping
 
-`WM_HINTS` 不只是被动读取兼容字段；V1 必须将其中的 urgency hint 映射到 microbox core state：
+`WM_HINTS` 不只是被动读取兼容字段；V1 必须将其中的 urgency hint 映射到 box2430 core state：
 
 ```text
 WM_HINTS urgency
@@ -580,7 +580,7 @@ _NET_CURRENT_DESKTOP
 _NET_WM_DESKTOP
 ```
 
-而 microbox 是：
+而 box2430 是：
 
 ```text
 Monitor A → WS2
@@ -593,16 +593,16 @@ Monitor B → WS4
 
 > **per-monitor workspace semantic 优先于传统 EWMH desktop compatibility。**
 
-无法忠实表达 microbox 状态的 desktop properties：
+无法忠实表达 box2430 状态的 desktop properties：
 
 - 可以不支持
 - 或只做明确的最低限度 projection
-- 不能成为 microbox 内部 truth source
+- 不能成为 box2430 内部 truth source
 
 未来真正 authoritative 的 workspace introspection 由：
 
 ```text
-microboxctl / IPC
+box2430ctl / IPC
 ```
 
 提供。
@@ -652,7 +652,7 @@ Tab Bar 只是窗口导航 UI，不是排版系统。
 
 # 12. Command Architecture：argv-like Registry
 
-microbox 的 command system 采用：
+box2430 的 command system 采用：
 
 > **bspwm / river-classic style argv-like command registry**
 
@@ -759,7 +759,7 @@ IPC 不要求在 Step 3 / V1 立即完成，但必须能自然接入同一 comma
 推荐方向参考 bspwm：
 
 ```text
-microboxctl argv
+box2430ctl argv
         ↓
 Unix socket
         ↓
@@ -771,7 +771,7 @@ same command registry
 例如：
 
 ```sh
-microboxctl spawn sh -c 'echo hello world'
+box2430ctl spawn sh -c 'echo hello world'
 ```
 
 shell 已经给出正确 argv：
@@ -809,10 +809,10 @@ monitor
 例如：
 
 ```sh
-microboxctl query monitors
-microboxctl query windows
-microboxctl subscribe focus
-microboxctl subscribe workspace
+box2430ctl query monitors
+box2430ctl query windows
+box2430ctl subscribe focus
+box2430ctl subscribe workspace
 ```
 
 输入协议与输出格式不必相同。
@@ -829,14 +829,14 @@ JSON
 长期 script-init：
 
 ```sh
-~/.config/microbox/init
+~/.config/box2430/init
 ```
 
 本质上只是：
 
 ```text
 shell
-→ microboxctl
+→ box2430ctl
 → IPC
 → same command registry
 ```
@@ -879,19 +879,19 @@ V1 使用 Xlib，不主动引入 XCB。
 Monitor 是 Xinerama rectangle，不是复杂的物理 output identity。
 
 ## A8 — Not a Display Daemon
-microbox 不负责配置显示输出。
+box2430 不负责配置显示输出。
 
 ## A9 — Single-Threaded FD Loop
 X11 与 future IPC 由同一线程处理；V1 使用 `poll()`。
 
 ## A10 — State over Re-query
-已知事实优先从 microbox state 读取，避免无意义 Xlib synchronous round-trip。
+已知事实优先从 box2430 state 读取，避免无意义 Xlib synchronous round-trip。
 
 ## A11 — Practical ICCCM/EWMH
 只做产品真实需要的协议 subset。
 
 ## A12 — Workspace Semantics Win
-传统 EWMH desktop model 与 per-monitor workspace 冲突时，microbox 语义优先。
+传统 EWMH desktop model 与 per-monitor workspace 冲突时，box2430 语义优先。
 
 ## A13 — Xft-only Simple UI
 Tab Bar 用 Xft，不引入 Pango/Cairo/GTK/Qt stack。
@@ -929,7 +929,7 @@ TOML、future IPC、future script-init 共享同一 command vocabulary / handler
 # 18. 冻结后的技术骨架
 
 ```text
-microbox
+box2430
 
 C / Small-C
 │

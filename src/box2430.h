@@ -1,5 +1,5 @@
-#ifndef MICROBOX_H
-#define MICROBOX_H
+#ifndef BOX2430_H
+#define BOX2430_H
 
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
@@ -7,31 +7,31 @@
 #include <stdbool.h>
 
 enum {
-    MICROBOX_MAX_KEY_BINDINGS = 96,
-    MICROBOX_MAX_COMMAND_ARGS = 16,
-    MICROBOX_MAX_COMMAND_ARG_LENGTH = 128,
-    MICROBOX_MAX_RULES = 64,
-    MICROBOX_MAX_RULE_PATTERN = 256,
-    MICROBOX_MAX_MONITORS = 32,
-    MICROBOX_MAX_TAB_FONTS = 16,
+    BOX2430_MAX_KEY_BINDINGS = 96,
+    BOX2430_MAX_COMMAND_ARGS = 16,
+    BOX2430_MAX_COMMAND_ARG_LENGTH = 128,
+    BOX2430_MAX_RULES = 64,
+    BOX2430_MAX_RULE_PATTERN = 256,
+    BOX2430_MAX_MONITORS = 32,
+    BOX2430_MAX_TAB_FONTS = 16,
 };
 
 typedef struct KeyBinding {
     unsigned int modifiers;
     KeySym symbol;
     int argc;
-    char argv[MICROBOX_MAX_COMMAND_ARGS][MICROBOX_MAX_COMMAND_ARG_LENGTH];
+    char argv[BOX2430_MAX_COMMAND_ARGS][BOX2430_MAX_COMMAND_ARG_LENGTH];
 } KeyBinding;
 
 typedef struct MouseBinding {
     unsigned int modifiers;
     unsigned int button;
     int argc;
-    char argv[MICROBOX_MAX_COMMAND_ARGS][MICROBOX_MAX_COMMAND_ARG_LENGTH];
+    char argv[BOX2430_MAX_COMMAND_ARGS][BOX2430_MAX_COMMAND_ARG_LENGTH];
 } MouseBinding;
 
 enum {
-    MICROBOX_DEFAULT_WORKSPACE_COUNT = 9,
+    BOX2430_DEFAULT_WORKSPACE_COUNT = 9,
 };
 
 typedef enum FocusMode { FOCUS_CLICK, FOCUS_SLOPPY } FocusMode;
@@ -55,9 +55,9 @@ typedef struct Rule {
     bool has_instance;
     bool has_title;
     bool has_window_type;
-    char class_pattern[MICROBOX_MAX_RULE_PATTERN];
-    char instance_pattern[MICROBOX_MAX_RULE_PATTERN];
-    char title_pattern[MICROBOX_MAX_RULE_PATTERN];
+    char class_pattern[BOX2430_MAX_RULE_PATTERN];
+    char instance_pattern[BOX2430_MAX_RULE_PATTERN];
+    char title_pattern[BOX2430_MAX_RULE_PATTERN];
     WindowType window_type;
     bool has_workspace;
     bool has_monitor;
@@ -113,13 +113,13 @@ typedef struct Config {
     bool tab_urgent_bold;
     bool inherit_default_bindings;
     unsigned int key_binding_count;
-    KeyBinding key_bindings[MICROBOX_MAX_KEY_BINDINGS];
+    KeyBinding key_bindings[BOX2430_MAX_KEY_BINDINGS];
     unsigned int mouse_binding_count;
     MouseBinding mouse_bindings[16];
     unsigned int tab_binding_count;
     MouseBinding tab_bindings[16];
     unsigned int rule_count;
-    Rule rules[MICROBOX_MAX_RULES];
+    Rule rules[BOX2430_MAX_RULES];
 } Config;
 
 typedef struct Rect {
@@ -278,9 +278,9 @@ typedef struct WM {
     } drag;
     MruCycle mru_cycle;
     unsigned long snap_preview_color;
-    XftFont *tab_fonts[MICROBOX_MAX_TAB_FONTS];
+    XftFont *tab_fonts[BOX2430_MAX_TAB_FONTS];
     unsigned int tab_font_count;
-    XftFont *tab_fonts_bold[MICROBOX_MAX_TAB_FONTS];
+    XftFont *tab_fonts_bold[BOX2430_MAX_TAB_FONTS];
     unsigned int tab_font_bold_count;
     XftColor tab_active_fg;
     XftColor tab_active_bg;

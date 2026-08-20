@@ -1,12 +1,12 @@
-# Microbox — V1 Command Vocabulary and Default Config
+# Box2430 — V1 Command Vocabulary and Default Config
 
 **Document Version: V2**
 
-> 本文冻结 microbox V1 的公共命令词汇表（Command Vocabulary）与默认配置表面（Default Config Surface）。
+> 本文冻结 box2430 V1 的公共命令词汇表（Command Vocabulary）与默认配置表面（Default Config Surface）。
 >
 > 它不属于某一个单独的 Step，而是一份横跨 Product / State / Architecture / Interaction 的公共接口契约。
 >
-> TOML keybinding、未来 `microboxctl`、未来 IPC，以及其他可能的 command source，都必须复用同一套命令语义。
+> TOML keybinding、未来 `box2430ctl`、未来 IPC，以及其他可能的 command source，都必须复用同一套命令语义。
 >
 > 本文只列入 V1 真正计划实现且会实际生效的 command 与 config。禁止为了未来扩展先加入 dummy command / dummy config。
 >
@@ -16,7 +16,7 @@
 
 # 1. 核心原则
 
-microbox 的 command surface 是稳定公共接口。
+box2430 的 command surface 是稳定公共接口。
 
 例如：
 
@@ -27,7 +27,7 @@ microbox 的 command surface 是稳定公共接口。
 未来 IPC 出现后，应继续使用同一语义：
 
 ```bash
-microboxctl mode monocle toggle
+box2430ctl mode monocle toggle
 ```
 
 不能出现：
@@ -119,7 +119,7 @@ wm restart
 
 ## 4.1 `wm quit`
 
-退出 microbox。
+退出 box2430。
 
 ```text
 wm quit
@@ -131,7 +131,7 @@ wm quit
 
 ## 4.2 `wm restart`
 
-重新启动 microbox。
+重新启动 box2430。
 
 ```text
 wm restart
@@ -139,7 +139,7 @@ wm restart
 
 V1 的具体 restart implementation 可由实现决定，但用户语义必须是：
 
-> 重新加载 microbox process 与 startup config，而不是单纯重新绘制。
+> 重新加载 box2430 process 与 startup config，而不是单纯重新绘制。
 
 ---
 
@@ -1064,7 +1064,7 @@ keypress 时直接调用 resolved command。
 未来：
 
 ```bash
-microboxctl workspace 3
+box2430ctl workspace 3
 ```
 
 则：
@@ -1323,13 +1323,13 @@ MONOCLE 下 move / resize / snap / maximize 不改变 FREE geometry；fullscreen
 本文前半部分冻结：
 
 ```text
-microbox V1 Command Vocabulary
+box2430 V1 Command Vocabulary
 ```
 
 后半部分继续冻结：
 
 ```text
-microbox V1 Default Config Surface
+box2430 V1 Default Config Surface
 ```
 
 两者独立于 Step 1–4 编号体系，但共同属于 V1 public interface contract。
@@ -1339,7 +1339,7 @@ microbox V1 Default Config Surface
 
 # 25. Default Config Contract
 
-本节冻结 microbox V1 的默认配置表面。
+本节冻结 box2430 V1 的默认配置表面。
 
 核心原则：
 
@@ -1382,7 +1382,7 @@ enabled = true
 默认配置路径：
 
 ```text
-$XDG_CONFIG_HOME/microbox/config.toml
+$XDG_CONFIG_HOME/box2430/config.toml
 ```
 
 若：
@@ -1394,13 +1394,13 @@ XDG_CONFIG_HOME
 未设置，则：
 
 ```text
-~/.config/microbox/config.toml
+~/.config/box2430/config.toml
 ```
 
 V1 还应支持显式指定：
 
 ```bash
-microbox -c ./test.toml
+box2430 -c ./test.toml
 ```
 
 方便：
@@ -1429,7 +1429,7 @@ config is read once at startup
 修改配置后：
 
 ```text
-restart microbox
+restart box2430
 ```
 
 即可。
@@ -1497,7 +1497,7 @@ parse entire file
 所有字段必须是真实 effect，不得 dummy。
 
 ```toml
-# ~/.config/microbox/config.toml
+# ~/.config/box2430/config.toml
 
 
 # ============================================================
@@ -1642,7 +1642,7 @@ preview = true
 [bindings]
 
 # true:
-#   load microbox safe defaults
+#   load box2430 safe defaults
 #   then user config overrides/removes them
 #
 # false:
@@ -2256,7 +2256,7 @@ final destination workspace is hidden
 
 # 37. Default Config Philosophy
 
-microbox 提供：
+box2430 提供：
 
 > **Minimal Safe Defaults + Full Example Config**
 
@@ -2310,7 +2310,7 @@ Command Registry
 未来：
 
 ```bash
-microboxctl mode monocle toggle
+box2430ctl mode monocle toggle
 ```
 
 必须进入同一 handler。
@@ -2402,7 +2402,7 @@ user config 只有整份 parse + validate 成功才 apply；任何错误都整�
 
 # 40. Combined Public Control Surface
 
-microbox V1 的公共控制面由两部分组成：
+box2430 V1 的公共控制面由两部分组成：
 
 ```text
 V1 Command Vocabulary
@@ -2413,17 +2413,17 @@ V1 Default Config Surface
 二者共同构成：
 
 ```text
-microbox public control contract
+box2430 public control contract
 ```
 
 未来新增：
 
 ```text
-microboxctl
+box2430ctl
 Unix IPC
 script-init
 Polybar adapter
-microbox-bar
+box2430-bar
 ```
 
 都必须建立在这套 contract 之上，而不是另外创造一套不一致的控制语言。

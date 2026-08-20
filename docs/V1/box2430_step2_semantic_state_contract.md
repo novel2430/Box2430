@@ -1,8 +1,8 @@
-# Microbox — Step 2 Semantic / State Contract
+# Box2430 — Step 2 Semantic / State Contract
 
 **Document Version: V3**
 
-> 本文定义 microbox 的核心状态模型、状态归属关系与主要状态迁移语义。
+> 本文定义 box2430 的核心状态模型、状态归属关系与主要状态迁移语义。
 > 本阶段不约束具体语言、Xlib/XCB 选择、代码组织方式或底层实现机制。
 > 目标是确保后续实现无论采用何种技术路线，都不会改变用户可感知的窗口管理语义。
 >
@@ -18,7 +18,7 @@
 
 Step 2 负责回答：
 
-> **microbox 在任意事件发生前后，系统状态应该是什么？**
+> **box2430 在任意事件发生前后，系统状态应该是什么？**
 
 本阶段重点锁定：
 
@@ -86,7 +86,7 @@ Client
 → exactly one Workspace
 ```
 
-microbox 不采用 dwm tag 模型。
+box2430 不采用 dwm tag 模型。
 
 不存在：
 
@@ -141,7 +141,7 @@ active_workspace = WS2
 WS2 + WS3 simultaneous view
 ```
 
-这也是 microbox 与 tag/view 系统的重要区别。
+这也是 box2430 与 tag/view 系统的重要区别。
 
 ---
 
@@ -228,7 +228,7 @@ focused_client = None
 
 # 6. Selected Monitor
 
-microbox 将：
+box2430 将：
 
 ```text
 selected_monitor
@@ -460,7 +460,7 @@ focus_on_map = false
 raise_on_map = false
 ```
 
-microbox 不尝试通过复杂 heuristic 判断：
+box2430 不尝试通过复杂 heuristic 判断：
 
 > “这个窗口是不是用户主动 spawn 出来的？”
 
@@ -543,7 +543,7 @@ A | B | D
 
 # 9. 三种 Window Order 独立存在
 
-microbox 明确区分：
+box2430 明确区分：
 
 ```text
 tab_order
@@ -763,7 +763,7 @@ Firefox @ A:WS2
 
 而不是进入 B 当前正在显示的 WS4。
 
-V1 允许与 `--follow` 组合；公开 spelling 以 `microbox_v1_command_vocabulary_and_default_config.md` 为准。
+V1 允许与 `--follow` 组合；公开 spelling 以 `box2430_v1_command_vocabulary_and_default_config.md` 为准。
 
 ---
 
@@ -1114,7 +1114,7 @@ V1 不存在 public `always_on_top` state/action。
 
 # 18. “移动”行为统一原则
 
-整个 microbox 采用：
+整个 box2430 采用：
 
 > **对象操作默认只修改对象，不偷偷修改用户当前视角。**
 
@@ -1285,7 +1285,7 @@ WorkspaceViewState
 未来：
 
 ```text
-microbox-bar
+box2430-bar
 Polybar adapter
 IPC query / subscribe
 ```

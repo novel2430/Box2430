@@ -1,8 +1,8 @@
-# Microbox — Step 4 Interaction Contract
+# Box2430 — Step 4 Interaction Contract
 
 **Document Version: V2**
 
-> 本文冻结 microbox 的用户交互语义。
+> 本文冻结 box2430 的用户交互语义。
 > Step 1 定义产品方向，Step 2 定义状态语义，Step 3 定义技术架构；Step 4 负责定义用户实际如何操作窗口、monitor、workspace、MONOCLE 与 snapping。
 >
 > 本文锁定的是“动作的含义”，不是最终不可更改的快捷键布局。所有默认键位与鼠标绑定都必须可以被用户覆盖或取消。
@@ -13,7 +13,7 @@
 
 Step 4 负责回答：
 
-> **用户每天实际怎么操作 microbox？**
+> **用户每天实际怎么操作 box2430？**
 
 本阶段冻结：
 
@@ -53,7 +53,7 @@ V1 不提供独立 `focus-follows-mouse`。
 
 # 2. Mouse Move / Resize：显式 dwm 风格
 
-microbox 使用明确的 modifier-driven mouse operations。
+box2430 使用明确的 modifier-driven mouse operations。
 
 默认语义：
 
@@ -167,7 +167,7 @@ focused_client = dragged client
 
 # 5. Mouse Snapping
 
-Snapping 是 microbox 的核心 mouse-friendly 能力。
+Snapping 是 box2430 的核心 mouse-friendly 能力。
 
 鼠标 snapping 使用：
 
@@ -332,7 +332,7 @@ V1 不实现 Tab Bar context menu。
 
 # 8. Keyboard Window Navigation
 
-microbox 明确保留两套不同窗口顺序：
+box2430 明确保留两套不同窗口顺序：
 
 ```text
 tab_order
@@ -656,7 +656,7 @@ raise_on_focus
 
 # 14. Maximize
 
-microbox 提供正式：
+box2430 提供正式：
 
 ```text
 maximize
@@ -796,7 +796,7 @@ V1 不提供 `always_on_top`。
 
 # 16. Default Keymap Philosophy
 
-microbox 必须有一套：
+box2430 必须有一套：
 
 > **Minimal Safe Defaults**
 
@@ -1124,7 +1124,7 @@ focused_client == None
 此修订已经同步写回：
 
 ```text
-microbox_step2_semantic_state_contract.md
+box2430_step2_semantic_state_contract.md
 ```
 
 ---

@@ -1,8 +1,8 @@
 #!/bin/sh
 set -eu
 
-display=${MICROBOX_TEST_DISPLAY:-:134}
-microbox_bin=${MICROBOX_BIN:-./build/debug/microbox}
+display=${BOX2430_TEST_DISPLAY:-:134}
+box2430_bin=${BOX2430_BIN:-./build/debug/box2430}
 tmp_dir=$(mktemp -d)
 xvfb_pid= wm_pid= one_pid= two_pid=
 
@@ -30,7 +30,7 @@ wait_active() {
 Xvfb "$display" -screen 0 800x600x24 -nolisten tcp >"$tmp_dir/xvfb.log" 2>&1 &
 xvfb_pid=$!
 wait_for "DISPLAY=$display xdpyinfo >/dev/null 2>&1" || fail "Xvfb did not start"
-DISPLAY=$display "$microbox_bin" -c tests/fixtures/config-tabs.toml >"$tmp_dir/wm.log" 2>&1 &
+DISPLAY=$display "$box2430_bin" -c tests/fixtures/config-tabs.toml >"$tmp_dir/wm.log" 2>&1 &
 wm_pid=$!
 wait_for "DISPLAY=$display xprop -root _NET_SUPPORTED >/dev/null 2>&1" || fail "WM did not start"
 
@@ -42,8 +42,8 @@ wait_for "DISPLAY=$display xdotool search --name TabTwo >/dev/null 2>&1" || fail
 two=$(DISPLAY=$display xdotool search --name TabTwo | head -n 1)
 
 DISPLAY=$display xdotool key super+m
-wait_for "DISPLAY=$display xdotool search --name microbox-tabbar-0 >/dev/null 2>&1" || fail "tab bar did not map"
-bar=$(DISPLAY=$display xdotool search --name microbox-tabbar-0 | head -n 1)
+wait_for "DISPLAY=$display xdotool search --name box2430-tabbar-0 >/dev/null 2>&1" || fail "tab bar did not map"
+bar=$(DISPLAY=$display xdotool search --name box2430-tabbar-0 | head -n 1)
 [ "$(DISPLAY=$display xwininfo -id "$bar" | awk '/Height:/ {print $2; exit}')" = 31 ] ||
     fail "configured tab bar height was not applied"
 DISPLAY=$display xprop -root _NET_CLIENT_LIST | grep -qi "$(printf '0x%x' "$bar")" &&
@@ -70,7 +70,7 @@ wait_for "DISPLAY=$display xwininfo -id $bar | grep -q 'Map State: IsUnMapped'" 
 
 kill "$two_pid" 2>/dev/null || true; two_pid=
 kill "$wm_pid"; wait "$wm_pid"; wm_pid=
-if grep -q "microbox: X11 error" "$tmp_dir/wm.log"; then
+if grep -q "box2430: X11 error" "$tmp_dir/wm.log"; then
     sed -n '1,120p' "$tmp_dir/wm.log" >&2
     fail "unexpected X11 error"
 fi

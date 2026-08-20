@@ -12,7 +12,7 @@ DESTDIR ?=
 BINDIR ?= $(PREFIX)/bin
 DATADIR ?= $(PREFIX)/share
 BUILD_DIR = build/$(PROFILE)
-TARGET = $(BUILD_DIR)/microbox
+TARGET = $(BUILD_DIR)/box2430
 SOURCES = src/main.c src/wm.c src/command.c src/config.c src/x11.c vendor/tomlc17/tomlc17.c
 OBJECTS = $(SOURCES:%.c=$(BUILD_DIR)/%.o)
 DEPS = $(OBJECTS:.o=.d)
@@ -45,9 +45,9 @@ clean:
 
 install: release
 	install -d $(DESTDIR)$(BINDIR)
-	install -m 0755 build/release/microbox $(DESTDIR)$(BINDIR)/microbox
-	install -d $(DESTDIR)$(DATADIR)/microbox
-	install -m 0644 config.example.toml $(DESTDIR)$(DATADIR)/microbox/config.example.toml
+	install -m 0755 build/release/box2430 $(DESTDIR)$(BINDIR)/box2430
+	install -d $(DESTDIR)$(DATADIR)/box2430
+	install -m 0644 config.example.toml $(DESTDIR)$(DATADIR)/box2430/config.example.toml
 
 test-tools: $(BUILD_DIR)/x11-test-client $(BUILD_DIR)/x11-set-urgency \
 	$(BUILD_DIR)/x11-focus-client $(BUILD_DIR)/x11-set-numlock-modifier \

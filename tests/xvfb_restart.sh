@@ -1,8 +1,8 @@
 #!/bin/sh
 set -eu
 
-display=${MICROBOX_TEST_DISPLAY:-:135}
-microbox_bin=${MICROBOX_BIN:-./build/debug/microbox}
+display=${BOX2430_TEST_DISPLAY:-:135}
+box2430_bin=${BOX2430_BIN:-./build/debug/box2430}
 tmp_dir=$(mktemp -d)
 xvfb_pid= wm_pid= client_pid=
 
@@ -27,7 +27,7 @@ cp tests/fixtures/config-restart.toml "$tmp_dir/config.toml"
 Xvfb "$display" -screen 0 800x600x24 -nolisten tcp >"$tmp_dir/xvfb.log" 2>&1 &
 xvfb_pid=$!
 wait_for "DISPLAY=$display xdpyinfo >/dev/null 2>&1" || fail "Xvfb did not start"
-DISPLAY=$display "$microbox_bin" -c "$tmp_dir/config.toml" >"$tmp_dir/wm.log" 2>&1 &
+DISPLAY=$display "$box2430_bin" -c "$tmp_dir/config.toml" >"$tmp_dir/wm.log" 2>&1 &
 wm_pid=$!
 wait_for "DISPLAY=$display xprop -root _NET_SUPPORTED >/dev/null 2>&1" || fail "WM did not start"
 DISPLAY=$display xterm -title RestartClient >"$tmp_dir/client.log" 2>&1 & client_pid=$!
@@ -44,7 +44,7 @@ kill -0 "$wm_pid" 2>/dev/null || fail "restart did not preserve a running WM pro
 
 kill "$client_pid" 2>/dev/null || true; client_pid=
 kill "$wm_pid"; wait "$wm_pid"; wm_pid=
-if grep -q "restart exec failed\|microbox: X11 error" "$tmp_dir/wm.log"; then
+if grep -q "restart exec failed\|box2430: X11 error" "$tmp_dir/wm.log"; then
     sed -n '1,160p' "$tmp_dir/wm.log" >&2
     fail "restart logged an error"
 fi

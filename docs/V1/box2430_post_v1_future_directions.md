@@ -1,8 +1,8 @@
-# Microbox — Post-V1 Future Directions
+# Box2430 — Post-V1 Future Directions
 
 **Document Version: V1**
 
-> 本文记录 microbox 在 V1 之后可能继续发展的方向。
+> 本文记录 box2430 在 V1 之后可能继续发展的方向。
 >
 > 它不是 V1 acceptance contract，也不是必须立即实现的功能列表。
 >
@@ -11,13 +11,13 @@
 > - 记录已经讨论并形成明显倾向的后续方向
 > - 防止未来实现时重新从零讨论
 > - 保留扩展空间，同时明确增长边界
-> - 避免 microbox 随时间失去最初的产品人格
+> - 避免 box2430 随时间失去最初的产品人格
 >
 > 总原则：
 >
 > **KISS，但不把极简本身当成目的。**
 >
-> microbox 应保持机制简单、接口清楚、行为可预测，但不追求 suckless 式“为了减少代码或依赖而拒绝合理用户体验”。
+> box2430 应保持机制简单、接口清楚、行为可预测，但不追求 suckless 式“为了减少代码或依赖而拒绝合理用户体验”。
 
 ---
 
@@ -34,7 +34,7 @@ per-monitor-workspace
 X11 window manager
 ```
 
-Post-V1 不应把 microbox 变成：
+Post-V1 不应把 box2430 变成：
 
 ```text
 another desktop environment
@@ -47,7 +47,7 @@ another giant configurable UI toolkit
 
 ```text
 1. 它直接改善 WM core 的窗口管理能力
-2. 它是一个非常薄的 microbox-specific companion client
+2. 它是一个非常薄的 box2430-specific companion client
 ```
 
 如果两者都不是，则默认交给外部生态。
@@ -60,7 +60,7 @@ another giant configurable UI toolkit
 
 > V1 设计成熟后，很自然会出现的能力。
 
-这些方向与当前架构高度兼容，不需要重新定义 microbox 的产品身份。
+这些方向与当前架构高度兼容，不需要重新定义 box2430 的产品身份。
 
 ---
 
@@ -313,11 +313,11 @@ rules
 例如概念上：
 
 ```text
-microboxctl config focus.mode click
-microboxctl config appearance.border.focused "#ff0000"
+box2430ctl config focus.mode click
+box2430ctl config appearance.border.focused "#ff0000"
 
-microboxctl bind Super+Return spawn kitty
-microboxctl unbind Super+q
+box2430ctl bind Super+Return spawn kitty
+box2430ctl unbind Super+q
 ```
 
 Rules 也应可通过 runtime command 管理。
@@ -334,7 +334,7 @@ Rules 也应可通过 runtime command 管理。
 
 init script 的作用是：
 
-> 把刚启动的 microbox 配置成用户想要的 runtime state。
+> 把刚启动的 box2430 配置成用户想要的 runtime state。
 
 最终目标：
 
@@ -361,13 +361,13 @@ IPC
 未来默认支持：
 
 ```text
-$XDG_CONFIG_HOME/microbox/init
+$XDG_CONFIG_HOME/box2430/init
 ```
 
 fallback：
 
 ```text
-~/.config/microbox/init
+~/.config/box2430/init
 ```
 
 该文件只要求：
@@ -389,7 +389,7 @@ executable
 启动顺序：
 
 ```text
-microbox starts
+box2430 starts
 ↓
 X connection / WM ownership ready
 ↓
@@ -397,7 +397,7 @@ internal core state ready
 ↓
 IPC socket ready
 ↓
-execute microbox/init
+execute box2430/init
 ↓
 normal event loop
 ```
@@ -405,7 +405,7 @@ normal event loop
 这样 init 中的：
 
 ```text
-microboxctl ...
+box2430ctl ...
 ```
 
 不存在 socket-not-ready race。
@@ -414,7 +414,7 @@ microboxctl ...
 
 ## 6.2 Not a Session Manager
 
-microbox 只负责：
+box2430 只负责：
 
 ```text
 execute init
@@ -447,7 +447,7 @@ polybar
 未来可以提供官方：
 
 ```text
-microbox-bar
+box2430-bar
 ```
 
 但它不是 WM core 的一部分。
@@ -471,9 +471,9 @@ make install
 即可获得：
 
 ```text
-microbox
-microboxctl
-microbox-bar
+box2430
+box2430ctl
+box2430-bar
 ```
 
 不要求维护两个独立项目。
@@ -485,13 +485,13 @@ microbox-bar
 允许：
 
 ```text
-microbox only
+box2430 only
 
-microbox + microbox-bar
+box2430 + box2430-bar
 
-microbox + polybar
+box2430 + polybar
 
-microbox + another external bar
+box2430 + another external bar
 ```
 
 core 不依赖 bar 是否存在。
@@ -557,7 +557,7 @@ launcher
 外部状态可通过：
 
 ```text
-script → stdin → microbox-bar
+script → stdin → box2430-bar
 ```
 
 提供。
@@ -583,7 +583,7 @@ Post-V1 希望：
 ```text
 bspwm-compatible report / adapter
 generic custom module
-dedicated microbox adapter
+dedicated box2430 adapter
 ```
 
 优先研究：
@@ -598,13 +598,13 @@ bspwm-style monitor/workspace presentation compatibility
 per-monitor desktops/workspaces
 ```
 
-的模型与 microbox 比传统 global EWMH desktop 更接近。
+的模型与 box2430 比传统 global EWMH desktop 更接近。
 
 但不要求为了 Polybar 兼容而实现半套 bspwm core。
 
 原则：
 
-> compatibility layer 可以存在，但不能反过来扭曲 microbox 的内部语义。
+> compatibility layer 可以存在，但不能反过来扭曲 box2430 的内部语义。
 
 ---
 
@@ -699,7 +699,7 @@ special visibility state
 
 原因：
 
-microbox 的 workspace model 已足够承担：
+box2430 的 workspace model 已足够承担：
 
 ```text
 把窗口移出当前视野
@@ -724,7 +724,7 @@ urgent + minimized
 workspace restore 是否自动 unminimize
 ```
 
-这也符合 microbox 不追求传统 desktop WM feature checklist 的原则。
+这也符合 box2430 不追求传统 desktop WM feature checklist 的原则。
 
 ---
 
@@ -788,7 +788,7 @@ Post-V1 希望支持：
 目标：
 
 ```text
-microbox restart
+box2430 restart
 → 用户桌面尽量保持原样
 ```
 
@@ -880,7 +880,7 @@ state changes
 → rule engine continuously reacts
 ```
 
-microbox Rules 是：
+box2430 Rules 是：
 
 ```text
 initial placement/policy
@@ -952,15 +952,15 @@ snap preview
 允许同 repo 提供：
 
 ```text
-microboxctl
-microbox-bar
+box2430ctl
+box2430-bar
 ```
 
-未来如有明确价值，也可增加非常薄的 microbox-specific tool。
+未来如有明确价值，也可增加非常薄的 box2430-specific tool。
 
 判断标准：
 
-> 它是否直接消费或控制 microbox 的 WM state？
+> 它是否直接消费或控制 box2430 的 WM state？
 
 如果答案是 yes，则可能适合进入 repo。
 
@@ -968,7 +968,7 @@ microbox-bar
 
 # 18. Growth Boundary
 
-microbox 的长期边界：
+box2430 的长期边界：
 
 > **可以扩展窗口管理机制和直接 WM clients，但不扩张成桌面环境。**
 
@@ -993,7 +993,7 @@ session manager
 
 # 19. KISS, But Not Extremist
 
-microbox 的 KISS 表示：
+box2430 的 KISS 表示：
 
 ```text
 simple state model
@@ -1044,7 +1044,7 @@ restart persistence
 1. 这是现实使用需求，还是 feature checklist？
 2. 它能否建立在现有 state / command / IPC 上？
 3. 它是否要求引入新的特殊 mutable state？
-4. 它会不会把 microbox 推向 DE / policy engine / framework？
+4. 它会不会把 box2430 推向 DE / policy engine / framework？
 ```
 
 优先接受：
@@ -1084,8 +1084,8 @@ Configuration
 └── TOML eventually removable
 
 Official ecosystem
-├── microboxctl
-├── microbox-bar
+├── box2430ctl
+├── box2430-bar
 └── Polybar compatibility / adapter
 
 Bar

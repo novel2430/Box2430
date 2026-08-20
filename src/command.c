@@ -1,4 +1,4 @@
-#include "microbox.h"
+#include "box2430.h"
 
 #include <errno.h>
 #include <stdlib.h>

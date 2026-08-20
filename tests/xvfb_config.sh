@@ -1,8 +1,8 @@
 #!/bin/sh
 set -eu
 
-display=${MICROBOX_TEST_DISPLAY:-:127}
-microbox_bin=${MICROBOX_BIN:-./build/debug/microbox}
+display=${BOX2430_TEST_DISPLAY:-:127}
+box2430_bin=${BOX2430_BIN:-./build/debug/box2430}
 tmp_dir=$(mktemp -d)
 xvfb_pid=
 wm_pid=
@@ -34,7 +34,7 @@ Xvfb "$display" -screen 0 800x600x24 -nolisten tcp >"$tmp_dir/xvfb.log" 2>&1 &
 xvfb_pid=$!
 wait_for "DISPLAY=$display xdpyinfo >/dev/null 2>&1" || fail "Xvfb did not start"
 
-DISPLAY=$display "$microbox_bin" -c tests/fixtures/config-valid.toml >"$tmp_dir/valid.log" 2>&1 &
+DISPLAY=$display "$box2430_bin" -c tests/fixtures/config-valid.toml >"$tmp_dir/valid.log" 2>&1 &
 wm_pid=$!
 wait_for "DISPLAY=$display xprop -root _NET_SUPPORTED >/dev/null 2>&1" || fail "configured WM did not start"
 DISPLAY=$display xterm -title ConfigValid -geometry 30x8+17+23 >"$tmp_dir/client.log" 2>&1 &
@@ -70,7 +70,7 @@ kill "$wm_pid"
 wait "$wm_pid"
 wm_pid=
 
-DISPLAY=$display "$microbox_bin" -c tests/fixtures/config-invalid-atomic.toml >"$tmp_dir/invalid.log" 2>&1 &
+DISPLAY=$display "$box2430_bin" -c tests/fixtures/config-invalid-atomic.toml >"$tmp_dir/invalid.log" 2>&1 &
 wm_pid=$!
 wait_for "DISPLAY=$display xprop -root _NET_SUPPORTED >/dev/null 2>&1" || fail "fallback WM did not start"
 DISPLAY=$display xterm -title ConfigFallback -geometry 30x8+17+23 >"$tmp_dir/fallback.log" 2>&1 &
@@ -89,7 +89,7 @@ kill "$wm_pid"
 wait "$wm_pid"
 wm_pid=
 
-DISPLAY=$display "$microbox_bin" -c tests/fixtures/config-invalid-command.toml >"$tmp_dir/command.log" 2>&1 &
+DISPLAY=$display "$box2430_bin" -c tests/fixtures/config-invalid-command.toml >"$tmp_dir/command.log" 2>&1 &
 wm_pid=$!
 wait_for "DISPLAY=$display xprop -root _NET_SUPPORTED >/dev/null 2>&1" || fail "command-fallback WM did not start"
 DISPLAY=$display xterm -title CommandFallback -geometry 30x8+17+23 >"$tmp_dir/command-client.log" 2>&1 &
@@ -105,7 +105,7 @@ kill "$wm_pid"
 wait "$wm_pid"
 wm_pid=
 
-DISPLAY=$display "$microbox_bin" -c tests/fixtures/config-invalid-context.toml >"$tmp_dir/context.log" 2>&1 &
+DISPLAY=$display "$box2430_bin" -c tests/fixtures/config-invalid-context.toml >"$tmp_dir/context.log" 2>&1 &
 wm_pid=$!
 wait_for "DISPLAY=$display xprop -root _NET_SUPPORTED >/dev/null 2>&1" || fail "context-fallback WM did not start"
 DISPLAY=$display xterm -title ContextFallback -geometry 30x8+17+23 >"$tmp_dir/context-client.log" 2>&1 &
@@ -121,7 +121,7 @@ kill "$wm_pid"
 wait "$wm_pid"
 wm_pid=
 
-DISPLAY=$display "$microbox_bin" -c config.example.toml >"$tmp_dir/example.log" 2>&1 &
+DISPLAY=$display "$box2430_bin" -c config.example.toml >"$tmp_dir/example.log" 2>&1 &
 wm_pid=$!
 wait_for "DISPLAY=$display xprop -root _NET_SUPPORTED 2>/dev/null | grep -q _NET_ACTIVE_WINDOW" ||
     fail "full example config did not start"

@@ -1,9 +1,9 @@
 #!/bin/sh
 set -eu
 
-display=${MICROBOX_TEST_DISPLAY:-:141}
-microbox_bin=${MICROBOX_BIN:-./build/debug/microbox}
-fixture_bin=${MICROBOX_FIXTURE_BIN:-./build/debug/x11-test-client}
+display=${BOX2430_TEST_DISPLAY:-:141}
+box2430_bin=${BOX2430_BIN:-./build/debug/box2430}
+fixture_bin=${BOX2430_FIXTURE_BIN:-./build/debug/x11-test-client}
 tmp_dir=$(mktemp -d)
 xephyr_pid= wm_pid= back_pid= front_pid= drag_pid=
 
@@ -32,7 +32,7 @@ mkdir -p build/evidence
 DISPLAY=${DISPLAY:-:0} Xephyr "$display" -screen 800x600 -nolisten tcp \
     >"$tmp_dir/xephyr.log" 2>&1 & xephyr_pid=$!
 wait_for "DISPLAY=$display xdpyinfo >/dev/null 2>&1" || fail "Xephyr did not start"
-DISPLAY=$display "$microbox_bin" -c tests/fixtures/config-visual.toml >"$tmp_dir/wm.log" 2>&1 & wm_pid=$!
+DISPLAY=$display "$box2430_bin" -c tests/fixtures/config-visual.toml >"$tmp_dir/wm.log" 2>&1 & wm_pid=$!
 wait_for "DISPLAY=$display xprop -root _NET_SUPPORTED >/dev/null 2>&1" || fail "WM did not start"
 
 DISPLAY=$display "$fixture_bin" NORMAL FreeBack 70 80 360 230 >"$tmp_dir/back.log" 2>&1 & back_pid=$!
@@ -67,7 +67,7 @@ capture xephyr-fullscreen
 
 kill "$front_pid" "$back_pid" 2>/dev/null || true; front_pid= back_pid=
 kill "$wm_pid"; wait "$wm_pid"; wm_pid=
-if grep -q "microbox: X11 error" "$tmp_dir/wm.log"; then
+if grep -q "box2430: X11 error" "$tmp_dir/wm.log"; then
     sed -n '1,180p' "$tmp_dir/wm.log" >&2
     fail "unexpected X11 error"
 fi

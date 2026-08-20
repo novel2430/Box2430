@@ -1,21 +1,21 @@
-# Microbox — V1 Implementation Style & Economy Contract
+# Box2430 — V1 Implementation Style & Economy Contract
 
 **Document Version: V1 — Frozen**
 
-> 本文冻结 Microbox V1 的实现风格与实现经济性。
+> 本文冻结 Box2430 V1 的实现风格与实现经济性。
 >
 > 它不新增产品能力，也不重新定义窗口管理语义。  
 > Step 1–4、Semantic / State Contract、Technical Architecture Contract、V1 Command Vocabulary and Default Config 已经定义的产品行为、状态语义、交互语义与公共接口始终优先。
 >
 > 本文负责回答：
 >
-> **在不改变既有语义的前提下，Microbox 的源码应该怎样组织、怎样拥有资源、怎样处理错误、怎样测试，以及怎样控制 LOC / build time / runtime / RSS / binary size。**
+> **在不改变既有语义的前提下，Box2430 的源码应该怎样组织、怎样拥有资源、怎样处理错误、怎样测试，以及怎样控制 LOC / build time / runtime / RSS / binary size。**
 
 ---
 
 # 1. 总体目标
 
-Microbox 的实现目标不是单纯追求最少 LOC，而是同时追求：
+Box2430 的实现目标不是单纯追求最少 LOC，而是同时追求：
 
 ```text
 small codebase
@@ -33,7 +33,7 @@ low idle resource cost
 
 > **在实现相同冻结语义的前提下，优先选择 owned LOC 更少、状态更直接、调用链更短、长期维护心智负担更低的方案。**
 
-Microbox 不采用 dwm 式以极高代码密度换取最小源码体积，也不采用大型工程项目式的分层、框架与抽象。
+Box2430 不采用 dwm 式以极高代码密度换取最小源码体积，也不采用大型工程项目式的分层、框架与抽象。
 
 总体风格：
 
@@ -84,7 +84,7 @@ existing semantic / architecture / interaction contract
 
 > **扁平、适度模块化的 Small-C。**
 
-不采用单一巨大 `microbox.c`，也不建立多层 directory architecture。
+不采用单一巨大 `box2430.c`，也不建立多层 directory architecture。
 
 概念粒度可以类似：
 
@@ -185,7 +185,7 @@ wm->focused_client
 m->active_workspace
 ```
 
-因为这些关系本身就是 Microbox 最重要、最应该被读者直接理解的状态。
+因为这些关系本身就是 Box2430 最重要、最应该被读者直接理解的状态。
 
 但重要 mutation 必须通过 canonical semantic operation。
 
@@ -350,13 +350,13 @@ acquire
 
 不要把 Xlib-owned temporary data 的 lifetime 扩散到整个程序。
 
-读取第三方或 Xlib 数据后，如果运行期需要长期持有，应转换为 Microbox-owned representation。
+读取第三方或 Xlib 数据后，如果运行期需要长期持有，应转换为 Box2430-owned representation。
 
 ---
 
 ## 7.4 Allocation Failure
 
-对于 Microbox 这种常驻小型 WM：
+对于 Box2430 这种常驻小型 WM：
 
 > **无法满足核心 runtime allocation 的 OOM 通常视为不可恢复基础设施失败。**
 
@@ -469,7 +469,7 @@ State Manager
 Backend Service
 ```
 
-TOML binding、未来 IPC / `microboxctl` 必须继续复用相同 Command Registry / handlers。
+TOML binding、未来 IPC / `box2430ctl` 必须继续复用相同 Command Registry / handlers。
 
 ---
 
@@ -509,7 +509,7 @@ vendor/
 
 必须 pin 明确 upstream version / commit。
 
-Vendor 源码原则上保持上游原样，不在其中混入 Microbox-specific patch；若未来确实必须 patch，应单独记录理由。
+Vendor 源码原则上保持上游原样，不在其中混入 Box2430-specific patch；若未来确实必须 patch，应单独记录理由。
 
 ---
 
@@ -523,7 +523,7 @@ TOML
 temporary parse result
 ```
 
-Microbox `config.c` 自己负责：
+Box2430 `config.c` 自己负责：
 
 ```text
 schema
@@ -539,7 +539,7 @@ defaults
 ```text
 parse
 → validate
-→ copy into Microbox-owned Config
+→ copy into Box2430-owned Config
 → free parser result
 ```
 
@@ -556,7 +556,7 @@ Vendor 应被视为：
 禁止让 vendor-specific types 大面积泄漏进入：
 
 - core state structs
-- shared Microbox headers
+- shared Box2430 headers
 - command APIs
 - workspace/client interfaces
 
@@ -567,10 +567,10 @@ vendor
 ↓
 small adapter / one local subsystem
 ↓
-Microbox-owned representation
+Box2430-owned representation
 ```
 
-Vendor code 自身不需要符合 Microbox coding style，也不能反过来改变 Microbox coding style。
+Vendor code 自身不需要符合 Box2430 coding style，也不能反过来改变 Box2430 coding style。
 
 ---
 
@@ -641,7 +641,7 @@ Xlib ICCCM helpers
 - generic vector framework
 - generic string framework
 
-Microbox 的 client / workspace 数量很小，purpose-built linked relationship / small array 通常更容易读。
+Box2430 的 client / workspace 数量很小，purpose-built linked relationship / small array 通常更容易读。
 
 只有在未来出现真实规模、复杂度或 correctness 问题时才重新评估。
 
@@ -702,7 +702,7 @@ Unexpected serious X11 / infrastructure failure
 
 `assert` 只用于：
 
-> **如果失败，就说明 Microbox implementation 本身有 bug。**
+> **如果失败，就说明 Box2430 implementation 本身有 bug。**
 
 例如核心 invariant 被破坏。
 
@@ -963,7 +963,7 @@ C11
 
 默认避免无必要 GNU C extension。
 
-POSIX / X11 API 可以正常使用；Microbox 本来就是 Linux/X11 window manager，不追求 ISO C-only portability。
+POSIX / X11 API 可以正常使用；Box2430 本来就是 Linux/X11 window manager，不追求 ISO C-only portability。
 
 ---
 
@@ -1009,7 +1009,7 @@ tomlc17.c
 #include "tomlc17.c"
 ```
 
-把 vendor source 塞入 Microbox translation unit。
+把 vendor source 塞入 Box2430 translation unit。
 
 目的：
 
@@ -1134,7 +1134,7 @@ LOC 使用：
 重点统计：
 
 ```text
-Microbox-owned production LOC
+Box2430-owned production LOC
 ```
 
 而不是整个 repository 总 LOC。
@@ -1185,7 +1185,7 @@ LOC 不允许成为 code-golf incentive。
 
 # 19. Implementation Economy
 
-Microbox 的实现经济性关注：
+Box2430 的实现经济性关注：
 
 ```text
 1. owned LOC
@@ -1271,7 +1271,7 @@ need value
 → ask X server again
 ```
 
-如果 Microbox 已经知道答案，就读取内部 state。
+如果 Box2430 已经知道答案，就读取内部 state。
 
 ---
 
@@ -1482,7 +1482,7 @@ Xephyr 用于真正的视觉/交互 integration。
 
 ```text
 launch Xephyr
-→ launch microbox
+→ launch box2430
 → launch real X clients
 → perform interaction
 → capture screenshot
@@ -1525,7 +1525,7 @@ xinit / startx
 
 它用于最终确认：
 
-> Microbox 在真实 session 中确实能作为 WM 工作。
+> Box2430 在真实 session 中确实能作为 WM 工作。
 
 不把 `startx` 作为 Coding Agent 日常开发测试方式。
 
@@ -1555,9 +1555,9 @@ Debug/sanitize tooling 属于开发设施，不是 runtime dependency。
 任何新的 vendor 都必须回答：
 
 ```text
-1. 它减少多少 Microbox-owned LOC / edge cases？
+1. 它减少多少 Box2430-owned LOC / edge cases？
 
-2. 它暴露给 Microbox 的 API surface 有多大？
+2. 它暴露给 Box2430 的 API surface 有多大？
 
 3. 它是否引入新的 runtime architecture？
    thread / event loop / allocator / callback framework 等
@@ -1565,7 +1565,7 @@ Debug/sanitize tooling 属于开发设施，不是 runtime dependency。
 4. 它对 build / RSS / binary / runtime 有什么实际代价？
 
 5. 如果未来移除或替换它，
-   Microbox core state / command / architecture 是否基本不需要改变？
+   Box2430 core state / command / architecture 是否基本不需要改变？
 ```
 
 ---
@@ -1604,7 +1604,7 @@ or significant adapter code
 
 ## 31.3 REJECT Vendor
 
-如果要求 Microbox 采用它的：
+如果要求 Box2430 采用它的：
 
 - event loop
 - object model
@@ -1637,7 +1637,7 @@ or significant adapter code
 
 # 32. Development Loop
 
-Microbox 的日常开发循环应保持：
+Box2430 的日常开发循环应保持：
 
 ```text
 edit
@@ -1818,7 +1818,7 @@ JSON library
 
 # 36. Final Design Summary
 
-Microbox V1 的实现人格可以压缩成：
+Box2430 V1 的实现人格可以压缩成：
 
 ```text
 Readable Small-C
@@ -1844,7 +1844,7 @@ Readable Small-C
 
 以及：
 
-> **Vendor 可以替我们承担复杂度，但不能把它自己的架构带进 Microbox。**
+> **Vendor 可以替我们承担复杂度，但不能把它自己的架构带进 Box2430。**
 
 最终期望得到的不是“最短的 X11 WM”，而是：
 

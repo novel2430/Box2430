@@ -1,11 +1,11 @@
-# Microbox — V1 Goal
+# Box2430 — V1 Goal
 
 **Status: Frozen**
 
-> 本文定义 Coding Agent 对 Microbox V1 的最终交付目标。
+> 本文定义 Coding Agent 对 Box2430 V1 的最终交付目标。
 >
 > 它不是新的设计文档，也不重新解释既有语义。
-> Microbox V1 的产品行为、状态模型、技术架构、交互语义、公共 Command / Config Surface 与实现风格，均以 `docs/V1/` 下已经冻结的 contracts 为准。
+> Box2430 V1 的产品行为、状态模型、技术架构、交互语义、公共 Command / Config Surface 与实现风格，均以 `docs/V1/` 下已经冻结的 contracts 为准。
 >
 > 本文只回答三个问题：
 >
@@ -17,7 +17,7 @@
 
 # 1. Final Goal
 
-从当前以文档为主的 Microbox repository 出发，实现一个：
+从当前以文档为主的 Box2430 repository 出发，实现一个：
 
 ```text
 buildable
@@ -28,13 +28,13 @@ predictable
 X11 stacking window manager
 ```
 
-并完整满足 `docs/V1/` 中已经冻结的 Microbox V1 contracts。
+并完整满足 `docs/V1/` 中已经冻结的 Box2430 V1 contracts。
 
 最终产物必须能够：
 
 ```text
 make
-→ build Microbox
+→ build Box2430
 
 run under a real X11 server
 → acquire WM ownership
@@ -63,18 +63,18 @@ user real-session handoff
 Agent 必须把以下文档视为 V1 authoritative sources：
 
 ```text
-docs/V1/microbox_step1_product_definition.md
-docs/V1/microbox_step2_semantic_state_contract.md
-docs/V1/microbox_step3_technical_architecture_contract.md
-docs/V1/microbox_step4_interaction_contract.md
-docs/V1/microbox_v1_command_vocabulary_and_default_config.md
-docs/V1/microbox_v1_implementation_style_and_economy_contract.md
+docs/V1/box2430_step1_product_definition.md
+docs/V1/box2430_step2_semantic_state_contract.md
+docs/V1/box2430_step3_technical_architecture_contract.md
+docs/V1/box2430_step4_interaction_contract.md
+docs/V1/box2430_v1_command_vocabulary_and_default_config.md
+docs/V1/box2430_v1_implementation_style_and_economy_contract.md
 ```
 
 其中：
 
 ```text
-docs/V1/microbox_post_v1_future_directions.md
+docs/V1/box2430_post_v1_future_directions.md
 ```
 
 只用于理解未来方向。
@@ -101,7 +101,7 @@ implementation convenience
 - 更容易兼容传统 EWMH
 - 更符合另一个 WM 的实现方式
 
-而修改已经冻结的 Microbox V1 行为。
+而修改已经冻结的 Box2430 V1 行为。
 
 如果两个 frozen documents 之间出现真实且无法同时满足的冲突：
 
@@ -115,7 +115,7 @@ implementation convenience
 
 # 4. Definition of Done
 
-Microbox V1 只有在：
+Box2430 V1 只有在：
 
 ```text
 implementation
@@ -478,7 +478,7 @@ USER HANDOFF
 至少包括：
 
 ```text
-Microbox-owned production LOC
+Box2430-owned production LOC
 
 clean build wall time
 
@@ -785,7 +785,7 @@ V1 不因为实现方便而新增 public feature。
 
 ```text
 IPC
-microboxctl
+box2430ctl
 runtime mutable config
 script-init
 official bar
@@ -973,7 +973,7 @@ A known unresolved V1 correctness issue means the project is not DONE.
 Agent may declare:
 
 ```text
-MICROBOX V1 IMPLEMENTATION COMPLETE
+BOX2430 V1 IMPLEMENTATION COMPLETE
 ```
 
 only if:
@@ -1017,4 +1017,4 @@ The final success criterion is not:
 
 It is:
 
-> **whether the frozen Microbox V1 exists as a small, readable, working X11 WM and the Agent can show concrete evidence that it does.**
+> **whether the frozen Box2430 V1 exists as a small, readable, working X11 WM and the Agent can show concrete evidence that it does.**

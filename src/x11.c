@@ -1,4 +1,4 @@
-#include "microbox.h"
+#include "box2430.h"
 
 #include <X11/Xatom.h>
 #include <stdio.h>
@@ -21,7 +21,7 @@ static int runtime_error_handler(Display *display, XErrorEvent *event)
     if (event->error_code == BadWindow) return 0;
     char message[128];
     XGetErrorText(display, event->error_code, message, sizeof(message));
-    fprintf(stderr, "microbox: X11 error: %s (request %u.%u, resource 0x%lx)\n",
+    fprintf(stderr, "box2430: X11 error: %s (request %u.%u, resource 0x%lx)\n",
             message, event->request_code, event->minor_code, event->resourceid);
     return 0;
 }
@@ -37,7 +37,7 @@ bool x11_acquire_wm_ownership(WM *wm)
     XSetErrorHandler(runtime_error_handler);
 
     if (ownership_failed) {
-        fprintf(stderr, "microbox: another window manager owns display %s\n",
+        fprintf(stderr, "box2430: another window manager owns display %s\n",
                 DisplayString(wm->display));
         return false;
     }
@@ -255,7 +255,7 @@ void x11_update_client_lists(WM *wm)
         windows = malloc(count * sizeof(*windows));
         stacking = malloc(count * sizeof(*stacking));
         if (!windows || !stacking) {
-            fprintf(stderr, "microbox: out of memory updating client list\n");
+            fprintf(stderr, "box2430: out of memory updating client list\n");
             free(windows);
             free(stacking);
             wm->running = false;

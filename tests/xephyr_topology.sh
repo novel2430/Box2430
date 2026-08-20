@@ -1,10 +1,10 @@
 #!/bin/sh
 set -eu
 
-display=${MICROBOX_TEST_DISPLAY:-:137}
-microbox_bin=${MICROBOX_BIN:-./build/debug/microbox}
-fixture_bin=${MICROBOX_FIXTURE_BIN:-./build/debug/x11-test-client}
-urgency_bin=${MICROBOX_URGENCY_BIN:-./build/debug/x11-set-urgency}
+display=${BOX2430_TEST_DISPLAY:-:137}
+box2430_bin=${BOX2430_BIN:-./build/debug/box2430}
+fixture_bin=${BOX2430_FIXTURE_BIN:-./build/debug/x11-test-client}
+urgency_bin=${BOX2430_URGENCY_BIN:-./build/debug/x11-set-urgency}
 tmp_dir=$(mktemp -d)
 xephyr_pid= wm_pid= client_pid= second_pid= third_pid=
 
@@ -31,7 +31,7 @@ DISPLAY=$host_display Xephyr "$display" -screen 800x600 -nolisten tcp \
 xephyr_pid=$!
 wait_for "DISPLAY=$display xdpyinfo >/dev/null 2>&1" || fail "Xephyr did not start"
 
-DISPLAY=$display "$microbox_bin" -c tests/fixtures/config-tabs.toml >"$tmp_dir/wm.log" 2>&1 &
+DISPLAY=$display "$box2430_bin" -c tests/fixtures/config-tabs.toml >"$tmp_dir/wm.log" 2>&1 &
 wm_pid=$!
 wait_for "DISPLAY=$display xprop -root _NET_SUPPORTED >/dev/null 2>&1" || fail "WM did not start"
 DISPLAY=$display "$fixture_bin" NORMAL '终端 TopologyClient' 100 100 320 180 \
@@ -46,14 +46,14 @@ DISPLAY=$display "$fixture_bin" NORMAL ActiveTab 140 140 280 140 \
 wait_for "DISPLAY=$display xdotool search --name ActiveTab >/dev/null 2>&1" || fail "active client missing"
 DISPLAY=$display "$urgency_bin" "$client" 1
 DISPLAY=$display xdotool key super+m
-wait_for "DISPLAY=$display xdotool search --name microbox-tabbar-0 >/dev/null 2>&1" || fail "tab bar missing"
-bar=$(DISPLAY=$display xdotool search --name microbox-tabbar-0 | head -n 1)
+wait_for "DISPLAY=$display xdotool search --name box2430-tabbar-0 >/dev/null 2>&1" || fail "tab bar missing"
+bar=$(DISPLAY=$display xdotool search --name box2430-tabbar-0 | head -n 1)
 
 DISPLAY=$display xrandr -s 640x480
 wait_for "test \"\$(DISPLAY=$display xwininfo -root | awk '/Width:/ {print \$2; exit}')\" = 640" ||
     fail "Xephyr root did not resize"
 wait_for "test \"\$(DISPLAY=$display xwininfo -id $bar | awk '/Width:/ {print \$2; exit}')\" = 640" ||
-    fail "Microbox did not reconcile changed Xinerama/root geometry"
+    fail "Box2430 did not reconcile changed Xinerama/root geometry"
 
 mkdir -p build/evidence
 DISPLAY=$display xwd -silent -root -out build/evidence/xephyr-topology.xwd
@@ -62,7 +62,7 @@ convert build/evidence/xephyr-topology.xwd build/evidence/xephyr-topology.png
 kill "$third_pid" "$second_pid" "$client_pid" 2>/dev/null || true
 third_pid= second_pid= client_pid=
 kill "$wm_pid"; wait "$wm_pid"; wm_pid=
-if grep -q "microbox: X11 error" "$tmp_dir/wm.log"; then
+if grep -q "box2430: X11 error" "$tmp_dir/wm.log"; then
     sed -n '1,160p' "$tmp_dir/wm.log" >&2
     fail "unexpected X11 error"
 fi

@@ -1,4 +1,4 @@
-#include "microbox.h"
+#include "box2430.h"
 
 #include "../vendor/tomlc17/tomlc17.h"
 
@@ -12,7 +12,7 @@ static void add_default_binding(Config *config, unsigned int modifiers,
                                 KeySym symbol, int argc,
                                 const char *const *argv)
 {
-    if (config->key_binding_count >= MICROBOX_MAX_KEY_BINDINGS) return;
+    if (config->key_binding_count >= BOX2430_MAX_KEY_BINDINGS) return;
     KeyBinding *binding = &config->key_bindings[config->key_binding_count++];
     binding->modifiers = modifiers;
     binding->symbol = symbol;
@@ -82,7 +82,7 @@ static void set_default_bindings(Config *config)
 void config_set_defaults(Config *config)
 {
     *config = (Config){
-        .workspace_count = MICROBOX_DEFAULT_WORKSPACE_COUNT,
+        .workspace_count = BOX2430_DEFAULT_WORKSPACE_COUNT,
         .focus_mode = FOCUS_CLICK,
         .raise_on_focus = false,
         .focus_on_map = true,
@@ -135,12 +135,12 @@ static bool validate_keys(toml_datum_t table, const char *prefix,
 {
     if (table.type == TOML_UNKNOWN) return true;
     if (table.type != TOML_TABLE) {
-        fprintf(stderr, "microbox: config option %s must be a table\n", prefix);
+        fprintf(stderr, "box2430: config option %s must be a table\n", prefix);
         return false;
     }
     for (int32_t i = 0; i < table.u.tab.size; ++i) {
         if (!key_allowed(table.u.tab.key[i], allowed, count)) {
-            fprintf(stderr, "microbox: unknown config option %s.%s\n",
+            fprintf(stderr, "box2430: unknown config option %s.%s\n",
                     prefix, table.u.tab.key[i]);
             return false;
         }
@@ -154,7 +154,7 @@ static bool read_bool(toml_datum_t table, const char *prefix, const char *key,
     toml_datum_t datum = toml_get(table, key);
     if (datum.type == TOML_UNKNOWN) return true;
     if (datum.type != TOML_BOOLEAN) {
-        fprintf(stderr, "microbox: config option %s.%s must be boolean\n", prefix, key);
+        fprintf(stderr, "box2430: config option %s.%s must be boolean\n", prefix, key);
         return false;
     }
     *value = datum.u.boolean;
@@ -169,7 +169,7 @@ static bool read_uint(toml_datum_t table, const char *prefix, const char *key,
     if (datum.type == TOML_UNKNOWN) return true;
     if (datum.type != TOML_INT64 || datum.u.int64 < minimum ||
         datum.u.int64 > maximum) {
-        fprintf(stderr, "microbox: config option %s.%s must be in %u..%u\n",
+        fprintf(stderr, "box2430: config option %s.%s must be in %u..%u\n",
                 prefix, key, minimum, maximum);
         return false;
     }
@@ -186,7 +186,7 @@ static bool read_ratio(toml_datum_t table, const char *key, double *value)
     else if (datum.type == TOML_INT64) number = (double)datum.u.int64;
     else number = -1.0;
     if (number <= 0.0 || number >= 1.0) {
-        fprintf(stderr, "microbox: config option snap.%s must be between 0 and 1\n", key);
+        fprintf(stderr, "box2430: config option snap.%s must be between 0 and 1\n", key);
         return false;
     }
     *value = number;
@@ -206,7 +206,7 @@ static bool read_enum(toml_datum_t table, const char *prefix, const char *key,
             }
         }
     }
-    fprintf(stderr, "microbox: invalid value for config option %s.%s\n", prefix, key);
+    fprintf(stderr, "box2430: invalid value for config option %s.%s\n", prefix, key);
     return false;
 }
 
@@ -216,14 +216,14 @@ static bool read_color(toml_datum_t table, const char *prefix, const char *key,
     toml_datum_t datum = toml_get(table, key);
     if (datum.type == TOML_UNKNOWN) return true;
     if (datum.type != TOML_STRING || strlen(datum.u.s) != 7 || datum.u.s[0] != '#') {
-        fprintf(stderr, "microbox: %s.%s must be #RRGGBB\n", prefix, key);
+        fprintf(stderr, "box2430: %s.%s must be #RRGGBB\n", prefix, key);
         return false;
     }
     for (size_t i = 1; i < 7; ++i) {
         char c = datum.u.s[i];
         if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') ||
               (c >= 'A' && c <= 'F'))) {
-            fprintf(stderr, "microbox: %s.%s must be #RRGGBB\n", prefix, key);
+            fprintf(stderr, "box2430: %s.%s must be #RRGGBB\n", prefix, key);
             return false;
         }
     }
@@ -237,7 +237,7 @@ static bool read_text(toml_datum_t table, const char *prefix, const char *key,
     toml_datum_t datum = toml_get(table, key);
     if (datum.type == TOML_UNKNOWN) return true;
     if (datum.type != TOML_STRING || !datum.u.s[0] || strlen(datum.u.s) >= capacity) {
-        fprintf(stderr, "microbox: config option %s.%s must be a non-empty string\n",
+        fprintf(stderr, "box2430: config option %s.%s must be a non-empty string\n",
                 prefix, key);
         return false;
     }
@@ -314,14 +314,14 @@ static bool parse_command_text(const char *text, KeyBinding *binding)
     while (*cursor) {
         while (*cursor == ' ' || *cursor == '\t') ++cursor;
         if (!*cursor) break;
-        if (binding->argc >= MICROBOX_MAX_COMMAND_ARGS) return false;
+        if (binding->argc >= BOX2430_MAX_COMMAND_ARGS) return false;
         char *output = binding->argv[binding->argc];
         size_t length = 0;
         char quote = 0;
         if (*cursor == '\'' || *cursor == '"') quote = *cursor++;
         while (*cursor && (quote ? *cursor != quote : *cursor != ' ' && *cursor != '\t')) {
             if (*cursor == '\\' && cursor[1]) ++cursor;
-            if (length + 1 >= MICROBOX_MAX_COMMAND_ARG_LENGTH) return false;
+            if (length + 1 >= BOX2430_MAX_COMMAND_ARG_LENGTH) return false;
             output[length++] = *cursor++;
         }
         if (quote) {
@@ -352,7 +352,7 @@ static bool parse_key_bindings(Config *candidate, toml_datum_t keys)
 {
     if (keys.type == TOML_UNKNOWN) return true;
     if (keys.type != TOML_TABLE) {
-        fprintf(stderr, "microbox: config option bindings.keys must be a table\n");
+        fprintf(stderr, "box2430: config option bindings.keys must be a table\n");
         return false;
     }
     for (int32_t i = 0; i < keys.u.tab.size; ++i) {
@@ -360,31 +360,31 @@ static bool parse_key_bindings(Config *candidate, toml_datum_t keys)
         unsigned int modifiers;
         KeySym symbol;
         if (!parse_key_spec(keys.u.tab.key[i], &modifiers, &symbol)) {
-            fprintf(stderr, "microbox: invalid key binding %s\n", keys.u.tab.key[i]);
+            fprintf(stderr, "box2430: invalid key binding %s\n", keys.u.tab.key[i]);
             return false;
         }
         if (value.type != TOML_STRING) {
-            fprintf(stderr, "microbox: binding %s must be a command string\n",
+            fprintf(stderr, "box2430: binding %s must be a command string\n",
                     keys.u.tab.key[i]);
             return false;
         }
         remove_binding(candidate, modifiers, symbol);
         if (strcmp(value.u.s, "none") == 0) continue;
-        if (candidate->key_binding_count >= MICROBOX_MAX_KEY_BINDINGS) {
-            fprintf(stderr, "microbox: too many key bindings\n");
+        if (candidate->key_binding_count >= BOX2430_MAX_KEY_BINDINGS) {
+            fprintf(stderr, "box2430: too many key bindings\n");
             return false;
         }
         KeyBinding binding = {.modifiers = modifiers, .symbol = symbol};
         if (!parse_command_text(value.u.s, &binding)) {
-            fprintf(stderr, "microbox: invalid command syntax for binding %s\n",
+            fprintf(stderr, "box2430: invalid command syntax for binding %s\n",
                     keys.u.tab.key[i]);
             return false;
         }
-        const char *argv[MICROBOX_MAX_COMMAND_ARGS];
+        const char *argv[BOX2430_MAX_COMMAND_ARGS];
         for (int j = 0; j < binding.argc; ++j) argv[j] = binding.argv[j];
         if (!command_validate(candidate, COMMAND_CONTEXT_KEYBOARD,
                               binding.argc, argv)) {
-            fprintf(stderr, "microbox: invalid command for binding %s\n",
+            fprintf(stderr, "box2430: invalid command for binding %s\n",
                     keys.u.tab.key[i]);
             return false;
         }
@@ -411,7 +411,7 @@ static bool parse_mouse_bindings(Config *candidate, toml_datum_t mouse)
 {
     if (mouse.type == TOML_UNKNOWN) return true;
     if (mouse.type != TOML_TABLE) {
-        fprintf(stderr, "microbox: config option bindings.mouse must be a table\n");
+        fprintf(stderr, "box2430: config option bindings.mouse must be a table\n");
         return false;
     }
     for (int32_t i = 0; i < mouse.u.tab.size; ++i) {
@@ -419,21 +419,21 @@ static bool parse_mouse_bindings(Config *candidate, toml_datum_t mouse)
         unsigned int modifiers, button;
         if (!parse_mouse_spec(mouse.u.tab.key[i], &modifiers, &button) ||
             value.type != TOML_STRING) {
-            fprintf(stderr, "microbox: invalid mouse binding %s\n", mouse.u.tab.key[i]);
+            fprintf(stderr, "box2430: invalid mouse binding %s\n", mouse.u.tab.key[i]);
             return false;
         }
         remove_mouse_binding(candidate, modifiers, button);
         if (strcmp(value.u.s, "none") == 0) continue;
         if (candidate->mouse_binding_count >= 16) {
-            fprintf(stderr, "microbox: too many mouse bindings\n");
+            fprintf(stderr, "box2430: too many mouse bindings\n");
             return false;
         }
         KeyBinding parsed = {0};
         if (!parse_command_text(value.u.s, &parsed)) return false;
-        const char *argv[MICROBOX_MAX_COMMAND_ARGS];
+        const char *argv[BOX2430_MAX_COMMAND_ARGS];
         for (int j = 0; j < parsed.argc; ++j) argv[j] = parsed.argv[j];
         if (!command_validate(candidate, COMMAND_CONTEXT_MOUSE, parsed.argc, argv)) {
-            fprintf(stderr, "microbox: invalid command for mouse binding %s\n",
+            fprintf(stderr, "box2430: invalid command for mouse binding %s\n",
                     mouse.u.tab.key[i]);
             return false;
         }
@@ -450,14 +450,14 @@ static bool parse_tab_bindings(Config *candidate, toml_datum_t table)
 {
     if (table.type == TOML_UNKNOWN) return true;
     if (table.type != TOML_TABLE) {
-        fprintf(stderr, "microbox: config option bindings.tabbar must be a table\n");
+        fprintf(stderr, "box2430: config option bindings.tabbar must be a table\n");
         return false;
     }
     for (int32_t i = 0; i < table.u.tab.size; ++i) {
         toml_datum_t value = table.u.tab.value[i];
         unsigned int button;
         if (!parse_tab_spec(table.u.tab.key[i], &button) || value.type != TOML_STRING) {
-            fprintf(stderr, "microbox: invalid tabbar binding %s\n", table.u.tab.key[i]);
+            fprintf(stderr, "box2430: invalid tabbar binding %s\n", table.u.tab.key[i]);
             return false;
         }
         for (unsigned int j = 0; j < candidate->tab_binding_count; ++j) {
@@ -473,10 +473,10 @@ static bool parse_tab_bindings(Config *candidate, toml_datum_t table)
         if (candidate->tab_binding_count >= 16) return false;
         KeyBinding parsed = {0};
         if (!parse_command_text(value.u.s, &parsed)) return false;
-        const char *argv[MICROBOX_MAX_COMMAND_ARGS];
+        const char *argv[BOX2430_MAX_COMMAND_ARGS];
         for (int j = 0; j < parsed.argc; ++j) argv[j] = parsed.argv[j];
         if (!command_validate(candidate, COMMAND_CONTEXT_TABBAR, parsed.argc, argv)) {
-            fprintf(stderr, "microbox: invalid command for tabbar binding %s\n",
+            fprintf(stderr, "box2430: invalid command for tabbar binding %s\n",
                     table.u.tab.key[i]);
             return false;
         }
@@ -491,7 +491,7 @@ static void prune_invalid_default_bindings(Config *candidate)
 {
     for (unsigned int i = 0; i < candidate->key_binding_count;) {
         KeyBinding *binding = &candidate->key_bindings[i];
-        const char *argv[MICROBOX_MAX_COMMAND_ARGS];
+        const char *argv[BOX2430_MAX_COMMAND_ARGS];
         for (int j = 0; j < binding->argc; ++j) argv[j] = binding->argv[j];
         if (command_validate(candidate, COMMAND_CONTEXT_KEYBOARD,
                              binding->argc, argv)) {
@@ -505,14 +505,14 @@ static void prune_invalid_default_bindings(Config *candidate)
 }
 
 static bool read_rule_pattern(toml_datum_t table, const char *key, bool *present,
-                              char output[MICROBOX_MAX_RULE_PATTERN])
+                              char output[BOX2430_MAX_RULE_PATTERN])
 {
     toml_datum_t datum = toml_get(table, key);
     if (datum.type == TOML_UNKNOWN) return true;
     if (datum.type != TOML_STRING || !datum.u.s[0] ||
-        strlen(datum.u.s) >= MICROBOX_MAX_RULE_PATTERN) {
-        fprintf(stderr, "microbox: rule.%s must be a non-empty string shorter than %d bytes\n",
-                key, MICROBOX_MAX_RULE_PATTERN);
+        strlen(datum.u.s) >= BOX2430_MAX_RULE_PATTERN) {
+        fprintf(stderr, "box2430: rule.%s must be a non-empty string shorter than %d bytes\n",
+                key, BOX2430_MAX_RULE_PATTERN);
         return false;
     }
     *present = true;
@@ -526,7 +526,7 @@ static bool read_rule_bool(toml_datum_t table, const char *key, bool *present,
     toml_datum_t datum = toml_get(table, key);
     if (datum.type == TOML_UNKNOWN) return true;
     if (datum.type != TOML_BOOLEAN) {
-        fprintf(stderr, "microbox: rule.%s must be boolean\n", key);
+        fprintf(stderr, "box2430: rule.%s must be boolean\n", key);
         return false;
     }
     *present = true;
@@ -540,7 +540,7 @@ static bool read_rule_uint(toml_datum_t table, const char *key, unsigned int max
     toml_datum_t datum = toml_get(table, key);
     if (datum.type == TOML_UNKNOWN) return true;
     if (datum.type != TOML_INT64 || datum.u.int64 < 1 || datum.u.int64 > maximum) {
-        fprintf(stderr, "microbox: rule.%s must be in 1..%u\n", key, maximum);
+        fprintf(stderr, "box2430: rule.%s must be in 1..%u\n", key, maximum);
         return false;
     }
     *present = true;
@@ -605,18 +605,18 @@ static bool parse_rules(Config *candidate, toml_datum_t rules)
 {
     if (rules.type == TOML_UNKNOWN) return true;
     if (rules.type != TOML_ARRAY) {
-        fprintf(stderr, "microbox: config option rules must be an array of tables\n");
+        fprintf(stderr, "box2430: config option rules must be an array of tables\n");
         return false;
     }
-    if (rules.u.arr.size > MICROBOX_MAX_RULES) {
-        fprintf(stderr, "microbox: too many rules (maximum %d)\n", MICROBOX_MAX_RULES);
+    if (rules.u.arr.size > BOX2430_MAX_RULES) {
+        fprintf(stderr, "box2430: too many rules (maximum %d)\n", BOX2430_MAX_RULES);
         return false;
     }
     for (int32_t i = 0; i < rules.u.arr.size; ++i) {
         if (rules.u.arr.elem[i].type != TOML_TABLE ||
             !parse_rule(candidate, rules.u.arr.elem[i],
                         &candidate->rules[candidate->rule_count])) {
-            fprintf(stderr, "microbox: invalid rule %d\n", i + 1);
+            fprintf(stderr, "box2430: invalid rule %d\n", i + 1);
             return false;
         }
         ++candidate->rule_count;
@@ -758,11 +758,11 @@ bool config_load(Config *config, const char *explicit_path)
     const char *path = explicit_path;
     if (!path) {
         const char *base = getenv("XDG_CONFIG_HOME");
-        if (base && *base) snprintf(default_path, sizeof(default_path), "%s/microbox/config.toml", base);
+        if (base && *base) snprintf(default_path, sizeof(default_path), "%s/box2430/config.toml", base);
         else {
             base = getenv("HOME");
             if (!base || !*base) return true;
-            snprintf(default_path, sizeof(default_path), "%s/.config/microbox/config.toml", base);
+            snprintf(default_path, sizeof(default_path), "%s/.config/box2430/config.toml", base);
         }
         path = default_path;
     }
@@ -770,14 +770,14 @@ bool config_load(Config *config, const char *explicit_path)
     FILE *file = fopen(path, "r");
     if (!file) {
         if (!explicit_path && errno == ENOENT) return true;
-        fprintf(stderr, "microbox: cannot read config %s: %s; using defaults\n",
+        fprintf(stderr, "box2430: cannot read config %s: %s; using defaults\n",
                 path, strerror(errno));
         return false;
     }
     toml_result_t result = toml_parse_file_named(file, path);
     fclose(file);
     if (!result.ok) {
-        fprintf(stderr, "microbox: %s; using defaults\n", result.errmsg);
+        fprintf(stderr, "box2430: %s; using defaults\n", result.errmsg);
         toml_free(result);
         return false;
     }
@@ -786,7 +786,7 @@ bool config_load(Config *config, const char *explicit_path)
     bool valid = parse_supported_config(&candidate, result.toptab);
     toml_free(result);
     if (!valid) {
-        fprintf(stderr, "microbox: discarding invalid config %s; using defaults\n", path);
+        fprintf(stderr, "box2430: discarding invalid config %s; using defaults\n", path);
         return false;
     }
     *config = candidate;

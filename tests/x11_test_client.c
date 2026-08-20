@@ -31,7 +31,7 @@ int main(int argc, char **argv)
     Atom net_wm_name = XInternAtom(display, "_NET_WM_NAME", False);
     XChangeProperty(display, window, net_wm_name, utf8, 8, PropModeReplace,
                     (unsigned char *)argv[2], (int)strlen(argv[2]));
-    XClassHint class_hint = {.res_name = argv[2], .res_class = "MicroboxFixture"};
+    XClassHint class_hint = {.res_name = argv[2], .res_class = "Box2430Fixture"};
     XSetClassHint(display, window, &class_hint);
 
     char atom_name[128];

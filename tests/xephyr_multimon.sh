@@ -1,8 +1,8 @@
 #!/bin/sh
 set -eu
 
-display=${MICROBOX_TEST_DISPLAY:-:138}
-microbox_bin=${MICROBOX_BIN:-./build/debug/microbox}
+display=${BOX2430_TEST_DISPLAY:-:138}
+box2430_bin=${BOX2430_BIN:-./build/debug/box2430}
 tmp_dir=$(mktemp -d)
 xephyr_pid= wm_pid= one_pid= two_pid= drag_pid=
 
@@ -51,7 +51,7 @@ DISPLAY=${DISPLAY:-:0} Xephyr "$display" \
     >"$tmp_dir/xephyr.log" 2>&1 &
 xephyr_pid=$!
 wait_for "DISPLAY=$display xdpyinfo >/dev/null 2>&1" || fail "Xephyr did not start"
-DISPLAY=$display "$microbox_bin" -c tests/fixtures/config-multimon.toml >"$tmp_dir/wm.log" 2>&1 &
+DISPLAY=$display "$box2430_bin" -c tests/fixtures/config-multimon.toml >"$tmp_dir/wm.log" 2>&1 &
 wm_pid=$!
 wait_for "DISPLAY=$display xprop -root _NET_SUPPORTED >/dev/null 2>&1" || fail "WM did not start"
 
@@ -133,7 +133,7 @@ convert build/evidence/xephyr-multimon.xwd build/evidence/xephyr-multimon.png
 kill "$drag_pid" "$two_pid" "$one_pid" 2>/dev/null || true
 drag_pid= two_pid= one_pid=
 kill "$wm_pid"; wait "$wm_pid"; wm_pid=
-if grep -q "microbox: X11 error" "$tmp_dir/wm.log"; then
+if grep -q "box2430: X11 error" "$tmp_dir/wm.log"; then
     sed -n '1,180p' "$tmp_dir/wm.log" >&2
     fail "unexpected X11 error"
 fi

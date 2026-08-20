@@ -1,9 +1,9 @@
 #!/bin/sh
 set -eu
 
-display=${MICROBOX_TEST_DISPLAY:-:142}
-microbox_bin=${MICROBOX_BIN:-./build/debug/microbox}
-modifier_bin=${MICROBOX_NUMLOCK_BIN:-./build/debug/x11-set-numlock-modifier}
+display=${BOX2430_TEST_DISPLAY:-:142}
+box2430_bin=${BOX2430_BIN:-./build/debug/box2430}
+modifier_bin=${BOX2430_NUMLOCK_BIN:-./build/debug/x11-set-numlock-modifier}
 tmp_dir=$(mktemp -d)
 xvfb_pid= wm_pid= client_pid=
 
@@ -31,7 +31,7 @@ wait_for "DISPLAY=$display xdpyinfo >/dev/null 2>&1" || fail "Xvfb did not start
 
 # Mod3 (index 5) is deliberately not the common Mod2 assignment.
 DISPLAY=$display "$modifier_bin" 5 || fail "could not map NumLock to Mod3"
-DISPLAY=$display "$microbox_bin" -c tests/fixtures/config-core.toml >"$tmp_dir/wm.log" 2>&1 &
+DISPLAY=$display "$box2430_bin" -c tests/fixtures/config-core.toml >"$tmp_dir/wm.log" 2>&1 &
 wm_pid=$!
 wait_for "DISPLAY=$display xprop -root _NET_SUPPORTED >/dev/null 2>&1" || fail "WM did not start"
 DISPLAY=$display xterm -title NumLockClient -geometry 30x8 >"$tmp_dir/client.log" 2>&1 & client_pid=$!
@@ -53,8 +53,8 @@ DISPLAY=$display xdotool keydown super mousemove --window "$client" 20 20 \
 after_x=$(field "$client" 'Absolute upper-left X:')
 [ "$after_x" -gt "$before_x" ] || fail "mouse binding failed with NumLock on Mod3"
 
-# Remap while Microbox is running. XSetModifierMapping emits MappingNotify;
-# Microbox must refresh the mapping and replace its passive grabs.
+# Remap while Box2430 is running. XSetModifierMapping emits MappingNotify;
+# Box2430 must refresh the mapping and replace its passive grabs.
 DISPLAY=$display xdotool key Num_Lock Caps_Lock
 DISPLAY=$display "$modifier_bin" 7 || fail "could not remap NumLock to Mod5"
 sleep 0.05
@@ -66,7 +66,7 @@ wait_for "test \"\$(DISPLAY=$display xwininfo -id $client | awk '/Width:/ {print
 
 kill "$client_pid" 2>/dev/null || true; client_pid=
 kill "$wm_pid"; wait "$wm_pid"; wm_pid=
-if grep -q "microbox: X11 error" "$tmp_dir/wm.log"; then
+if grep -q "box2430: X11 error" "$tmp_dir/wm.log"; then
     sed -n '1,160p' "$tmp_dir/wm.log" >&2
     fail "unexpected X11 error"
 fi

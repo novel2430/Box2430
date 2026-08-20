@@ -1,4 +1,4 @@
-# Microbox Development Environment
+# Box2430 Development Environment
 
 ## Required for implementation
 
