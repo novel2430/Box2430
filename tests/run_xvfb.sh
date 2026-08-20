@@ -7,7 +7,10 @@ for scenario in \
     xvfb_config.sh \
     xvfb_rules.sh \
     xvfb_special_windows.sh \
+    xvfb_semantic_geometry.sh \
     xvfb_mouse.sh \
+    xvfb_numlock.sh \
+    xvfb_normal_hints.sh \
     xvfb_mru.sh \
     xvfb_tabbar.sh \
     xvfb_restart.sh \

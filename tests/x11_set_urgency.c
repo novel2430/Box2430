@@ -2,6 +2,7 @@
 #include <X11/Xutil.h>
 
 #include <stdlib.h>
+#include <string.h>
 
 int main(int argc, char **argv)
 {
@@ -12,8 +13,14 @@ int main(int argc, char **argv)
     XWMHints *hints = XGetWMHints(display, window);
     if (!hints) hints = XAllocWMHints();
     if (!hints) { XCloseDisplay(display); return 1; }
-    if (atoi(argv[2])) hints->flags |= XUrgencyHint;
-    else hints->flags &= ~XUrgencyHint;
+    if (strcmp(argv[2], "input") == 0) {
+        hints->flags |= InputHint;
+        hints->input = True;
+    } else if (atoi(argv[2])) {
+        hints->flags |= XUrgencyHint;
+    } else {
+        hints->flags &= ~XUrgencyHint;
+    }
     XSetWMHints(display, window, hints);
     XFree(hints);
     XSync(display, False);

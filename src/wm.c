@@ -16,6 +16,8 @@ static volatile sig_atomic_t stop_requested;
 static void enforce_stacking(WM *wm);
 static void recompute_workareas(WM *wm);
 static void apply_normal_hints(WM *wm, Window window, int *width, int *height);
+static void materialize_client_geometry(WM *wm, Client *client);
+static void grab_client_buttons(WM *wm, Window window);
 static void update_tab_bars(WM *wm);
 static bool create_tab_bar(WM *wm, Monitor *monitor);
 
@@ -406,13 +408,27 @@ static bool client_supports_protocol(WM *wm, Client *client, Atom protocol)
     return found;
 }
 
+static void set_client_urgent(WM *wm, Client *client, bool urgent)
+{
+    client->urgent = urgent;
+    XWMHints *hints = XGetWMHints(wm->display, client->window);
+    if (!hints) return;
+    bool hinted = (hints->flags & XUrgencyHint) != 0;
+    if (hinted != urgent) {
+        if (urgent) hints->flags |= XUrgencyHint;
+        else hints->flags &= ~XUrgencyHint;
+        XSetWMHints(wm->display, client->window, hints);
+    }
+    XFree(hints);
+}
+
 static void read_focus_hints(WM *wm, Client *client)
 {
     XWMHints *hints = XGetWMHints(wm->display, client->window);
     client->accepts_input = !hints || !(hints->flags & InputHint) || hints->input;
-    client->urgent = hints && (hints->flags & XUrgencyHint);
-    if (wm->focused_client == client) client->urgent = false;
+    bool urgent = hints && (hints->flags & XUrgencyHint);
     if (hints) XFree(hints);
+    set_client_urgent(wm, client, urgent && wm->focused_client != client);
     client->takes_focus = client_supports_protocol(wm, client, wm->atoms.wm_take_focus);
     if (wm->focused_client != client)
         XSetWindowBorder(wm->display, client->window,
@@ -475,7 +491,7 @@ static void focus_client_internal(WM *wm, Client *client, Time time,
     wm->selected_monitor = client->workspace->monitor;
     x11_update_workarea(wm);
     client->workspace->last_focused_client = client;
-    client->urgent = false;
+    set_client_urgent(wm, client, false);
     if (update_mru) promote_mru(client);
     XSetWindowBorder(wm->display, client->window, wm->focused_border);
     if (client->accepts_input) {
@@ -672,21 +688,11 @@ void workspace_set_mode(WM *wm, Workspace *workspace, WorkspaceMode mode)
     if (!workspace || workspace->mode == mode) return;
     workspace->mode = mode;
     if (workspace != workspace->monitor->active_workspace) return;
+    for (Client *client = workspace->clients; client; client = client->workspace_next)
+        materialize_client_geometry(wm, client);
     if (mode == WORKSPACE_MONOCLE) {
-        for (Client *client = workspace->clients; client; client = client->workspace_next) {
-            if (!client->fullscreen) {
-                Rect presentation = fit_workarea(wm, client, workspace->monitor->workarea);
-                XMoveResizeWindow(wm->display, client->window, presentation.x,
-                                  presentation.y, (unsigned int)presentation.width,
-                                  (unsigned int)presentation.height);
-            }
-        }
         if (wm->focused_client && wm->focused_client->workspace == workspace)
             client_raise(wm, wm->focused_client);
-    } else {
-        for (Client *client = workspace->clients; client; client = client->workspace_next) {
-            if (!client->fullscreen) apply_client_geometry(wm, client, client->geometry);
-        }
     }
     enforce_stacking(wm);
 }
@@ -721,6 +727,28 @@ static Rect snap_geometry_on(WM *wm, Client *client, Monitor *monitor,
 static Rect snap_geometry(WM *wm, Client *client, SnapState state)
 {
     return snap_geometry_on(wm, client, client->workspace->monitor, state);
+}
+
+static void materialize_client_geometry(WM *wm, Client *client)
+{
+    Monitor *monitor = client->workspace->monitor;
+    if (client->fullscreen) {
+        Rect area = monitor->geometry;
+        XMoveResizeWindow(wm->display, client->window, area.x, area.y,
+                          (unsigned int)area.width, (unsigned int)area.height);
+    } else if (client->workspace->mode == WORKSPACE_MONOCLE) {
+        Rect area = fit_workarea(wm, client, monitor->workarea);
+        XMoveResizeWindow(wm->display, client->window, area.x, area.y,
+                          (unsigned int)area.width, (unsigned int)area.height);
+    } else if (client->maximized) {
+        apply_client_geometry(wm, client,
+                              fit_workarea(wm, client, monitor->workarea));
+    } else if (client->snap_state != SNAP_NONE) {
+        apply_client_geometry(wm, client,
+                              snap_geometry(wm, client, client->snap_state));
+    } else {
+        apply_client_geometry(wm, client, client->geometry);
+    }
 }
 
 static bool ranges_overlap(int start, int end, unsigned long other_start,
@@ -758,21 +786,10 @@ static void recompute_workareas(WM *wm)
         if (area.height < 1) area.height = 1;
         monitor->workarea = area;
 
-        Workspace *workspace = monitor->active_workspace;
-        for (Client *client = workspace->clients; client; client = client->workspace_next) {
-            if (client->fullscreen) continue;
-            if (workspace->mode == WORKSPACE_MONOCLE) {
-                Rect presentation = fit_workarea(wm, client, area);
-                XMoveResizeWindow(wm->display, client->window, presentation.x,
-                                  presentation.y, (unsigned int)presentation.width,
-                                  (unsigned int)presentation.height);
-            } else if (client->maximized) {
-                apply_client_geometry(wm, client, fit_workarea(wm, client, area));
-            } else if (client->snap_state != SNAP_NONE) {
-                apply_client_geometry(wm, client,
-                                      snap_geometry(wm, client, client->snap_state));
-            }
-        }
+        for (unsigned int j = 0; j < wm->config.workspace_count; ++j)
+            for (Client *client = monitor->workspaces[j].clients; client;
+                 client = client->workspace_next)
+                materialize_client_geometry(wm, client);
     }
     x11_update_workarea(wm);
     update_tab_bars(wm);
@@ -1011,17 +1028,7 @@ static void apply_real_fullscreen(WM *wm, Client *client, bool fullscreen)
     client->fullscreen = fullscreen;
     XSetWindowBorderWidth(wm->display, client->window,
                           fullscreen ? 0 : client->border_width);
-    if (fullscreen) {
-        Rect area = client->workspace->monitor->geometry;
-        XMoveResizeWindow(wm->display, client->window, area.x, area.y,
-                          (unsigned int)area.width, (unsigned int)area.height);
-    } else if (client->workspace->mode == WORKSPACE_MONOCLE) {
-        Rect area = fit_workarea(wm, client, client->workspace->monitor->workarea);
-        XMoveResizeWindow(wm->display, client->window, area.x, area.y,
-                          (unsigned int)area.width, (unsigned int)area.height);
-    } else {
-        apply_client_geometry(wm, client, client->geometry);
-    }
+    materialize_client_geometry(wm, client);
     enforce_stacking(wm);
     update_fullscreen_property(wm, client);
     x11_update_client_lists(wm);
@@ -1070,6 +1077,7 @@ void workspace_activate(WM *wm, Monitor *monitor, Workspace *workspace)
 
     monitor->active_workspace = workspace;
     for (Client *client = workspace->stack_head; client; client = client->stack_next) {
+        materialize_client_geometry(wm, client);
         XMapWindow(wm->display, client->window);
         XRaiseWindow(wm->display, client->window);
     }
@@ -1158,23 +1166,7 @@ void client_move_to_workspace(WM *wm, Client *client, Workspace *workspace,
     client->stack_prev = client->stack_next = NULL;
     append_workspace_orders(workspace, client);
 
-    if (client->fullscreen) {
-        Rect area = new_monitor->geometry;
-        XMoveResizeWindow(wm->display, client->window, area.x, area.y,
-                          (unsigned int)area.width, (unsigned int)area.height);
-    } else if (workspace->mode == WORKSPACE_MONOCLE) {
-        Rect area = fit_workarea(wm, client, new_monitor->workarea);
-        XMoveResizeWindow(wm->display, client->window, area.x, area.y,
-                          (unsigned int)area.width, (unsigned int)area.height);
-    } else if (client->maximized) {
-        apply_client_geometry(wm, client,
-                              fit_workarea(wm, client, new_monitor->workarea));
-    } else if (client->snap_state != SNAP_NONE) {
-        apply_client_geometry(wm, client,
-                              snap_geometry(wm, client, client->snap_state));
-    } else {
-        apply_client_geometry(wm, client, client->geometry);
-    }
+    materialize_client_geometry(wm, client);
 
     if (follow) {
         wm->selected_monitor = workspace->monitor;
@@ -1189,7 +1181,20 @@ void client_move_to_workspace(WM *wm, Client *client, Workspace *workspace,
 
 static void grab_default_keys(WM *wm)
 {
-    unsigned int modifiers[] = {0, LockMask, Mod2Mask, LockMask | Mod2Mask};
+    XModifierKeymap *map = XGetModifierMapping(wm->display);
+    wm->numlock_mask = 0;
+    if (map) {
+        KeyCode numlock = XKeysymToKeycode(wm->display, XK_Num_Lock);
+        for (int modifier = 0; modifier < 8; ++modifier)
+            for (int key = 0; key < map->max_keypermod; ++key)
+                if (map->modifiermap[modifier * map->max_keypermod + key] == numlock)
+                    wm->numlock_mask = 1U << modifier;
+        XFreeModifiermap(map);
+    }
+    unsigned int modifiers[] = {
+        0, LockMask, wm->numlock_mask, LockMask | wm->numlock_mask,
+    };
+    XUngrabKey(wm->display, AnyKey, AnyModifier, wm->root);
     for (unsigned int binding_index = 0;
          binding_index < wm->config.key_binding_count; ++binding_index) {
         KeyBinding *binding = &wm->config.key_bindings[binding_index];
@@ -1204,7 +1209,7 @@ static void grab_default_keys(WM *wm)
 
 static void handle_key_press(WM *wm, XKeyEvent *event)
 {
-    unsigned int state = event->state & ~(LockMask | Mod2Mask);
+    unsigned int state = event->state & ~(LockMask | wm->numlock_mask);
     KeySym symbol = XLookupKeysym(event, 0);
     for (unsigned int i = 0; i < wm->config.key_binding_count; ++i) {
         KeyBinding *binding = &wm->config.key_bindings[i];
@@ -1307,20 +1312,46 @@ static void apply_normal_hints(WM *wm, Window window, int *width, int *height)
     XSizeHints hints;
     long supplied;
     if (!XGetWMNormalHints(wm->display, window, &hints, &supplied)) return;
-    if (hints.flags & PMinSize) {
-        if (*width < hints.min_width) *width = hints.min_width;
-        if (*height < hints.min_height) *height = hints.min_height;
+    int base_width = hints.flags & PBaseSize ? hints.base_width
+        : hints.flags & PMinSize ? hints.min_width : 0;
+    int base_height = hints.flags & PBaseSize ? hints.base_height
+        : hints.flags & PMinSize ? hints.min_height : 0;
+    int min_width = hints.flags & PMinSize ? hints.min_width : base_width;
+    int min_height = hints.flags & PMinSize ? hints.min_height : base_height;
+    bool base_is_min = base_width == min_width && base_height == min_height;
+
+    if (*width < 1) *width = 1;
+    if (*height < 1) *height = 1;
+    if (!base_is_min) {
+        *width -= base_width;
+        *height -= base_height;
     }
-    if (hints.flags & PMaxSize) {
-        if (hints.max_width > 0 && *width > hints.max_width) *width = hints.max_width;
-        if (hints.max_height > 0 && *height > hints.max_height) *height = hints.max_height;
+    if ((hints.flags & PAspect) && *width > 0 && *height > 0 &&
+        hints.min_aspect.x > 0 && hints.min_aspect.y > 0 &&
+        hints.max_aspect.x > 0 && hints.max_aspect.y > 0) {
+        double min_aspect = (double)hints.min_aspect.y / hints.min_aspect.x;
+        double max_aspect = (double)hints.max_aspect.x / hints.max_aspect.y;
+        if (max_aspect < (double)*width / *height)
+            *width = (int)(*height * max_aspect + 0.5);
+        else if (min_aspect < (double)*height / *width)
+            *height = (int)(*width * min_aspect + 0.5);
     }
-    int base_width = hints.flags & PBaseSize ? hints.base_width : 0;
-    int base_height = hints.flags & PBaseSize ? hints.base_height : 0;
+    if (base_is_min) {
+        *width -= base_width;
+        *height -= base_height;
+    }
     if ((hints.flags & PResizeInc) && hints.width_inc > 0)
-        *width = base_width + (*width - base_width) / hints.width_inc * hints.width_inc;
+        *width -= *width % hints.width_inc;
     if ((hints.flags & PResizeInc) && hints.height_inc > 0)
-        *height = base_height + (*height - base_height) / hints.height_inc * hints.height_inc;
+        *height -= *height % hints.height_inc;
+    *width += base_width;
+    *height += base_height;
+    if (*width < min_width) *width = min_width;
+    if (*height < min_height) *height = min_height;
+    if ((hints.flags & PMaxSize) && hints.max_width > 0 &&
+        *width > hints.max_width) *width = hints.max_width;
+    if ((hints.flags & PMaxSize) && hints.max_height > 0 &&
+        *height > hints.max_height) *height = hints.max_height;
 }
 
 static Rect initial_geometry(WM *wm, const Monitor *monitor,
@@ -1353,12 +1384,15 @@ static Rect initial_geometry(WM *wm, const Monitor *monitor,
 static void grab_client_buttons(WM *wm, Window window)
 {
     unsigned int event_mask = ButtonPressMask | ButtonReleaseMask | PointerMotionMask;
+    XUngrabButton(wm->display, AnyButton, AnyModifier, window);
     if (wm->config.focus_mode == FOCUS_CLICK) {
         XGrabButton(wm->display, AnyButton, AnyModifier, window, False,
                     event_mask, GrabModeSync, GrabModeAsync, None, None);
         return;
     }
-    unsigned int ignored[] = {0, LockMask, Mod2Mask, LockMask | Mod2Mask};
+    unsigned int ignored[] = {
+        0, LockMask, wm->numlock_mask, LockMask | wm->numlock_mask,
+    };
     for (unsigned int binding = 0; binding < wm->config.mouse_binding_count; ++binding) {
         MouseBinding *mouse = &wm->config.mouse_bindings[binding];
         for (size_t i = 0; i < sizeof(ignored) / sizeof(ignored[0]); ++i)
@@ -1572,13 +1606,6 @@ static void reconcile_monitors(WM *wm)
         memset(removed, 0, sizeof(*removed));
     }
     recompute_workareas(wm);
-    for (Client *client = wm->clients; client; client = client->next) {
-        if (client->fullscreen) {
-            Rect area = client->workspace->monitor->geometry;
-            XMoveResizeWindow(wm->display, client->window, area.x, area.y,
-                              (unsigned int)area.width, (unsigned int)area.height);
-        }
-    }
     if (!wm->focused_client) {
         Workspace *workspace = wm->selected_monitor->active_workspace;
         Client *restore = workspace->last_focused_client;
@@ -1678,6 +1705,14 @@ static void handle_event(WM *wm, XEvent *event)
     case KeyRelease:
         handle_key_release(wm, &event->xkey);
         break;
+    case MappingNotify:
+        XRefreshKeyboardMapping(&event->xmapping);
+        if (event->xmapping.request != MappingPointer) {
+            grab_default_keys(wm);
+            for (Client *mapped = wm->clients; mapped; mapped = mapped->next)
+                grab_client_buttons(wm, mapped->window);
+        }
+        break;
     case ButtonPress:
         {
         Monitor *tab_monitor = find_tab_monitor(wm, event->xbutton.window);
@@ -1705,7 +1740,8 @@ static void handle_event(WM *wm, XEvent *event)
         }
         client = find_client(wm, event->xbutton.window);
         if (client) {
-            unsigned int state = event->xbutton.state & ~(LockMask | Mod2Mask);
+            unsigned int state = event->xbutton.state &
+                                 ~(LockMask | wm->numlock_mask);
             MouseBinding *matched = NULL;
             for (unsigned int i = 0; i < wm->config.mouse_binding_count; ++i) {
                 MouseBinding *binding = &wm->config.mouse_bindings[i];

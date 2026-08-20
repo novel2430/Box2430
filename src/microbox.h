@@ -262,6 +262,7 @@ typedef struct WM {
     unsigned long focused_border;
     unsigned long unfocused_border;
     unsigned long urgent_border;
+    unsigned int numlock_mask;
     bool running;
     bool restart_requested;
     struct {

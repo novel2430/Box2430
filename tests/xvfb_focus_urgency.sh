@@ -56,6 +56,7 @@ one_x=$(DISPLAY=$display xwininfo -id "$one" | awk '/Absolute upper-left X:/ {pr
 one_y=$(DISPLAY=$display xwininfo -id "$one" | awk '/Absolute upper-left Y:/ {print $4}')
 DISPLAY=$display xwd -silent -root -out "$tmp_dir/before.xwd"
 before=$(pixel_at "$tmp_dir/before.xwd" "$one_x" "$one_y")
+DISPLAY=$display "$urgency_bin" "$one" input
 DISPLAY=$display "$urgency_bin" "$one" 1
 wait_for "DISPLAY=$display xprop -id $one WM_HINTS | grep -qi urgency" || fail "urgency hint was not set"
 DISPLAY=$display xwd -silent -root -out "$tmp_dir/urgent.xwd"
@@ -64,9 +65,20 @@ urgent=$(pixel_at "$tmp_dir/urgent.xwd" "$one_x" "$one_y")
 
 DISPLAY=$display xdotool mousemove --window "$one" 20 20
 wait_active "$one" || fail "urgent client did not focus"
+wait_for "! DISPLAY=$display xprop -id $one WM_HINTS | grep -qi urgency" || fail "focus did not clear XUrgencyHint"
+DISPLAY=$display xprop -id "$one" WM_HINTS | grep -qi 'accepts input.*True' || fail "clearing urgency overwrote another WM_HINTS value"
 DISPLAY=$display xwd -silent -root -out "$tmp_dir/focused.xwd"
 focused=$(pixel_at "$tmp_dir/focused.xwd" "$one_x" "$one_y")
 [ "$focused" != "$urgent" ] || fail "focusing urgent client did not clear urgent presentation"
+
+DISPLAY=$display xdotool mousemove --window "$two" 20 20
+wait_active "$two" || fail "second client did not refocus"
+DISPLAY=$display "$urgency_bin" "$one" input
+sleep 0.05
+DISPLAY=$display xprop -id "$one" WM_HINTS | grep -qi urgency && fail "unrelated WM_HINTS update revived urgency"
+DISPLAY=$display xwd -silent -root -out "$tmp_dir/after-hints.xwd"
+after_hints=$(pixel_at "$tmp_dir/after-hints.xwd" "$one_x" "$one_y")
+[ "$after_hints" = "$before" ] || fail "unrelated WM_HINTS update revived urgent border"
 
 kill "$two_pid" "$one_pid" 2>/dev/null || true; two_pid= one_pid=
 kill "$wm_pid"; wait "$wm_pid"; wm_pid=
