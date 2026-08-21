@@ -11,7 +11,7 @@ for scenario in \
     xvfb_mouse.sh \
     xvfb_numlock.sh \
     xvfb_normal_hints.sh \
-    xvfb_mru.sh \
+    xvfb_focus_cycle.sh \
     xvfb_tabbar.sh \
     xvfb_restart.sh \
     xvfb_focus_urgency.sh \

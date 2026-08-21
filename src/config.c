@@ -25,10 +25,9 @@ static void set_default_bindings(Config *config)
 {
     static const char *spawn[] = {"spawn", "kitty"};
     static const char *close[] = {"window", "close"};
-    static const char *next_mru[] = {"focus", "next-mru"};
+    static const char *next[] = {"focus", "next"};
     static const char *mode[] = {"mode", "monocle", "toggle"};
-    static const char *next_tab[] = {"focus", "next-tab"};
-    static const char *prev_tab[] = {"focus", "prev-tab"};
+    static const char *prev[] = {"focus", "prev"};
     static const char *snap_left[] = {"snap", "left"};
     static const char *snap_right[] = {"snap", "right"};
     static const char *maximize[] = {"maximize", "toggle"};
@@ -37,10 +36,10 @@ static void set_default_bindings(Config *config)
     static const char *monitor_next[] = {"monitor", "next"};
     add_default_binding(config, Mod4Mask, XK_Return, 2, spawn);
     add_default_binding(config, Mod4Mask, XK_q, 2, close);
-    add_default_binding(config, Mod1Mask, XK_Tab, 2, next_mru);
+    add_default_binding(config, Mod1Mask, XK_Tab, 2, next);
     add_default_binding(config, Mod4Mask, XK_m, 3, mode);
-    add_default_binding(config, Mod4Mask, XK_j, 2, next_tab);
-    add_default_binding(config, Mod4Mask, XK_k, 2, prev_tab);
+    add_default_binding(config, Mod4Mask, XK_j, 2, next);
+    add_default_binding(config, Mod4Mask, XK_k, 2, prev);
     add_default_binding(config, Mod4Mask, XK_Left, 2, snap_left);
     add_default_binding(config, Mod4Mask, XK_Right, 2, snap_right);
     add_default_binding(config, Mod4Mask, XK_Up, 2, maximize);
@@ -69,7 +68,7 @@ static void set_default_bindings(Config *config)
         const char *second;
     } tabs[] = {
         {Button1, "tab", "focus"}, {Button2, "tab", "close"},
-        {Button4, "focus", "prev-tab"}, {Button5, "focus", "next-tab"},
+        {Button4, "focus", "prev"}, {Button5, "focus", "next"},
     };
     for (size_t i = 0; i < sizeof(tabs) / sizeof(tabs[0]); ++i) {
         MouseBinding *binding = &config->tab_bindings[config->tab_binding_count++];
@@ -87,7 +86,6 @@ void config_set_defaults(Config *config)
         .raise_on_focus = false,
         .focus_on_map = true,
         .raise_on_map = true,
-        .monocle_fallback_mru = false,
         .normal_placement = PLACEMENT_CENTER,
         .dialog_placement = PLACEMENT_CENTER,
         .client_fullscreen_policy = CLIENT_FULLSCREEN_FAKE,
@@ -640,21 +638,16 @@ static bool parse_supported_config(Config *candidate, toml_datum_t root)
 
     toml_datum_t focus = toml_get(root, "focus");
     static const char *focus_keys[] = {
-        "mode", "raise_on_focus", "focus_on_map", "raise_on_map", "monocle_fallback",
+        "mode", "raise_on_focus", "focus_on_map", "raise_on_map",
     };
     unsigned int choice = (unsigned int)candidate->focus_mode;
     static const char *focus_modes[] = {"click", "sloppy"};
-    if (!validate_keys(focus, "focus", focus_keys, 5) ||
+    if (!validate_keys(focus, "focus", focus_keys, 4) ||
         !read_enum(focus, "focus", "mode", focus_modes, 2, &choice)) return false;
     candidate->focus_mode = (FocusMode)choice;
     if (!read_bool(focus, "focus", "raise_on_focus", &candidate->raise_on_focus) ||
         !read_bool(focus, "focus", "focus_on_map", &candidate->focus_on_map) ||
         !read_bool(focus, "focus", "raise_on_map", &candidate->raise_on_map)) return false;
-    choice = candidate->monocle_fallback_mru ? 1U : 0U;
-    static const char *fallbacks[] = {"tab", "mru"};
-    if (!read_enum(focus, "focus", "monocle_fallback", fallbacks, 2, &choice)) return false;
-    candidate->monocle_fallback_mru = choice == 1;
-
     toml_datum_t placement = toml_get(root, "placement");
     static const char *placement_keys[] = {"normal", "dialog"};
     static const char *placements[] = {"center", "client"};

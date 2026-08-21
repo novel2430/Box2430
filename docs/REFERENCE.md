@@ -18,8 +18,7 @@ Commands are used by keyboard, mouse, and tab-bar bindings.
 | `window raise\|lower` | Raise or lower the focused window |
 | `window move-workspace <N> [--follow]` | Move the focused window to another workspace |
 | `window move-monitor next\|prev [--follow] [--keep-workspace]` | Move the focused window to another monitor |
-| `focus next-tab\|prev-tab` | Cycle focus in tab order |
-| `focus next-mru\|prev-mru` | Cycle focus in MRU order |
+| `focus next\|prev` | Cycle focus in stable workspace client order |
 | `mode free` | Set the current workspace to FREE mode |
 | `mode monocle` | Set the current workspace to MONOCLE mode |
 | `mode monocle toggle` | Toggle FREE/MONOCLE |
@@ -34,6 +33,8 @@ Commands are used by keyboard, mouse, and tab-bar bindings.
 
 Workspace numbers are 1-based. `--follow` moves focus with the window. `--keep-workspace` preserves the workspace number when moving between monitors instead of using the target monitor's active workspace.
 
+`focus next` / `focus prev` use the workspace's stable client order. New clients are appended; focusing or raising a client does not reorder the cycle.
+
 ## Configuration
 
 The configuration file is TOML. Unknown keys, invalid values, invalid rules, or invalid bindings cause the file to be rejected and Box2430 to use built-in defaults.
@@ -43,7 +44,7 @@ The configuration file is TOML. Unknown keys, invalid values, invalid rules, or 
 | Section | Options and defaults |
 | --- | --- |
 | `[workspaces]` | `count = 9` (`1..32`) |
-| `[focus]` | `mode = "click"` (`click`/`sloppy`), `raise_on_focus = false`, `focus_on_map = true`, `raise_on_map = true`, `monocle_fallback = "tab"` (`tab`/`mru`) |
+| `[focus]` | `mode = "click"` (`click`/`sloppy`), `raise_on_focus = false`, `focus_on_map = true`, `raise_on_map = true` |
 | `[placement]` | `normal = "center"`, `dialog = "center"` (`center`/`client`) |
 | `[fullscreen]` | `client_policy = "fake"` (`allow`/`fake`/`deny`) |
 | `[appearance.border]` | `width = 2`, focused/unfocused/urgent `#RRGGBB` colors |
@@ -74,9 +75,9 @@ Setting a binding to `"none"` removes that binding. Setting `inherit_defaults = 
 | --- | --- |
 | `Super+Return` | `spawn kitty` |
 | `Super+q` | `window close` |
-| `Alt+Tab` | `focus next-mru` |
+| `Alt+Tab` | `focus next` |
 | `Super+m` | `mode monocle toggle` |
-| `Super+j` / `Super+k` | `focus next-tab` / `focus prev-tab` |
+| `Super+j` / `Super+k` | `focus next` / `focus prev` |
 | `Super+Left` / `Super+Right` | `snap left` / `snap right` |
 | `Super+Up` | `maximize toggle` |
 | `Super+f` | `fullscreen toggle` |
@@ -85,7 +86,7 @@ Setting a binding to `"none"` removes that binding. Setting `inherit_defaults = 
 | `Super+Shift+1..9` | `window move-workspace 1..9` |
 | `Super+Button1` / `Super+Button3` | move / resize window |
 | Tab `Button1` / `Button2` | focus / close tab |
-| Tab `WheelUp` / `WheelDown` | previous / next tab |
+| Tab `WheelUp` / `WheelDown` | `focus prev` / `focus next` |
 
 ## Rules
 

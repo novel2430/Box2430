@@ -6,7 +6,6 @@ mode = "sloppy"
 raise_on_focus = false
 focus_on_map = false
 raise_on_map = false
-monocle_fallback = "mru"
 
 [placement]
 normal = "client"

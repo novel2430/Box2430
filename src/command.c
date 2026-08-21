@@ -162,15 +162,10 @@ static CommandStatus command_window(WM *wm, const CommandContext *context,
 static CommandStatus command_focus(WM *wm, const CommandContext *context,
                                    int argc, const char *const *argv)
 {
+    (void)context;
     if (argc != 1) return COMMAND_INVALID;
-    if (strcmp(argv[0], "next-tab") == 0) client_focus_relative(wm, true, true);
-    else if (strcmp(argv[0], "prev-tab") == 0) client_focus_relative(wm, true, false);
-    else if (strcmp(argv[0], "next-mru") == 0)
-        client_focus_mru_cycle(wm, true, context ? context->modifiers : 0,
-                               context ? context->time : CurrentTime);
-    else if (strcmp(argv[0], "prev-mru") == 0)
-        client_focus_mru_cycle(wm, false, context ? context->modifiers : 0,
-                               context ? context->time : CurrentTime);
+    if (strcmp(argv[0], "next") == 0) client_focus_relative(wm, true);
+    else if (strcmp(argv[0], "prev") == 0) client_focus_relative(wm, false);
     else return COMMAND_INVALID;
     return COMMAND_OK;
 }
@@ -332,9 +327,8 @@ bool command_validate(const Config *config, CommandContextType context, int argc
     if (strcmp(argv[0], "monitor") == 0)
         return argc == 2 && (strcmp(argv[1], "next") == 0 || strcmp(argv[1], "prev") == 0);
     if (strcmp(argv[0], "focus") == 0)
-        return argc == 2 && (strcmp(argv[1], "next-tab") == 0 ||
-               strcmp(argv[1], "prev-tab") == 0 ||
-               strcmp(argv[1], "next-mru") == 0 || strcmp(argv[1], "prev-mru") == 0);
+        return argc == 2 && (strcmp(argv[1], "next") == 0 ||
+               strcmp(argv[1], "prev") == 0);
     if (strcmp(argv[0], "mode") == 0)
         return (argc == 2 && (strcmp(argv[1], "free") == 0 ||
                 strcmp(argv[1], "monocle") == 0)) ||

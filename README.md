@@ -9,7 +9,7 @@ It aims to keep the direct, mouse-friendly feel of a traditional stacking WM whi
 * FREE and MONOCLE workspace modes
 * MONOCLE tab bar
 * Click-to-focus and sloppy-focus modes
-* MRU and tab-order focus cycling
+* Stable client-order focus cycling
 * Edge/corner snapping, maximize, and fullscreen
 * Configurable keyboard, mouse, and tab-bar bindings
 * Application spawning from bindings
@@ -80,7 +80,7 @@ A few useful built-in bindings:
 | `Super+q`                         | Close focused window       |
 | `Super+1` … `Super+9`             | Switch workspace           |
 | `Super+Shift+1` … `Super+Shift+9` | Move window to workspace   |
-| `Alt+Tab`                         | Cycle windows by MRU order |
+| `Alt+Tab`                         | Cycle windows in client order |
 | `Super+m`                         | Toggle MONOCLE mode        |
 | `Super+Button1`                   | Move window                |
 | `Super+Button3`                   | Resize window              |

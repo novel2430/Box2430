@@ -34,7 +34,7 @@ In particular, preserve the distinction between:
 - semantic state and temporary X presentation;
 - focus and stacking;
 - monitor geometry and workarea;
-- workspace membership, tab order, MRU order, and stack order;
+- workspace membership, stable client/tab order, and stack order;
 - WM-generated unmaps and client withdrawal.
 
 Couple these concepts only when the intended user behavior requires it.

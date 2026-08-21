@@ -6,7 +6,6 @@ mode = "click"
 raise_on_focus = false
 focus_on_map = true
 raise_on_map = true
-monocle_fallback = "tab"
 
 [placement]
 normal = "center"
@@ -54,9 +53,9 @@ inherit_defaults = true
 
 [bindings.keys]
 "Super+m" = "mode monocle toggle"
-"Super+j" = "focus next-tab"
-"Super+k" = "focus prev-tab"
-"Alt+Tab" = "focus next-mru"
+"Super+j" = "focus next"
+"Super+k" = "focus prev"
+"Alt+Tab" = "focus next"
 "Super+Left" = "snap left"
 "Super+Right" = "snap right"
 "Super+Up" = "maximize toggle"
@@ -72,8 +71,8 @@ inherit_defaults = true
 "Button1" = "tab focus"
 "Button2" = "tab close"
 "Button3" = "none"
-"WheelUp" = "focus prev-tab"
-"WheelDown" = "focus next-tab"
+"WheelUp" = "focus prev"
+"WheelDown" = "focus next"
 
 [[rules]]
 class = "Firefox"

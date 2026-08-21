@@ -24,5 +24,5 @@ inherit_defaults = true
 "Button1" = "tab focus"
 "Button2" = "tab close"
 "Button3" = "none"
-"WheelUp" = "focus prev-tab"
-"WheelDown" = "focus next-tab"
+"WheelUp" = "focus prev"
+"WheelDown" = "focus next"

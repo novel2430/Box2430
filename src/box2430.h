@@ -81,7 +81,6 @@ typedef struct Config {
     bool raise_on_focus;
     bool focus_on_map;
     bool raise_on_map;
-    bool monocle_fallback_mru;
     PlacementPolicy normal_placement;
     PlacementPolicy dialog_placement;
     ClientFullscreenPolicy client_fullscreen_policy;
@@ -149,16 +148,6 @@ typedef struct Workspace Workspace;
 typedef struct Monitor Monitor;
 typedef struct SpecialWindow SpecialWindow;
 
-typedef struct MruCycle {
-    Window *windows;
-    size_t count;
-    size_t cursor;
-    Workspace *workspace;
-    unsigned int modifiers;
-    bool active;
-    bool keyboard_grabbed;
-} MruCycle;
-
 struct SpecialWindow {
     Window window;
     WindowType type;
@@ -177,8 +166,6 @@ struct Client {
     Client *workspace_next;
     Client *tab_prev;
     Client *tab_next;
-    Client *mru_prev;
-    Client *mru_next;
     Client *stack_prev;
     Client *stack_next;
     bool urgent;
@@ -206,8 +193,6 @@ struct Workspace {
     Client *last_focused_client;
     Client *tab_head;
     Client *tab_tail;
-    Client *mru_head;
-    Client *mru_tail;
     Client *stack_head;
     Client *stack_tail;
 };
@@ -278,7 +263,6 @@ typedef struct WM {
         bool preview_maximized;
         Window preview_windows[4];
     } drag;
-    MruCycle mru_cycle;
     unsigned long snap_preview_color;
     XftFont *tab_fonts[BOX2430_MAX_TAB_FONTS];
     unsigned int tab_font_count;
@@ -299,11 +283,8 @@ void wm_destroy(WM *wm);
 void workspace_activate(WM *wm, Monitor *monitor, Workspace *workspace);
 void monitor_select(WM *wm, Monitor *monitor);
 void client_close(WM *wm, Client *client);
-void client_focus_relative(WM *wm, bool tab_order, bool forward);
+void client_focus_relative(WM *wm, bool forward);
 void client_focus_tab_target(WM *wm, Client *client, Time time);
-void client_focus_mru_cycle(WM *wm, bool forward, unsigned int modifiers,
-                            Time time);
-void client_commit_mru_cycle(WM *wm);
 void client_raise(WM *wm, Client *client);
 void client_lower(WM *wm, Client *client);
 void client_move_to_workspace(WM *wm, Client *client, Workspace *workspace,
@@ -330,7 +311,6 @@ typedef struct CommandContext {
     int root_x;
     int root_y;
     Time time;
-    unsigned int modifiers;
 } CommandContext;
 
 CommandStatus command_run(WM *wm, const CommandContext *context, int argc,

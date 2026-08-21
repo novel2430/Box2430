@@ -43,7 +43,7 @@ Is it visible?   -> Is it on an active workspace and not otherwise hidden?
 
 ### Focus and raise
 
-**Focus** controls which client receives keyboard input and is considered the active client. Focusing also updates Box2430 state such as `focused_client`, the workspace's last-focused client, urgency, MRU order, focused border, and `_NET_ACTIVE_WINDOW`.
+**Focus** controls which client receives keyboard input and is considered the active client. Focusing also updates Box2430 state such as `focused_client`, the workspace's last-focused client, urgency, focused border, and `_NET_ACTIVE_WINDOW`. Focus does not reorder the workspace's stable client order.
 
 **Raise** changes stacking order: it moves a client toward the top of the ordinary client stack. It does not by itself give that client keyboard focus.
 
@@ -92,8 +92,7 @@ WM
 ├── SpecialWindow list
 ├── focused Client
 ├── selected Monitor
-├── drag state
-└── MRU-cycle state
+└── drag state
 ```
 
 ### Monitors and workspaces
@@ -149,21 +148,13 @@ Each workspace keeps several independent views of the same clients.
 
 `workspace->clients` is a simple membership list. It is useful for operations that must visit every client in the workspace, such as rematerializing geometry.
 
-### Tab order
+### Stable client / tab order
 
-`tab_head` / `tab_tail` define stable tab order.
+`tab_head` / `tab_tail` define the workspace's canonical client order. The same order is rendered as tabs in MONOCLE mode, but it also exists and is used in FREE mode.
 
-New clients are appended to the end. Focusing a client does not reorder tabs.
+New clients are appended to the end. Focusing or raising a client does not reorder this list.
 
-This order is used by the MONOCLE tab bar and `focus next-tab` / `focus prev-tab`.
-
-### MRU order
-
-`mru_head` / `mru_tail` define most-recently-used focus order.
-
-Normal focus promotes the focused client to the head of the MRU list.
-
-An Alt-Tab-style MRU cycle is slightly different: Box2430 snapshots the current MRU window sequence when the cycle begins and temporarily changes focus without mutating MRU order. When the modifier cycle ends, the final client is promoted once. This prevents the ordering from changing underneath an active cycle.
+`focus next` / `focus prev` cycle through this order with wraparound, skipping clients that cannot receive focus. This gives Box2430 one deterministic focus-cycle order instead of maintaining a separate focus-history structure.
 
 ### Stack order
 
@@ -171,7 +162,7 @@ An Alt-Tab-style MRU cycle is slightly different: Box2430 snapshots the current 
 
 Raise and lower operations modify this list. Focus and stacking are intentionally separate unless `raise_on_focus` or a specific operation explicitly raises a client.
 
-Keeping tab, MRU, and stack order independent is an important invariant: changing one ordering should not silently change the others.
+Stable client/tab order and stack order are independent: focus cycling does not change stacking, and raise/lower operations do not change focus-cycle order.
 
 ## Focus Model
 
@@ -185,16 +176,15 @@ On focus, Box2430 may:
 2. select the client's monitor;
 3. update the workspace's `last_focused_client`;
 4. clear urgency;
-5. update MRU order;
-6. call `XSetInputFocus` when appropriate;
-7. send `WM_TAKE_FOCUS` when supported;
-8. update `_NET_ACTIVE_WINDOW`;
-9. redraw tab bars;
-10. optionally raise the client.
+5. call `XSetInputFocus` when appropriate;
+6. send `WM_TAKE_FOCUS` when supported;
+7. update `_NET_ACTIVE_WINDOW`;
+8. redraw tab bars;
+9. optionally raise the client.
 
 Click focus uses passive button grabs so Box2430 can focus the window and then replay an unmatched click to the client. Sloppy focus uses `EnterNotify`.
 
-When a focused client disappears or leaves a workspace, focus falls back to another focusable client. MONOCLE may prefer a neighboring tab; otherwise MRU order is used.
+When a focused client disappears or leaves a workspace, focus falls back in stable client order: first to the next focusable client after the removed client, then to a previous focusable client if necessary. Workspace restoration still uses `last_focused_client`; if that client cannot be focused, Box2430 falls back from the head of the stable client order.
 
 ## FREE and MONOCLE
 
@@ -280,7 +270,7 @@ User fullscreen always requests real fullscreen.
 
 Dock, desktop, and notification windows are represented as `SpecialWindow`, not normal `Client` objects.
 
-They do not belong to workspaces and do not participate in normal focus, MRU, tab, or client geometry behavior.
+They do not belong to workspaces and do not participate in normal focus, client/tab ordering, or client geometry behavior.
 
 Dock windows may provide `_NET_WM_STRUT` or `_NET_WM_STRUT_PARTIAL`. Box2430 recomputes each monitor's workarea from these struts and rematerializes affected clients.
 
@@ -306,7 +296,7 @@ When a new window is managed, Box2430:
 4. computes initial policy from global configuration and matching rules;
 5. chooses a monitor and workspace;
 6. computes initial geometry and border policy;
-7. inserts the client into workspace membership, tab, MRU, and stack orders;
+7. inserts the client into workspace membership, stable client/tab order, and stack order;
 8. selects X11 events and installs mouse grabs;
 9. reads focus hints;
 10. maps the window if its workspace is visible;
@@ -428,7 +418,7 @@ A few distinctions are structural rather than incidental implementation details:
 * semantic client state and temporary X presentation are not the same thing;
 * monitor geometry and workarea are distinct;
 * workspaces are per-monitor;
-* workspace membership, tab order, MRU order, and stack order are independent structures;
+* workspace membership, stable client/tab order, and stack order are distinct structures;
 * focus and stacking are independent except where a mode such as MONOCLE explicitly couples them;
 * WM-generated unmaps must not be confused with client withdrawal.
 

@@ -349,14 +349,6 @@ static void append_workspace_orders(Workspace *workspace, Client *client)
     }
     workspace->tab_tail = client;
 
-    client->mru_next = workspace->mru_head;
-    if (workspace->mru_head) {
-        workspace->mru_head->mru_prev = client;
-    } else {
-        workspace->mru_tail = client;
-    }
-    workspace->mru_head = client;
-
     client->stack_prev = workspace->stack_tail;
     if (workspace->stack_tail) {
         workspace->stack_tail->stack_next = client;
@@ -380,11 +372,6 @@ static void unlink_workspace_orders(Workspace *workspace, Client *client)
     else workspace->tab_head = client->tab_next;
     if (client->tab_next) client->tab_next->tab_prev = client->tab_prev;
     else workspace->tab_tail = client->tab_prev;
-
-    if (client->mru_prev) client->mru_prev->mru_next = client->mru_next;
-    else workspace->mru_head = client->mru_next;
-    if (client->mru_next) client->mru_next->mru_prev = client->mru_prev;
-    else workspace->mru_tail = client->mru_prev;
 
     if (client->stack_prev) client->stack_prev->stack_next = client->stack_next;
     else workspace->stack_head = client->stack_next;
@@ -445,42 +432,24 @@ static bool client_can_focus(const Client *client)
     return client && (client->accepts_input || client->takes_focus);
 }
 
-static Client *workspace_focus_fallback(Workspace *workspace, Client *removed,
-                                        bool tab_neighbor)
+static Client *workspace_focus_fallback(Workspace *workspace, Client *removed)
 {
-    if (removed && tab_neighbor) {
+    if (removed) {
         for (Client *client = removed->tab_next; client; client = client->tab_next)
             if (client_can_focus(client)) return client;
         for (Client *client = removed->tab_prev; client; client = client->tab_prev)
             if (client_can_focus(client)) return client;
+        return NULL;
     }
-    for (Client *client = workspace->mru_head; client; client = client->mru_next)
-        if (client != removed && client_can_focus(client)) return client;
+    for (Client *client = workspace->tab_head; client; client = client->tab_next)
+        if (client_can_focus(client)) return client;
     return NULL;
 }
 
-static void promote_mru(Client *client)
-{
-    Workspace *workspace = client->workspace;
-    if (workspace->mru_head == client) return;
-    if (client->mru_prev) client->mru_prev->mru_next = client->mru_next;
-    if (client->mru_next) client->mru_next->mru_prev = client->mru_prev;
-    if (workspace->mru_tail == client) workspace->mru_tail = client->mru_prev;
-    client->mru_prev = NULL;
-    client->mru_next = workspace->mru_head;
-    if (workspace->mru_head) workspace->mru_head->mru_prev = client;
-    else workspace->mru_tail = client;
-    workspace->mru_head = client;
-}
-
-static void focus_client_internal(WM *wm, Client *client, Time time,
-                                  bool update_mru)
+static void focus_client(WM *wm, Client *client, Time time)
 {
     if (client && !client_can_focus(client)) return;
-    if (wm->focused_client == client && client) {
-        if (update_mru) promote_mru(client);
-        return;
-    }
+    if (wm->focused_client == client && client) return;
     if (wm->focused_client) {
         XSetWindowBorder(wm->display, wm->focused_client->window,
                          wm->unfocused_border);
@@ -497,7 +466,6 @@ static void focus_client_internal(WM *wm, Client *client, Time time,
     x11_update_workarea(wm);
     client->workspace->last_focused_client = client;
     set_client_urgent(wm, client, false);
-    if (update_mru) promote_mru(client);
     XSetWindowBorder(wm->display, client->window, wm->focused_border);
     if (client->accepts_input) {
         XSetInputFocus(wm->display, client->window, RevertToPointerRoot, time);
@@ -515,11 +483,6 @@ static void focus_client_internal(WM *wm, Client *client, Time time,
     x11_update_active_window(wm);
     update_tab_bars(wm);
     if (wm->config.raise_on_focus) client_raise(wm, client);
-}
-
-static void focus_client(WM *wm, Client *client, Time time)
-{
-    focus_client_internal(wm, client, time, true);
 }
 
 static void apply_client_geometry(WM *wm, Client *client, Rect geometry)
@@ -622,7 +585,7 @@ void client_close(WM *wm, Client *client)
     }
 }
 
-void client_focus_relative(WM *wm, bool tab_order, bool forward)
+void client_focus_relative(WM *wm, bool forward)
 {
     Workspace *workspace = wm->selected_monitor->active_workspace;
     Client *target = NULL;
@@ -630,13 +593,8 @@ void client_focus_relative(WM *wm, bool tab_order, bool forward)
         ? wm->focused_client : NULL;
     unsigned int count = tab_count(workspace);
     for (unsigned int i = 0; i < count; ++i) {
-        if (tab_order) {
-            cursor = cursor ? (forward ? cursor->tab_next : cursor->tab_prev) : NULL;
-            if (!cursor) cursor = forward ? workspace->tab_head : workspace->tab_tail;
-        } else {
-            cursor = cursor ? (forward ? cursor->mru_next : cursor->mru_prev) : NULL;
-            if (!cursor) cursor = forward ? workspace->mru_head : workspace->mru_tail;
-        }
+        cursor = cursor ? (forward ? cursor->tab_next : cursor->tab_prev) : NULL;
+        if (!cursor) cursor = forward ? workspace->tab_head : workspace->tab_tail;
         if (client_can_focus(cursor)) { target = cursor; break; }
     }
     focus_client(wm, target, CurrentTime);
@@ -649,82 +607,6 @@ void client_focus_tab_target(WM *wm, Client *client, Time time)
     if (!client || client->workspace != workspace) return;
     focus_client(wm, client, time);
     if (workspace->mode == WORKSPACE_MONOCLE) client_raise(wm, client);
-}
-
-void client_commit_mru_cycle(WM *wm)
-{
-    if (!wm->mru_cycle.active) return;
-    if (wm->mru_cycle.keyboard_grabbed)
-        XUngrabKeyboard(wm->display, CurrentTime);
-    Client *client = wm->focused_client;
-    if (client && client->workspace == wm->mru_cycle.workspace)
-        promote_mru(client);
-    free(wm->mru_cycle.windows);
-    memset(&wm->mru_cycle, 0, sizeof(wm->mru_cycle));
-}
-
-void client_focus_mru_cycle(WM *wm, bool forward, unsigned int modifiers,
-                            Time time)
-{
-    Workspace *workspace = wm->selected_monitor->active_workspace;
-    if (!modifiers) {
-        client_focus_relative(wm, false, forward);
-        return;
-    }
-    if (wm->mru_cycle.active && wm->mru_cycle.workspace != workspace)
-        client_commit_mru_cycle(wm);
-    if (!wm->mru_cycle.active) {
-        int grab_status = XGrabKeyboard(wm->display, wm->root, False,
-                                        GrabModeAsync, GrabModeAsync, time);
-        bool keyboard_grabbed = grab_status == GrabSuccess;
-        if (!keyboard_grabbed)
-            XAllowEvents(wm->display, AsyncKeyboard, time);
-
-        size_t count = 0;
-        for (Client *client = workspace->mru_head; client; client = client->mru_next)
-            ++count;
-        if (!count) {
-            if (keyboard_grabbed) XUngrabKeyboard(wm->display, time);
-            return;
-        }
-        Window *windows = calloc(count, sizeof(*windows));
-        if (!windows) {
-            if (keyboard_grabbed) XUngrabKeyboard(wm->display, time);
-            return;
-        }
-        size_t focused = count - 1;
-        size_t index = 0;
-        for (Client *client = workspace->mru_head; client; client = client->mru_next) {
-            windows[index] = client->window;
-            if (client == wm->focused_client) focused = index;
-            ++index;
-        }
-        wm->mru_cycle.windows = windows;
-        wm->mru_cycle.count = count;
-        wm->mru_cycle.cursor = focused;
-        wm->mru_cycle.workspace = workspace;
-        wm->mru_cycle.modifiers = modifiers;
-        wm->mru_cycle.active = true;
-        wm->mru_cycle.keyboard_grabbed = keyboard_grabbed;
-    }
-
-    for (size_t attempts = 0; attempts < wm->mru_cycle.count; ++attempts) {
-        if (forward)
-            wm->mru_cycle.cursor = (wm->mru_cycle.cursor + 1) % wm->mru_cycle.count;
-        else
-            wm->mru_cycle.cursor = (wm->mru_cycle.cursor + wm->mru_cycle.count - 1) %
-                                   wm->mru_cycle.count;
-        Client *target = find_client(wm, wm->mru_cycle.windows[wm->mru_cycle.cursor]);
-        if (target && target->workspace == workspace && client_can_focus(target)) {
-            focus_client_internal(wm, target, CurrentTime, false);
-            if (workspace->mode == WORKSPACE_MONOCLE) client_raise(wm, target);
-            if (!wm->mru_cycle.keyboard_grabbed)
-                client_commit_mru_cycle(wm);
-            return;
-        }
-    }
-    if (!wm->mru_cycle.keyboard_grabbed)
-        client_commit_mru_cycle(wm);
 }
 
 void workspace_set_mode(WM *wm, Workspace *workspace, WorkspaceMode mode)
@@ -1146,7 +1028,7 @@ void workspace_activate(WM *wm, Monitor *monitor, Workspace *workspace)
     }
     Client *restore = workspace->last_focused_client;
     if (restore && !client_can_focus(restore))
-        restore = workspace_focus_fallback(workspace, NULL, false);
+        restore = workspace_focus_fallback(workspace, NULL);
     focus_client(wm, restore, CurrentTime);
     enforce_stacking(wm);
 }
@@ -1162,7 +1044,7 @@ void monitor_select(WM *wm, Monitor *monitor)
     Workspace *workspace = monitor->active_workspace;
     Client *restore = workspace->last_focused_client;
     if (restore && !client_can_focus(restore))
-        restore = workspace_focus_fallback(workspace, NULL, false);
+        restore = workspace_focus_fallback(workspace, NULL);
     if (restore && restore->workspace == workspace) focus_client(wm, restore, CurrentTime);
     else focus_client(wm, NULL, CurrentTime);
 }
@@ -1199,9 +1081,7 @@ void client_move_to_workspace(WM *wm, Client *client, Workspace *workspace,
     Monitor *new_monitor = workspace->monitor;
     bool was_focused = wm->focused_client == client;
     bool was_last_focused = old->last_focused_client == client;
-    bool tab_neighbor = old->mode == WORKSPACE_MONOCLE &&
-                        !wm->config.monocle_fallback_mru;
-    Client *fallback = workspace_focus_fallback(old, client, tab_neighbor);
+    Client *fallback = workspace_focus_fallback(old, client);
     if (was_focused) focus_client(wm, fallback, CurrentTime);
     else if (was_last_focused) old->last_focused_client = fallback;
 
@@ -1225,7 +1105,6 @@ void client_move_to_workspace(WM *wm, Client *client, Workspace *workspace,
     client->workspace = workspace;
     client->workspace_next = NULL;
     client->tab_prev = client->tab_next = NULL;
-    client->mru_prev = client->mru_next = NULL;
     client->stack_prev = client->stack_next = NULL;
     append_workspace_orders(workspace, client);
 
@@ -1240,13 +1119,6 @@ void client_move_to_workspace(WM *wm, Client *client, Workspace *workspace,
     } else if (workspace == workspace->monitor->active_workspace) {
         XMapWindow(wm->display, client->window);
     }
-}
-
-static bool key_binding_is_mru(const KeyBinding *binding)
-{
-    return binding->argc == 2 && strcmp(binding->argv[0], "focus") == 0 &&
-        (strcmp(binding->argv[1], "next-mru") == 0 ||
-         strcmp(binding->argv[1], "prev-mru") == 0);
 }
 
 static void grab_default_keys(WM *wm)
@@ -1269,12 +1141,10 @@ static void grab_default_keys(WM *wm)
          binding_index < wm->config.key_binding_count; ++binding_index) {
         KeyBinding *binding = &wm->config.key_bindings[binding_index];
         KeyCode code = XKeysymToKeycode(wm->display, binding->symbol);
-        int keyboard_mode = key_binding_is_mru(binding) && binding->modifiers
-            ? GrabModeSync : GrabModeAsync;
         for (size_t i = 0; i < sizeof(modifiers) / sizeof(modifiers[0]); ++i) {
             XGrabKey(wm->display, (int)code,
                      binding->modifiers | modifiers[i], wm->root,
-                     True, GrabModeAsync, keyboard_mode);
+                     True, GrabModeAsync, GrabModeAsync);
         }
     }
 }
@@ -1291,37 +1161,11 @@ static void handle_key_press(WM *wm, XKeyEvent *event)
             CommandContext context = {
                 .type = COMMAND_CONTEXT_KEYBOARD,
                 .time = event->time,
-                .modifiers = binding->modifiers,
             };
-            bool is_mru = key_binding_is_mru(binding);
-            if (!is_mru) client_commit_mru_cycle(wm);
             command_run(wm, &context, binding->argc, argv);
             return;
         }
     }
-}
-
-static unsigned int modifier_mask_for_keycode(WM *wm, KeyCode code)
-{
-    XModifierKeymap *map = XGetModifierMapping(wm->display);
-    if (!map) return 0;
-    unsigned int result = 0;
-    for (int modifier = 0; modifier < 8; ++modifier) {
-        for (int key = 0; key < map->max_keypermod; ++key) {
-            if (map->modifiermap[modifier * map->max_keypermod + key] == code)
-                result |= 1U << modifier;
-        }
-    }
-    XFreeModifiermap(map);
-    return result;
-}
-
-static void handle_key_release(WM *wm, XKeyEvent *event)
-{
-    if (!wm->mru_cycle.active) return;
-    unsigned int released = modifier_mask_for_keycode(wm, event->keycode);
-    if (released & wm->mru_cycle.modifiers)
-        client_commit_mru_cycle(wm);
 }
 
 typedef struct InitialPolicy {
@@ -1591,9 +1435,7 @@ static void unmanage_client(WM *wm, Client *client, bool withdrawn)
 {
     Workspace *workspace = client->workspace;
     bool was_last_focused = workspace->last_focused_client == client;
-    bool tab_neighbor = workspace->mode == WORKSPACE_MONOCLE &&
-                        !wm->config.monocle_fallback_mru;
-    Client *fallback = workspace_focus_fallback(workspace, client, tab_neighbor);
+    Client *fallback = workspace_focus_fallback(workspace, client);
     if (wm->focused_client == client) {
         wm->focused_client = NULL;
         focus_client(wm, fallback, CurrentTime);
@@ -1647,7 +1489,6 @@ static void reconcile_monitors(WM *wm)
         XSetInputFocus(wm->display, wm->root, RevertToPointerRoot, CurrentTime);
         x11_update_active_window(wm);
     }
-    client_commit_mru_cycle(wm);
     wm->monitor_count = new_count;
     for (unsigned int i = 0; i < common; ++i)
         wm->monitors[i].geometry = rects[i];
@@ -1678,7 +1519,7 @@ static void reconcile_monitors(WM *wm)
         Workspace *workspace = wm->selected_monitor->active_workspace;
         Client *restore = workspace->last_focused_client;
         if (restore && !client_can_focus(restore))
-            restore = workspace_focus_fallback(workspace, NULL, false);
+            restore = workspace_focus_fallback(workspace, NULL);
         focus_client(wm, restore, CurrentTime);
     }
     enforce_stacking(wm);
@@ -1769,9 +1610,6 @@ static void handle_event(WM *wm, XEvent *event)
         break;
     case KeyPress:
         handle_key_press(wm, &event->xkey);
-        break;
-    case KeyRelease:
-        handle_key_release(wm, &event->xkey);
         break;
     case MappingNotify:
         XRefreshKeyboardMapping(&event->xmapping);
@@ -2094,7 +1932,6 @@ void wm_run(WM *wm)
 void wm_destroy(WM *wm)
 {
     if (!wm->display) return;
-    client_commit_mru_cycle(wm);
     XSync(wm->display, False);
     while (XPending(wm->display)) {
         XEvent event;

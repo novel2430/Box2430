@@ -128,7 +128,7 @@ Examples:
 
 * Send keybinds with `xdotool` instead of calling command functions directly.
 * Spawn tests should cover binding dispatch, `fork`/`exec`, and the resulting managed window together.
-* Held-modifier MRU tests should send distinct modifier and Tab press/release events.
+* Focus-cycle tests should exercise real keybindings and verify that ordinary focus changes do not reorder the stable client cycle.
 * Geometry tests should inspect the resulting X window geometry, not only internal state.
 
 When fixing a reproducible bug, prefer adding the smallest regression scenario that exercises the real failing path.
@@ -162,7 +162,7 @@ The suite currently covers areas including:
 * interactive mouse move/resize and snap preview;
 * NumLock-insensitive bindings;
 * ICCCM size hints and focus protocol;
-* MRU focus history and urgency;
+* stable client-order focus cycling and urgency;
 * MONOCLE tab-bar behavior;
 * restart behavior;
 * `spawn` and SIGCHLD inheritance behavior.

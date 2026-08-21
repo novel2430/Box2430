@@ -53,7 +53,7 @@ In particular:
 
 * keep the implementation direct and readable;
 * prefer explicit C state transitions over generic frameworks;
-* preserve semantic distinctions such as focus vs. stacking, geometry vs. workarea, and tab/MRU/stack order;
+* preserve semantic distinctions such as focus vs. stacking, geometry vs. workarea, and client/tab order vs. stack order;
 * keep Xlib boundaries thin;
 * follow established mature X11 WM practice before adding defensive machinery;
 * treat ordinary client-lifetime `BadWindow` races as expected X11 behavior when appropriate;
