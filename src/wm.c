@@ -20,6 +20,7 @@ static void materialize_client_geometry(WM *wm, Client *client);
 static void grab_client_buttons(WM *wm, Window window);
 static void update_tab_bars(WM *wm);
 static bool create_tab_bar(WM *wm, Monitor *monitor);
+static unsigned int monocle_tab_height(const WM *wm, const Monitor *monitor);
 
 static void handle_signal(int signal_number)
 {
@@ -246,6 +247,8 @@ static Client *tab_at(WM *wm, Monitor *monitor, int x)
 static void draw_tab_bar(WM *wm, Monitor *monitor)
 {
     if (!monitor->tab_draw) return;
+    unsigned int tab_height = monocle_tab_height(wm, monitor);
+    if (!tab_height) tab_height = 1;
     XClearWindow(wm->display, monitor->tab_bar);
     Workspace *workspace = monitor->active_workspace;
     for (Client *client = workspace->tab_head; client; client = client->tab_next) {
@@ -264,13 +267,13 @@ static void draw_tab_bar(WM *wm, Monitor *monitor)
         XSetForeground(wm->display, DefaultGC(wm->display, wm->screen), bg->pixel);
         XFillRectangle(wm->display, monitor->tab_bar,
                        DefaultGC(wm->display, wm->screen), x, 0, width,
-                       wm->config.tab_height);
+                       tab_height);
         XRectangle clip = {(short)x, 0, (unsigned short)width,
-                           (unsigned short)wm->config.tab_height};
+                           (unsigned short)tab_height};
         XftDrawSetClipRectangles(monitor->tab_draw, 0, 0, &clip, 1);
         bool bold = tab_uses_bold(wm, client);
         XftFont *font = bold ? wm->tab_fonts_bold[0] : wm->tab_fonts[0];
-        int baseline = ((int)wm->config.tab_height - font->ascent - font->descent) / 2 +
+        int baseline = ((int)tab_height - font->ascent - font->descent) / 2 +
                        font->ascent;
         const char *title = client->title && client->title[0] ? client->title : "(untitled)";
         const FcChar8 *cursor = (const FcChar8 *)title;
@@ -295,11 +298,13 @@ static void update_tab_bars(WM *wm)
     if (!wm->tab_resources_ready) return;
     for (unsigned int i = 0; i < wm->monitor_count; ++i) {
         Monitor *monitor = &wm->monitors[i];
+        unsigned int tab_height = monocle_tab_height(wm, monitor);
         bool visible = wm->config.tabs_enabled &&
-            monitor->active_workspace->mode == WORKSPACE_MONOCLE;
+            monitor->active_workspace->mode == WORKSPACE_MONOCLE && tab_height;
+        unsigned int window_height = tab_height ? tab_height : 1;
         XMoveResizeWindow(wm->display, monitor->tab_bar,
                           monitor->workarea.x, monitor->workarea.y,
-                          (unsigned int)monitor->workarea.width, wm->config.tab_height);
+                          (unsigned int)monitor->workarea.width, window_height);
         if (visible) {
             XMapWindow(wm->display, monitor->tab_bar);
             draw_tab_bar(wm, monitor);
@@ -535,6 +540,25 @@ static Rect fit_workarea(WM *wm, const Client *client, Rect area)
     return (Rect){area.x, area.y, width, height};
 }
 
+static unsigned int monocle_tab_height(const WM *wm, const Monitor *monitor)
+{
+    int minimum_content_height = 2 * (int)wm->config.border_width + 1;
+    if (!wm->config.tabs_enabled ||
+        monitor->workarea.height <= minimum_content_height) return 0;
+    unsigned int available =
+        (unsigned int)(monitor->workarea.height - minimum_content_height);
+    return wm->config.tab_height < available ? wm->config.tab_height : available;
+}
+
+static Rect monocle_content_area(const WM *wm, const Monitor *monitor)
+{
+    Rect area = monitor->workarea;
+    int tab_height = (int)monocle_tab_height(wm, monitor);
+    area.y += tab_height;
+    area.height -= tab_height;
+    return area;
+}
+
 static void update_fullscreen_property(WM *wm, Client *client)
 {
     if (client->fullscreen || client->client_fullscreen) {
@@ -737,7 +761,7 @@ static void materialize_client_geometry(WM *wm, Client *client)
         XMoveResizeWindow(wm->display, client->window, area.x, area.y,
                           (unsigned int)area.width, (unsigned int)area.height);
     } else if (client->workspace->mode == WORKSPACE_MONOCLE) {
-        Rect area = fit_workarea(wm, client, monitor->workarea);
+        Rect area = fit_workarea(wm, client, monocle_content_area(wm, monitor));
         XMoveResizeWindow(wm->display, client->window, area.x, area.y,
                           (unsigned int)area.width, (unsigned int)area.height);
     } else if (client->maximized) {
@@ -848,23 +872,32 @@ static bool ensure_snap_preview(WM *wm)
     return true;
 }
 
+static Rect snap_preview_outer_target(WM *wm, Client *client, Monitor *monitor,
+                                      SnapState state, bool maximize)
+{
+    if (maximize) return monitor->workarea;
+    Rect inner = snap_geometry_on(wm, client, monitor, state);
+    int border = (int)client->border_width;
+    inner.width += 2 * border;
+    inner.height += 2 * border;
+    return inner;
+}
+
 static void show_snap_preview(WM *wm, Client *client, Monitor *monitor,
-                              SnapState state)
+                              SnapState state, bool maximize)
 {
     if (!wm->config.snap_preview || !ensure_snap_preview(wm)) return;
-    Rect inner = state == SNAP_NONE
-        ? monitor->workarea : snap_geometry_on(wm, client, monitor, state);
-    int border = (int)client->border_width;
-    int width = inner.width + 2 * border;
-    int height = inner.height + 2 * border;
+    Rect outer = snap_preview_outer_target(wm, client, monitor, state, maximize);
+    int width = outer.width;
+    int height = outer.height;
     int line = (int)wm->config.snap_preview_width;
     if (line > width) line = width;
     if (line > height) line = height;
     Rect pieces[4] = {
-        {inner.x, inner.y, width, line},
-        {inner.x, inner.y + height - line, width, line},
-        {inner.x, inner.y, line, height},
-        {inner.x + width - line, inner.y, line, height},
+        {outer.x, outer.y, width, line},
+        {outer.x, outer.y + height - line, width, line},
+        {outer.x, outer.y, line, height},
+        {outer.x + width - line, outer.y, line, height},
     };
     for (size_t i = 0; i < 4; ++i) {
         XMoveResizeWindow(wm->display, wm->drag.preview_windows[i],
@@ -909,11 +942,17 @@ void mouse_begin_drag(WM *wm, Client *client, bool resize, int root_x, int root_
     wm->drag.resize = resize;
     wm->drag.preview_snap = SNAP_NONE;
     wm->drag.preview_monitor = NULL;
+    wm->drag.preview_maximized = false;
     if (resize) {
         root_x = client->geometry.x + client->geometry.width +
                  2 * (int)client->border_width - 1;
         root_y = client->geometry.y + client->geometry.height +
                  2 * (int)client->border_width - 1;
+        XWarpPointer(wm->display, None, wm->root, 0, 0, 0, 0, root_x, root_y);
+    } else {
+        int border = (int)client->border_width;
+        root_x = client->geometry.x + (client->geometry.width + 2 * border) / 2;
+        root_y = client->geometry.y + (client->geometry.height + 2 * border) / 2;
         XWarpPointer(wm->display, None, wm->root, 0, 0, 0, 0, root_x, root_y);
     }
     wm->drag.start_x = root_x;
@@ -952,14 +991,17 @@ static void update_drag(WM *wm, int root_x, int root_y)
                                  (int)wm->config.snap_edge_zone;
         if (maximize) target = SNAP_NONE;
         Monitor *desired_monitor = (target != SNAP_NONE || maximize) ? monitor : NULL;
-        if (target != wm->drag.preview_snap || desired_monitor != wm->drag.preview_monitor) {
+        if (target != wm->drag.preview_snap ||
+            desired_monitor != wm->drag.preview_monitor ||
+            maximize != wm->drag.preview_maximized) {
             hide_snap_preview(wm);
             wm->drag.preview_snap = target;
             wm->drag.preview_monitor = desired_monitor;
+            wm->drag.preview_maximized = maximize;
             if (maximize) {
-                show_snap_preview(wm, client, monitor, SNAP_NONE);
+                show_snap_preview(wm, client, monitor, SNAP_NONE, true);
             } else if (target != SNAP_NONE) {
-                show_snap_preview(wm, client, monitor, target);
+                show_snap_preview(wm, client, monitor, target, false);
             }
         }
     }
@@ -970,7 +1012,7 @@ static void finish_drag(WM *wm)
     if (!wm->drag.active || !wm->drag.client) return;
     Client *client = wm->drag.client;
     Monitor *target = NULL;
-    bool maximize = false;
+    bool maximize = wm->drag.preview_maximized;
     if (!wm->drag.resize && wm->drag.preview_monitor) {
         target = wm->drag.preview_monitor;
         int pointer_x, pointer_y, child_x, child_y;
@@ -1002,6 +1044,7 @@ static void finish_drag(WM *wm)
     wm->drag.client = NULL;
     wm->drag.preview_monitor = NULL;
     wm->drag.preview_snap = SNAP_NONE;
+    wm->drag.preview_maximized = false;
 }
 
 void client_set_maximized(WM *wm, Client *client, bool maximized)
@@ -1498,9 +1541,7 @@ static void manage_window(WM *wm, Window window, bool map_window)
     grab_client_buttons(wm, window);
     XSetWindowBorderWidth(wm->display, window, client->border_width);
     XSetWindowBorder(wm->display, window, wm->unfocused_border);
-    XMoveResizeWindow(wm->display, window, client->geometry.x, client->geometry.y,
-                      (unsigned int)client->geometry.width,
-                      (unsigned int)client->geometry.height);
+    materialize_client_geometry(wm, client);
     x11_set_wm_state(wm, window, NormalState);
     read_focus_hints(wm, client);
     bool visible = client->workspace == client->workspace->monitor->active_workspace;
@@ -1874,9 +1915,11 @@ static bool create_tab_bar(WM *wm, Monitor *monitor)
         .background_pixel = wm->tab_inactive_bg.pixel,
         .event_mask = ExposureMask | ButtonPressMask,
     };
+    unsigned int tab_height = monocle_tab_height(wm, monitor);
+    if (!tab_height) tab_height = 1;
     monitor->tab_bar = XCreateWindow(
         wm->display, wm->root, monitor->workarea.x, monitor->workarea.y,
-        (unsigned int)monitor->workarea.width, wm->config.tab_height, 0,
+        (unsigned int)monitor->workarea.width, tab_height, 0,
         DefaultDepth(wm->display, wm->screen), InputOutput, visual,
         CWOverrideRedirect | CWBackPixel | CWEventMask, &attributes);
     char name[64];

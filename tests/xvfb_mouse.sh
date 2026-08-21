@@ -41,8 +41,16 @@ start_x=$(field "$window" 'Absolute upper-left X:')
 start_y=$(field "$window" 'Absolute upper-left Y:')
 start_w=$(field "$window" 'Width:')
 start_h=$(field "$window" 'Height:')
+move_center_x=$((start_x + (start_w + 4) / 2))
+move_center_y=$((start_y + (start_h + 4) / 2))
 DISPLAY=$display xdotool keydown super mousemove --window "$window" 20 20 \
-    mousedown 1 mousemove_relative --sync 100 50 mouseup 1 keyup super
+    mousedown 1 sleep 0.3 mousemove_relative --sync 100 50 mouseup 1 keyup super &
+drag_pid=$!
+wait_for "test \"\$(DISPLAY=$display xdotool getmouselocation --shell | awk -F= '/^X=/ {print \$2}')\" = $move_center_x" ||
+    fail "move did not warp pointer to client center x"
+wait_for "test \"\$(DISPLAY=$display xdotool getmouselocation --shell | awk -F= '/^Y=/ {print \$2}')\" = $move_center_y" ||
+    fail "move did not warp pointer to client center y"
+wait "$drag_pid"; drag_pid=
 wait_for "test \"\$(DISPLAY=$display xwininfo -id $window | awk '/Absolute upper-left X:/ {print \$4}')\" = $((start_x + 100))" || fail "explicit mouse move failed"
 [ "$(field "$window" 'Absolute upper-left Y:')" = $((start_y + 50)) ] || fail "mouse move y failed"
 
@@ -57,11 +65,15 @@ wait_for "test \"\$(DISPLAY=$display xwininfo -id $window | awk '/Width:/ {print
 [ "$(field "$window" 'Absolute upper-left X:')" = 0 ] || fail "left snap x incorrect"
 
 # Starting a manual move from snapped state restores normal_geometry first.
+restored_center_x=$((move_center_x + 100))
+restored_center_y=$((move_center_y + 50))
 DISPLAY=$display xdotool keydown super mousemove --window "$window" 20 20 \
-    mousedown 1 mousemove_relative --sync 30 20 mouseup 1 keyup super
+    mousedown 1 sleep 0.05 \
+    mousemove --sync $((restored_center_x + 30)) $((restored_center_y + 20)) \
+    mouseup 1 keyup super
 wait_for "test \"\$(DISPLAY=$display xwininfo -id $window | awk '/Width:/ {print \$2; exit}')\" = $start_w" || fail "drag from snap did not restore normal size"
 restored_x=$(field "$window" 'Absolute upper-left X:')
-[ "$restored_x" = 8 ] || fail "drag from snap did not use release-time normal geometry (x=$restored_x)"
+[ "$restored_x" = $((start_x + 130)) ] || fail "drag from snap did not use restored geometry (x=$restored_x)"
 
 resize_x=$(field "$window" 'Absolute upper-left X:')
 resize_y=$(field "$window" 'Absolute upper-left Y:')
@@ -80,9 +92,16 @@ DISPLAY=$display xdotool key super+Up key super+Up
 wait_for "test \"\$(DISPLAY=$display xwininfo -id $window | awk '/Width:/ {print \$2; exit}')\" = $resized_w" || fail "maximize did not restore resized normal geometry"
 [ "$(field "$window" 'Height:')" = "$resized_h" ] || fail "maximize restore lost resized height"
 
-# Top-center hover previews and commits maximize; bottom-center commits nothing.
+# Top-center hover previews all four workarea-inside edges and commits maximize;
+# bottom-center commits nothing.
 DISPLAY=$display xdotool keydown super mousemove --window "$window" 20 20 \
-    mousedown 1 mousemove --sync 400 0 mouseup 1 keyup super
+    mousedown 1 sleep 0.05 mousemove --sync 400 0 sleep 0.5 mouseup 1 keyup super &
+drag_pid=$!
+wait_for "DISPLAY=$display xwininfo -root -tree | grep -q '800x2+0+0'" || fail "maximize preview top edge missing"
+DISPLAY=$display xwininfo -root -tree | grep -q '800x2+0+598' || fail "maximize preview bottom edge missing"
+DISPLAY=$display xwininfo -root -tree | grep -q '2x600+0+0' || fail "maximize preview left edge missing"
+DISPLAY=$display xwininfo -root -tree | grep -q '2x600+798+0' || fail "maximize preview right edge missing"
+wait "$drag_pid"; drag_pid=
 wait_for "test \"\$(DISPLAY=$display xwininfo -id $window | awk '/Width:/ {print \$2; exit}')\" = 796" || fail "top-edge maximize did not commit"
 DISPLAY=$display xdotool keydown super mousemove --window "$window" 20 20 \
     mousedown 1 mousemove --sync 400 599 mouseup 1 keyup super

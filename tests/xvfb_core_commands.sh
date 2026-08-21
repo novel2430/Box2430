@@ -96,10 +96,10 @@ assert_geometry "$two" "$original_x" "$original_y" "$original_w" "$original_h"
 
 DISPLAY=$display xdotool key super+m
 wait_for "test \"\$(DISPLAY=$display xwininfo -id $two | awk '/Width:/ {print \$2; exit}')\" = 796" || fail "MONOCLE presentation missing"
-assert_geometry "$one" 0 0 796 596
-assert_geometry "$two" 0 0 796 596
+assert_geometry "$one" 0 24 796 572
+assert_geometry "$two" 0 24 796 572
 DISPLAY=$display xdotool key super+Left
-assert_geometry "$two" 0 0 796 596
+assert_geometry "$two" 0 24 796 572
 DISPLAY=$display xdotool key super+j
 wait_for "DISPLAY=$display xprop -root _NET_ACTIVE_WINDOW | grep -qi $(printf '0x%x' "$one")" || fail "tab-order focus did not cycle"
 DISPLAY=$display xdotool key super+m

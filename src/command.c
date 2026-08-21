@@ -1,6 +1,8 @@
 #include "box2430.h"
 
 #include <errno.h>
+#include <signal.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -28,13 +30,27 @@ static CommandStatus command_spawn(WM *wm, const CommandContext *context,
                                    int argc, const char *const *argv)
 {
     (void)context;
-    if (argc < 1) return COMMAND_INVALID;
+    if (argc < 1 || argc > BOX2430_MAX_COMMAND_ARGS) return COMMAND_INVALID;
+    char *arguments[BOX2430_MAX_COMMAND_ARGS + 1];
+    for (int i = 0; i < argc; ++i) arguments[i] = (char *)argv[i];
+    arguments[argc] = NULL;
     pid_t child = fork();
     if (child < 0) return COMMAND_INVALID;
     if (child == 0) {
+        struct sigaction action = {0};
+        action.sa_handler = SIG_DFL;
+        sigemptyset(&action.sa_mask);
+        if (sigaction(SIGCHLD, &action, NULL) < 0) {
+            int error = errno;
+            fprintf(stderr, "box2430: spawn %s: cannot reset SIGCHLD: %s\n",
+                    argv[0], strerror(error));
+            _exit(127);
+        }
         close(wm->x_fd);
         setsid();
-        execvp(argv[0], (char *const *)argv);
+        execvp(arguments[0], arguments);
+        int error = errno;
+        fprintf(stderr, "box2430: spawn %s: %s\n", argv[0], strerror(error));
         _exit(127);
     }
     return COMMAND_OK;

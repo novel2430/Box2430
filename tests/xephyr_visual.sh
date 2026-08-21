@@ -47,7 +47,7 @@ wait_for "DISPLAY=$display xprop -root _NET_ACTIVE_WINDOW | grep -qi $(printf '0
 capture xephyr-free
 
 DISPLAY=$display xdotool keydown super mousemove --window "$front" 20 20 \
-    mousedown 1 mousemove --sync 0 300 sleep 0.6 mouseup 1 keyup super & drag_pid=$!
+    mousedown 1 sleep 0.05 mousemove --sync 0 300 sleep 0.6 mouseup 1 keyup super & drag_pid=$!
 wait_for "DISPLAY=$display xwininfo -root -tree | grep -q '400x2+0+0'" ||
     fail "snap preview outline missing"
 capture xephyr-snap-preview

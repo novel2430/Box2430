@@ -48,10 +48,16 @@ DISPLAY=$display xdotool key super+Up super+Up
 wait_for "test \"\$(DISPLAY=$display xwininfo -id $client | awk '/Width:/ {print \$2; exit}')\" != 796" ||
     fail "maximize did not restore"
 before_x=$(field "$client" 'Absolute upper-left X:')
+before_y=$(field "$client" 'Absolute upper-left Y:')
+before_w=$(field "$client" 'Width:')
+before_h=$(field "$client" 'Height:')
+center_x=$((before_x + (before_w + 4) / 2))
+center_y=$((before_y + (before_h + 4) / 2))
 DISPLAY=$display xdotool keydown super mousemove --window "$client" 20 20 \
-    mousedown 1 mousemove_relative --sync 40 0 mouseup 1 keyup super
+    mousedown 1 sleep 0.05 mousemove --sync $((center_x + 40)) "$center_y" \
+    mouseup 1 keyup super
 after_x=$(field "$client" 'Absolute upper-left X:')
-[ "$after_x" -gt "$before_x" ] || fail "mouse binding failed with NumLock on Mod3"
+[ "$after_x" = $((before_x + 40)) ] || fail "mouse binding failed with NumLock on Mod3"
 
 # Remap while Box2430 is running. XSetModifierMapping emits MappingNotify;
 # Box2430 must refresh the mapping and replace its passive grabs.

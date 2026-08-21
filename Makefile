@@ -51,7 +51,7 @@ install: release
 
 test-tools: $(BUILD_DIR)/x11-test-client $(BUILD_DIR)/x11-set-urgency \
 	$(BUILD_DIR)/x11-focus-client $(BUILD_DIR)/x11-set-numlock-modifier \
-	$(BUILD_DIR)/x11-size-hints-client
+	$(BUILD_DIR)/x11-size-hints-client $(BUILD_DIR)/x11-sigchld-client
 
 $(BUILD_DIR)/x11-test-client: tests/x11_test_client.c
 	@mkdir -p $(dir $@)
@@ -70,6 +70,10 @@ $(BUILD_DIR)/x11-set-numlock-modifier: tests/x11_set_numlock_modifier.c
 	$(CC) $(CPPFLAGS) $(CFLAGS_COMMON) $(CFLAGS) -o $@ $< $(LDLIBS)
 
 $(BUILD_DIR)/x11-size-hints-client: tests/x11_size_hints_client.c
+	@mkdir -p $(dir $@)
+	$(CC) $(CPPFLAGS) $(CFLAGS_COMMON) $(CFLAGS) -o $@ $< $(LDLIBS)
+
+$(BUILD_DIR)/x11-sigchld-client: tests/x11_sigchld_client.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CPPFLAGS) $(CFLAGS_COMMON) $(CFLAGS) -o $@ $< $(LDLIBS)
 

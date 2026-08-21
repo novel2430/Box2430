@@ -274,6 +274,7 @@ typedef struct WM {
         bool resize;
         SnapState preview_snap;
         Monitor *preview_monitor;
+        bool preview_maximized;
         Window preview_windows[4];
     } drag;
     MruCycle mru_cycle;

@@ -1,0 +1,8 @@
+[bindings]
+inherit_defaults = false
+
+[bindings.keys]
+"Super+s" = "spawn x11-sigchld-client"
+"Super+e" = "spawn box2430-command-that-does-not-exist"
+"Super+t" = "spawn xterm -title SpawnedXterm"
+"Super+x" = "window close"

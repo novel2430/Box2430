@@ -16,7 +16,8 @@ for scenario in \
     xvfb_restart.sh \
     xvfb_focus_urgency.sh \
     xvfb_focus_history.sh \
-    xvfb_focus_protocol.sh
+    xvfb_focus_protocol.sh \
+    xvfb_spawn.sh
 do
     "$(dirname "$0")/$scenario"
 done
