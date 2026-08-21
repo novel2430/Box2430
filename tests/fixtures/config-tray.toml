@@ -1,0 +1,16 @@
+[appearance.bar]
+enabled = true
+position = "top"
+height = 24
+padding = 0
+gap = 0
+bg = "#224466"
+left = []
+center = []
+right = ["tray"]
+
+[appearance.tabs]
+enabled = false
+
+[bindings]
+inherit_defaults = true

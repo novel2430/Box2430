@@ -1,4 +1,5 @@
 #include "ui.h"
+#include "tray.h"
 
 #include <limits.h>
 #include <stdint.h>
@@ -569,7 +570,7 @@ static unsigned int widget_natural_width(WM *wm, Monitor *monitor,
         UIStyle style = clock_style(wm);
         return label_width(wm, &style, clock_label(wm));
     }
-    /* tray deliberately enters the layout in Phase 6. */
+    if (widget == UI_WIDGET_TRAY) return tray_widget_width(wm, monitor);
     return 0;
 }
 
@@ -875,7 +876,9 @@ void ui_bar_draw(WM *wm, Monitor *monitor)
 {
     if (!wm->bar_resources_ready || !monitor || !monitor->bar_draw) return;
     XClearWindow(wm->display, monitor->bar);
+    tray_prepare_layout(wm, monitor);
     layout_bar(wm, monitor);
+    tray_set_allocation(wm, monitor, monitor->bar_widget_rects[UI_WIDGET_TRAY]);
     for (unsigned int widget = 0; widget < UI_WIDGET_COUNT; ++widget) {
         Rect rect = monitor->bar_widget_rects[widget];
         switch ((UIBarWidget)widget) {
@@ -975,6 +978,7 @@ void ui_bar_update(WM *wm)
             ui_bar_draw(wm, monitor);
         } else {
             XUnmapWindow(wm->display, monitor->bar);
+            tray_set_allocation(wm, monitor, (Rect){0});
         }
     }
 }

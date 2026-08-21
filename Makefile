@@ -13,7 +13,7 @@ BINDIR ?= $(PREFIX)/bin
 DATADIR ?= $(PREFIX)/share
 BUILD_DIR = build/$(PROFILE)
 TARGET = $(BUILD_DIR)/box2430
-SOURCES = src/main.c src/wm.c src/ui.c src/monitor.c src/command.c src/config.c src/x11.c \
+SOURCES = src/main.c src/wm.c src/ui.c src/tray.c src/monitor.c src/command.c src/config.c src/x11.c \
 	vendor/tomlc17/tomlc17.c
 OBJECTS = $(SOURCES:%.c=$(BUILD_DIR)/%.o)
 DEPS = $(OBJECTS:.o=.d)
@@ -58,7 +58,7 @@ test-tools: $(BUILD_DIR)/x11-test-client $(BUILD_DIR)/x11-set-urgency \
 	$(BUILD_DIR)/x11-root-color $(BUILD_DIR)/x11-workspace-transition-observer \
 	$(BUILD_DIR)/x11-configure-request $(BUILD_DIR)/x11-stacking-order \
 	$(BUILD_DIR)/x11-window-color $(BUILD_DIR)/x11-window-hash \
-	$(BUILD_DIR)/monitor-geometry-test \
+	$(BUILD_DIR)/x11-tray-test-client $(BUILD_DIR)/monitor-geometry-test \
 	$(BUILD_DIR)/ui-label-test
 
 test: all test-tools
@@ -131,15 +131,20 @@ $(BUILD_DIR)/x11-window-hash: tests/x11_window_hash.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CPPFLAGS) $(CFLAGS_COMMON) $(CFLAGS) -o $@ $< $(LDLIBS)
 
+
+$(BUILD_DIR)/x11-tray-test-client: tests/x11_tray_test_client.c
+	@mkdir -p $(dir $@)
+	$(CC) $(CPPFLAGS) $(CFLAGS_COMMON) $(CFLAGS) -o $@ $< $(LDLIBS)
+
 $(BUILD_DIR)/monitor-geometry-test: tests/monitor_geometry_test.c src/monitor.c \
 	src/box2430.h
 	@mkdir -p $(dir $@)
 	$(CC) $(CPPFLAGS) $(CFLAGS_COMMON) $(CFLAGS) -o $@ \
 		tests/monitor_geometry_test.c src/monitor.c $(LDLIBS)
 
-$(BUILD_DIR)/ui-label-test: tests/ui_label_test.c src/ui.c src/ui.h src/box2430.h
+$(BUILD_DIR)/ui-label-test: tests/ui_label_test.c src/ui.c src/tray.c src/ui.h src/tray.h src/box2430.h
 	@mkdir -p $(dir $@)
 	$(CC) $(CPPFLAGS) $(CFLAGS_COMMON) $(CFLAGS) -o $@ \
-		tests/ui_label_test.c src/ui.c $(LDLIBS)
+		tests/ui_label_test.c src/ui.c src/tray.c $(LDLIBS)
 
 -include $(DEPS)

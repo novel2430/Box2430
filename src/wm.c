@@ -1,5 +1,6 @@
 #include "box2430.h"
 #include "ui.h"
+#include "tray.h"
 
 #include <X11/Xatom.h>
 #include <X11/extensions/Xinerama.h>
@@ -160,6 +161,7 @@ static void enforce_stacking(WM *wm)
     for (unsigned int i = 0; i < wm->monitor_count; ++i)
         if (wm->config.bar.enabled && wm->monitors[i].bar)
             XRaiseWindow(wm->display, wm->monitors[i].bar);
+    tray_raise(wm);
     for (unsigned int i = 0; i < wm->monitor_count; ++i)
         if (wm->config.tabs.enabled && wm->monitors[i].tab_bar &&
             wm->monitors[i].active_workspace->mode == WORKSPACE_MONOCLE)
@@ -1853,6 +1855,11 @@ static void handle_configure_request(WM *wm, XConfigureRequestEvent *event)
 
 static void handle_event(WM *wm, XEvent *event)
 {
+    TrayEventResult tray_result = tray_handle_event(wm, event);
+    if (tray_result & TRAY_EVENT_CONSUMED) {
+        if (tray_result & TRAY_EVENT_CHANGED) enforce_stacking(wm);
+        return;
+    }
     Client *client;
     SpecialWindow *special;
     switch (event->type) {
@@ -2090,7 +2097,8 @@ static void discover_existing_windows(WM *wm)
         for (unsigned int i = 0; i < count; ++i) {
             XWindowAttributes attrs;
             if (!XGetWindowAttributes(wm->display, children[i], &attrs) ||
-                attrs.override_redirect || attrs.class == InputOnly) {
+                attrs.override_redirect || attrs.class == InputOnly ||
+                tray_window_is_candidate(wm, children[i])) {
                 continue;
             }
             WindowType type = x11_read_window_type(wm, children[i]);
@@ -2142,6 +2150,8 @@ bool wm_init(WM *wm, const char *display_name, const char *config_path,
     if (!init_monitors(wm)) return false;
     recompute_workareas(wm);
     if (!ui_init(wm)) return false;
+    if (!tray_init(wm)) return false;
+    ui_bar_update(wm);
 
     wm->snap_preview_color = named_color(wm, wm->config.snap_preview_color,
                                          WhitePixel(wm->display, wm->screen));
@@ -2212,6 +2222,7 @@ void wm_destroy(WM *wm)
     for (size_t i = 0; i < 4; ++i)
         if (wm->drag.preview_windows[i])
             XDestroyWindow(wm->display, wm->drag.preview_windows[i]);
+    tray_destroy(wm);
     ui_destroy(wm);
     XSync(wm->display, False);
     for (unsigned int i = 0; i < wm->monitor_count; ++i)

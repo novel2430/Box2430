@@ -287,6 +287,7 @@ typedef struct Client Client;
 typedef struct Workspace Workspace;
 typedef struct Monitor Monitor;
 typedef struct SpecialWindow SpecialWindow;
+typedef struct Tray Tray;
 
 struct SpecialWindow {
     Window window;
@@ -405,6 +406,7 @@ typedef struct WM {
     Client *clients;
     Client *focused_client;
     SpecialWindow *special_windows;
+    Tray *tray;
     unsigned long focused_border;
     unsigned long unfocused_border;
     unsigned long urgent_border;

@@ -13,6 +13,7 @@ for scenario in \
     xvfb_bar_widgets.sh \
     xvfb_bar_pressure.sh \
     xvfb_status_clock.sh \
+    xvfb_tray.sh \
     xvfb_semantic_geometry.sh \
     xvfb_configure_request.sh \
     xvfb_fullscreen_transitions.sh \
