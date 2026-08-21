@@ -26,29 +26,41 @@ static CommandStatus command_wm(WM *wm, const CommandContext *context,
     return COMMAND_OK;
 }
 
-static CommandStatus spawn_argv(WM *wm, char *const arguments[])
+static bool spawn_argv(WM *wm, char *const arguments[], bool search_path,
+                       const char *operation)
 {
     pid_t child = fork();
-    if (child < 0) return COMMAND_INVALID;
+    if (child < 0) {
+        fprintf(stderr, "box2430: %s %s: fork: %s\n",
+                operation, arguments[0], strerror(errno));
+        return false;
+    }
     if (child == 0) {
         struct sigaction action = {0};
         action.sa_handler = SIG_DFL;
         sigemptyset(&action.sa_mask);
         if (sigaction(SIGCHLD, &action, NULL) < 0) {
             int error = errno;
-            fprintf(stderr, "box2430: spawn %s: cannot reset SIGCHLD: %s\n",
-                    arguments[0], strerror(error));
+            fprintf(stderr, "box2430: %s %s: cannot reset SIGCHLD: %s\n",
+                    operation, arguments[0], strerror(error));
             _exit(127);
         }
         close(wm->x_fd);
         setsid();
-        execvp(arguments[0], arguments);
+        if (search_path) execvp(arguments[0], arguments);
+        else execv(arguments[0], arguments);
         int error = errno;
-        fprintf(stderr, "box2430: spawn %s: %s\n",
-                arguments[0], strerror(error));
+        fprintf(stderr, "box2430: %s %s: %s\n",
+                operation, arguments[0], strerror(error));
         _exit(127);
     }
-    return COMMAND_OK;
+    return true;
+}
+
+bool spawn_autostart(WM *wm, const char *path)
+{
+    char *arguments[] = {(char *)path, NULL};
+    return spawn_argv(wm, arguments, false, "autostart");
 }
 
 static CommandStatus command_spawn(WM *wm, const CommandContext *context,
@@ -59,7 +71,7 @@ static CommandStatus command_spawn(WM *wm, const CommandContext *context,
     char *arguments[BOX2430_MAX_COMMAND_ARGS + 1];
     for (int i = 0; i < argc; ++i) arguments[i] = (char *)argv[i];
     arguments[argc] = NULL;
-    return spawn_argv(wm, arguments);
+    return spawn_argv(wm, arguments, true, "spawn") ? COMMAND_OK : COMMAND_INVALID;
 }
 
 static CommandStatus command_spawn_shell(WM *wm, const CommandContext *context,
@@ -68,7 +80,7 @@ static CommandStatus command_spawn_shell(WM *wm, const CommandContext *context,
     (void)context;
     if (argc != 1) return COMMAND_INVALID;
     char *arguments[] = {"/bin/sh", "-c", (char *)argv[0], NULL};
-    return spawn_argv(wm, arguments);
+    return spawn_argv(wm, arguments, false, "spawn") ? COMMAND_OK : COMMAND_INVALID;
 }
 
 static CommandStatus command_workspace(WM *wm, const CommandContext *context,

@@ -90,6 +90,7 @@ typedef struct Config {
     PlacementPolicy dialog_placement;
     ClientFullscreenPolicy client_fullscreen_policy;
     unsigned int border_width;
+    char background[8];
     char border_focused[8];
     char border_unfocused[8];
     char border_urgent[8];
@@ -301,8 +302,9 @@ typedef struct WM {
     bool tab_resources_ready;
 } WM;
 
-bool wm_init(WM *wm, const char *display_name, const char *config_path);
-void wm_run(WM *wm);
+bool wm_init(WM *wm, const char *display_name, const char *config_path,
+             bool session_start);
+void wm_run(WM *wm, const char *autostart_path);
 void wm_destroy(WM *wm);
 void workspace_activate(WM *wm, Monitor *monitor, Workspace *workspace);
 void monitor_select(WM *wm, Monitor *monitor);
@@ -339,6 +341,7 @@ typedef struct CommandContext {
 
 CommandStatus command_run(WM *wm, const CommandContext *context, int argc,
                           const char *const *argv);
+bool spawn_autostart(WM *wm, const char *path);
 bool command_validate(const Config *config, CommandContextType context, int argc,
                       const char *const *argv);
 void mouse_begin_drag(WM *wm, Client *client, bool resize, int root_x, int root_y);

@@ -106,6 +106,7 @@ void config_set_defaults(Config *config)
         .tab_urgent_bold = true,
         .inherit_default_bindings = true,
     };
+    memcpy(config->background, "#000000", 8);
     memcpy(config->border_focused, "#89b4fa", 8);
     memcpy(config->border_unfocused, "#45475a", 8);
     memcpy(config->border_urgent, "#f38ba8", 8);
@@ -675,8 +676,12 @@ static bool parse_supported_config(Config *candidate, toml_datum_t root)
     candidate->client_fullscreen_policy = (ClientFullscreenPolicy)choice;
 
     toml_datum_t appearance = toml_get(root, "appearance");
-    static const char *appearance_keys[] = {"border", "tabs", "snap_preview"};
-    if (!validate_keys(appearance, "appearance", appearance_keys, 3)) return false;
+    static const char *appearance_keys[] = {
+        "background", "border", "tabs", "snap_preview",
+    };
+    if (!validate_keys(appearance, "appearance", appearance_keys, 4) ||
+        !read_color(appearance, "appearance", "background", candidate->background))
+        return false;
     toml_datum_t border = toml_get(appearance, "border");
     static const char *border_keys[] = {"width", "focused", "unfocused", "urgent"};
     if (!validate_keys(border, "appearance.border", border_keys, 4) ||

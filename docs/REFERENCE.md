@@ -38,6 +38,24 @@ Workspace numbers are 1-based. `--follow` moves focus with the window. `--keep-w
 
 `focus next` / `focus prev` use the workspace's stable client order. New clients are appended; focusing or raising a client does not reorder the cycle.
 
+
+## Session startup
+
+Box2430 can launch one executable after WM initialization and startup window
+scan complete:
+
+```sh
+box2430 --autostart ~/.config/box2430/autostart.sh
+box2430 -a ~/.config/box2430/autostart.sh
+```
+
+The path is executed directly rather than through a shell or `PATH` lookup. The
+file therefore needs to be executable and, for a script, provide an appropriate
+shebang. Autostart failure is non-fatal and is reported on stderr.
+
+Autostart runs only on a fresh Box2430 session. `wm restart` re-executes the WM
+without running autostart again.
+
 ## Configuration
 
 The configuration file is TOML. Unknown keys, invalid values, invalid rules, or invalid bindings cause the file to be rejected and Box2430 to use built-in defaults.
@@ -50,6 +68,7 @@ The configuration file is TOML. Unknown keys, invalid values, invalid rules, or 
 | `[focus]` | `mode = "click"` (`click`/`sloppy`), `active_window = "urgent"` (`urgent`/`focus`), `raise_on_focus = false`, `focus_on_map = true`, `raise_on_map = true` |
 | `[placement]` | `normal = "center"`, `dialog = "center"` (`center`/`client`) |
 | `[fullscreen]` | `client_policy = "fake"` (`allow`/`fake`/`deny`) |
+| `[appearance]` | `background = "#000000"` fallback root color, painted only on fresh session start |
 | `[appearance.border]` | `width = 2`, focused/unfocused/urgent `#RRGGBB` colors |
 | `[appearance.tabs]` | enabled, height, padding, normal/bold Xft fonts, active/inactive/urgent colors and bold flags |
 | `[appearance.snap_preview]` | `color = "#89b4fa"`, `width = 2` |

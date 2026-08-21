@@ -1,3 +1,6 @@
+[appearance]
+background = "#123456"
+
 [appearance.border]
 width = 2
 

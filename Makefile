@@ -54,7 +54,7 @@ test-tools: $(BUILD_DIR)/x11-test-client $(BUILD_DIR)/x11-set-urgency \
 	$(BUILD_DIR)/x11-focus-client $(BUILD_DIR)/x11-set-numlock-modifier \
 	$(BUILD_DIR)/x11-size-hints-client $(BUILD_DIR)/x11-sigchld-client \
 	$(BUILD_DIR)/x11-lifecycle-client $(BUILD_DIR)/x11-focus-compat-client \
-	$(BUILD_DIR)/monitor-geometry-test
+	$(BUILD_DIR)/x11-root-color $(BUILD_DIR)/monitor-geometry-test
 
 test: all test-tools
 	$(BUILD_DIR)/monitor-geometry-test
@@ -89,6 +89,10 @@ $(BUILD_DIR)/x11-lifecycle-client: tests/x11_lifecycle_client.c
 	$(CC) $(CPPFLAGS) $(CFLAGS_COMMON) $(CFLAGS) -o $@ $< $(LDLIBS)
 
 $(BUILD_DIR)/x11-focus-compat-client: tests/x11_focus_compat_client.c
+	@mkdir -p $(dir $@)
+	$(CC) $(CPPFLAGS) $(CFLAGS_COMMON) $(CFLAGS) -o $@ $< $(LDLIBS)
+
+$(BUILD_DIR)/x11-root-color: tests/x11_root_color.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CPPFLAGS) $(CFLAGS_COMMON) $(CFLAGS) -o $@ $< $(LDLIBS)
 

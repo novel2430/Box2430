@@ -168,7 +168,7 @@ The suite currently covers areas including:
 * ICCCM size hints and focus protocol;
 * stable client-order focus cycling, focus-stack restoration, and urgency;
 * MONOCLE tab-bar behavior;
-* restart behavior;
+* restart behavior, including cold-start-only background/autostart semantics;
 * direct `spawn`, shell-backed `spawn-shell`, and SIGCHLD inheritance behavior.
 
 Individual scenarios can be run directly, for example:

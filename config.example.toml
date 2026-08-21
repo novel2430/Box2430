@@ -15,6 +15,9 @@ dialog = "center"
 [fullscreen]
 client_policy = "fake"
 
+[appearance]
+background = "#000000"
+
 [appearance.border]
 width = 2
 focused = "#89b4fa"

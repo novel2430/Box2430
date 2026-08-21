@@ -10,7 +10,7 @@ The implementation keeps most window-management behavior in one place rather tha
 
 | File            | Responsibility                                                                                           |
 | --------------- | -------------------------------------------------------------------------------------------------------- |
-| `src/main.c`    | CLI parsing, WM lifecycle, and restart                                                                   |
+| `src/main.c`    | CLI parsing, session-start detection, WM lifecycle, and restart                                          |
 | `src/wm.c`      | Core state, event handling, focus, geometry, workspaces, monitors, tabs, snapping, and window management |
 | `src/command.c` | Command validation and dispatch, including process spawning                                                       |
 | `src/config.c`  | Built-in defaults and strict TOML configuration loading                                                  |
@@ -43,7 +43,7 @@ Is it visible?   -> Is it on an active workspace and not otherwise hidden?
 
 ### Focus and raise
 
-**Focus** controls which client receives keyboard input and is considered the active client. Focusing also updates Box2430 state such as `focused_client`, the workspace's last-focused client, urgency, focused border, and `_NET_ACTIVE_WINDOW`. Focus does not reorder the workspace's stable client order.
+**Focus** controls which client receives keyboard input and is considered the active client. Focusing also updates Box2430 state such as `focused_client`, the workspace's focus stack, urgency, focused border, and `_NET_ACTIVE_WINDOW`. Focus does not reorder the workspace's stable client order.
 
 **Raise** changes stacking order: it moves a client toward the top of the ordinary client stack. It does not by itself give that client keyboard focus.
 
@@ -323,6 +323,26 @@ real fullscreen clients
 
 Within ordinary clients, workspace stack order is preserved.
 
+## Session Startup and Restart
+
+`main.c` distinguishes a fresh session start from Box2430's own `wm restart`.
+Restart is carried across `exec` with a private environment marker that the new
+process consumes and immediately removes. This keeps restart state out of
+configuration and prevents it from leaking into later spawned applications.
+
+On a fresh session start, `wm_init()` sets and clears the X root window once with
+`appearance.background`. Box2430 does not retain wallpaper ownership or repaint
+the root later. A wallpaper program can replace the background normally. A WM
+restart skips this root repaint.
+
+After initialization and startup window discovery are complete, `wm_run()`
+installs its signal policy and, when requested by `-a`/`--autostart`, forks one
+autostart executable before entering the event loop. The child uses the same
+process-launch hygiene as binding-driven spawn: it closes the inherited X
+connection, starts a new session, and restores default `SIGCHLD` behavior before
+`exec`. Unlike `spawn`, autostart uses the supplied path directly and is not
+rerun by `wm restart`.
+
 ## Window Management Lifecycle
 
 Startup discovery first adopts special windows, then ordinary clients, and
@@ -416,7 +436,7 @@ At runtime the relevant X event produces a `CommandContext`, then `command_run()
 
 Context-specific commands such as `mouse move-window` and `tab close` are rejected outside their valid input path.
 
-`spawn` and `spawn-shell` share one argv-based child-process launch path. `spawn` executes the supplied argv directly, while `spawn-shell` constructs `/bin/sh -c <command>` and then uses the same spawn primitive. The child closes the inherited X connection file descriptor, starts a new session, and resets `SIGCHLD` to the default disposition before `exec`; the WM itself ignores `SIGCHLD` with `SA_NOCLDWAIT`.
+`spawn`, `spawn-shell`, and session autostart share one child-process launch primitive. `spawn` searches `PATH` for the supplied argv, `spawn-shell` executes `/bin/sh -c <command>`, and autostart executes its supplied path directly. The child closes the inherited X connection file descriptor, starts a new session, and resets `SIGCHLD` to the default disposition before `exec`; the WM itself ignores `SIGCHLD` with `SA_NOCLDWAIT`.
 
 ## Event Loop
 

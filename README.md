@@ -13,6 +13,7 @@ It aims to keep the direct, mouse-friendly feel of a traditional stacking WM whi
 * Edge/corner snapping, maximize, and fullscreen
 * Configurable keyboard, mouse, and tab-bar bindings
 * Application spawning from bindings
+* Cold-start root background and optional autostart executable
 * Window rules
 * Practical ICCCM/EWMH support, including docks and struts
 
@@ -50,10 +51,19 @@ Start Box2430 as the window manager for an X11 session, for example from `.xinit
 exec box2430
 ```
 
+To run one executable once when the WM session starts:
+
+```sh
+exec box2430 --autostart ~/.config/box2430/autostart.sh
+```
+
+The autostart file must be executable and should provide its own shebang. It is
+not rerun by `wm restart`.
+
 Command-line options:
 
 ```text
-box2430 [-d display] [-c config.toml]
+box2430 [-d display] [-c config.toml] [-a path|--autostart path]
 ```
 
 Without `-c`, Box2430 looks for:
@@ -69,6 +79,10 @@ or, if `XDG_CONFIG_HOME` is unset:
 ```
 
 If no configuration file is present, built-in defaults are used.
+
+`appearance.background` sets the root fallback color on a fresh WM session.
+Box2430 does not maintain it afterward, so wallpaper tools such as `feh` can
+replace it normally. A WM restart does not repaint the root background.
 
 ## Default controls
 

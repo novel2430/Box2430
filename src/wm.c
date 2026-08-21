@@ -2023,7 +2023,8 @@ static bool init_tab_resources(WM *wm)
     return true;
 }
 
-bool wm_init(WM *wm, const char *display_name, const char *config_path)
+bool wm_init(WM *wm, const char *display_name, const char *config_path,
+             bool session_start)
 {
     config_set_defaults(&wm->config);
     config_load(&wm->config, config_path);
@@ -2038,6 +2039,12 @@ bool wm_init(WM *wm, const char *display_name, const char *config_path)
     wm->x_fd = ConnectionNumber(wm->display);
     wm->running = true;
     if (!x11_acquire_wm_ownership(wm)) return false;
+    if (session_start) {
+        unsigned long background = named_color(
+            wm, wm->config.background, BlackPixel(wm->display, wm->screen));
+        XSetWindowBackground(wm->display, wm->root, background);
+        XClearWindow(wm->display, wm->root);
+    }
     x11_init_atoms(wm);
     x11_update_active_window(wm);
     if (!init_monitors(wm)) return false;
@@ -2058,7 +2065,7 @@ bool wm_init(WM *wm, const char *display_name, const char *config_path)
     return true;
 }
 
-void wm_run(WM *wm)
+void wm_run(WM *wm, const char *autostart_path)
 {
     struct sigaction action = {0};
     action.sa_handler = handle_signal;
@@ -2070,6 +2077,8 @@ void wm_run(WM *wm)
     child_action.sa_flags = SA_NOCLDWAIT;
     sigemptyset(&child_action.sa_mask);
     sigaction(SIGCHLD, &child_action, NULL);
+
+    if (autostart_path) spawn_autostart(wm, autostart_path);
 
     struct pollfd descriptor = {.fd = wm->x_fd, .events = POLLIN};
     while (wm->running && !stop_requested) {
