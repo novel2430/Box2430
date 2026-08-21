@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 UIStyle ui_resolve_style(UIStyle base, const UIStyleOverride *override)
 {
@@ -320,6 +321,80 @@ static XftFont *const *bar_fonts(const WM *wm, UIFontStyle style,
     return wm->bar_fonts;
 }
 
+static bool configured_bar_widget(const WM *wm, UIBarWidget wanted)
+{
+    const UIBarWidget *groups[] = {
+        wm->config.bar.left, wm->config.bar.center, wm->config.bar.right,
+    };
+    const unsigned int counts[] = {
+        wm->config.bar.left_count, wm->config.bar.center_count,
+        wm->config.bar.right_count,
+    };
+    for (size_t group = 0; group < sizeof(groups) / sizeof(groups[0]); ++group)
+        for (unsigned int i = 0; i < counts[group]; ++i)
+            if (groups[group][i] == wanted) return true;
+    return false;
+}
+
+bool ui_clock_visible(const WM *wm)
+{
+    if (!wm || !wm->config.bar.enabled ||
+        !configured_bar_widget(wm, UI_WIDGET_CLOCK)) return false;
+    for (unsigned int i = 0; i < wm->monitor_count; ++i)
+        if (wm->monitors[i].bar_geometry.width > 0 &&
+            wm->monitors[i].bar_geometry.height > 0) return true;
+    return false;
+}
+
+#if defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wformat-nonliteral"
+#endif
+static size_t format_clock_text(char *output, size_t output_size,
+                                const char *format, const struct tm *local)
+{
+    return strftime(output, output_size, format, local);
+}
+#if defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
+
+static bool update_clock_text(WM *wm)
+{
+    if (!ui_clock_visible(wm)) return false;
+    time_t now = time(NULL);
+    struct tm local;
+    if (now == (time_t)-1 || !localtime_r(&now, &local)) return false;
+    char next[BOX2430_MAX_CLOCK_TEXT] = {0};
+    if (!format_clock_text(next, sizeof(next), wm->config.bar.clock.format,
+                           &local))
+        next[0] = '\0';
+    if (strcmp(next, wm->clock_text) == 0) return false;
+    memcpy(wm->clock_text, next, sizeof(wm->clock_text));
+    wm->clock_text[sizeof(wm->clock_text) - 1U] = '\0';
+    return true;
+}
+
+void ui_clock_tick(WM *wm)
+{
+    if (update_clock_text(wm)) ui_bar_update(wm);
+}
+
+void ui_status_refresh(WM *wm)
+{
+    if (!wm || !wm->display) return;
+    char *next = x11_read_root_status(wm);
+    if (!next) return;
+    if (wm->status_text && strcmp(wm->status_text, next) == 0) {
+        free(next);
+        return;
+    }
+    free(wm->status_text);
+    wm->status_text = next;
+    if (wm->config.bar.enabled && configured_bar_widget(wm, UI_WIDGET_STATUS))
+        ui_bar_update(wm);
+}
+
 static const UIStyleOverride *workspace_state_override(
     const WM *wm, UIWorkspaceVisualState state)
 {
@@ -385,6 +460,16 @@ static UIStyle title_style(const WM *wm)
     return ui_resolve_style(wm->config.bar.style, &wm->config.bar.title.style);
 }
 
+static UIStyle status_style(const WM *wm)
+{
+    return ui_resolve_style(wm->config.bar.style, &wm->config.bar.status.style);
+}
+
+static UIStyle clock_style(const WM *wm)
+{
+    return ui_resolve_style(wm->config.bar.style, &wm->config.bar.clock.style);
+}
+
 static char *workspace_label(const WM *wm, const Monitor *monitor,
                              const Workspace *workspace)
 {
@@ -410,6 +495,17 @@ static char *title_label(const WM *wm, const Monitor *monitor)
     Client *target = workspace_focus_target(monitor->active_workspace);
     const char *value = ui_client_label(target, wm->config.bar.title.source);
     return ui_format_label(&style.format, value);
+}
+
+static char *status_label(const WM *wm)
+{
+    UIStyle style = status_style(wm);
+    return ui_format_label(&style.format, wm->status_text ? wm->status_text : "");
+}
+
+static const char *clock_label(const WM *wm)
+{
+    return wm->clock_text;
 }
 
 static unsigned int label_width(WM *wm, const UIStyle *style, const char *label)
@@ -461,7 +557,19 @@ static unsigned int widget_natural_width(WM *wm, Monitor *monitor,
         free(label);
         return width;
     }
-    /* status/clock/tray deliberately enter the layout in later phases. */
+    if (widget == UI_WIDGET_STATUS) {
+        UIStyle style = status_style(wm);
+        char *label = status_label(wm);
+        if (!label) return UINT_MAX;
+        unsigned int width = label_width(wm, &style, label);
+        free(label);
+        return width;
+    }
+    if (widget == UI_WIDGET_CLOCK) {
+        UIStyle style = clock_style(wm);
+        return label_width(wm, &style, clock_label(wm));
+    }
+    /* tray deliberately enters the layout in Phase 6. */
     return 0;
 }
 
@@ -746,6 +854,23 @@ static void draw_title(WM *wm, Monitor *monitor, Rect rect)
     free(label);
 }
 
+static void draw_status(WM *wm, Monitor *monitor, Rect rect)
+{
+    UIStyle style = status_style(wm);
+    char *label = status_label(wm);
+    if (!label) return;
+    draw_bar_label(wm, monitor, rect, &style, &wm->bar_status_fg,
+                   &wm->bar_status_bg, label);
+    free(label);
+}
+
+static void draw_clock(WM *wm, Monitor *monitor, Rect rect)
+{
+    UIStyle style = clock_style(wm);
+    draw_bar_label(wm, monitor, rect, &style, &wm->bar_clock_fg,
+                   &wm->bar_clock_bg, clock_label(wm));
+}
+
 void ui_bar_draw(WM *wm, Monitor *monitor)
 {
     if (!wm->bar_resources_ready || !monitor || !monitor->bar_draw) return;
@@ -757,8 +882,8 @@ void ui_bar_draw(WM *wm, Monitor *monitor)
         case UI_WIDGET_WORKSPACES: draw_workspaces(wm, monitor, rect); break;
         case UI_WIDGET_MODE: draw_mode(wm, monitor, rect); break;
         case UI_WIDGET_TITLE: draw_title(wm, monitor, rect); break;
-        case UI_WIDGET_STATUS:
-        case UI_WIDGET_CLOCK:
+        case UI_WIDGET_STATUS: draw_status(wm, monitor, rect); break;
+        case UI_WIDGET_CLOCK: draw_clock(wm, monitor, rect); break;
         case UI_WIDGET_TRAY:
         case UI_WIDGET_COUNT:
             break;
@@ -1063,6 +1188,10 @@ static size_t bar_color_pointers(WM *wm, XftColor **colors)
     }
     colors[count++] = &wm->bar_title_fg;
     colors[count++] = &wm->bar_title_bg;
+    colors[count++] = &wm->bar_status_fg;
+    colors[count++] = &wm->bar_status_bg;
+    colors[count++] = &wm->bar_clock_fg;
+    colors[count++] = &wm->bar_clock_bg;
     return count;
 }
 
@@ -1077,9 +1206,60 @@ static void free_color_prefix(WM *wm, XftColor **colors, size_t count)
 static void free_bar_colors(WM *wm)
 {
     XftColor *colors[1 + UI_WORKSPACE_STATE_COUNT * 2 +
-                     UI_MODE_STATE_COUNT * 2 + 2];
+                     UI_MODE_STATE_COUNT * 2 + 6];
     size_t count = bar_color_pointers(wm, colors);
     free_color_prefix(wm, colors, count);
+}
+
+static unsigned long allocate_border_color(WM *wm, const char *name,
+                                           unsigned long fallback,
+                                           bool *allocated)
+{
+    XColor color = {0};
+    XColor exact = {0};
+    if (XAllocNamedColor(wm->display, DefaultColormap(wm->display, wm->screen),
+                         name, &color, &exact)) {
+        *allocated = true;
+        return color.pixel;
+    }
+    *allocated = false;
+    return fallback;
+}
+
+static void init_border_resources(WM *wm)
+{
+    wm->focused_border = allocate_border_color(
+        wm, wm->config.border_focused, WhitePixel(wm->display, wm->screen),
+        &wm->focused_border_allocated);
+    wm->unfocused_border = allocate_border_color(
+        wm, wm->config.border_unfocused, BlackPixel(wm->display, wm->screen),
+        &wm->unfocused_border_allocated);
+    wm->urgent_border = allocate_border_color(
+        wm, wm->config.border_urgent, WhitePixel(wm->display, wm->screen),
+        &wm->urgent_border_allocated);
+}
+
+static void free_border_pixel(WM *wm, unsigned long pixel, bool *allocated)
+{
+    if (!*allocated) return;
+    XFreeColors(wm->display, DefaultColormap(wm->display, wm->screen),
+                &pixel, 1, 0);
+    *allocated = false;
+}
+
+static void free_border_resources(WM *wm)
+{
+    free_border_pixel(wm, wm->focused_border, &wm->focused_border_allocated);
+    free_border_pixel(wm, wm->unfocused_border, &wm->unfocused_border_allocated);
+    free_border_pixel(wm, wm->urgent_border, &wm->urgent_border_allocated);
+}
+
+void ui_client_border_refresh(WM *wm, Client *client)
+{
+    if (!wm || !client) return;
+    unsigned long pixel = client == wm->focused_client ? wm->focused_border
+        : client->urgent ? wm->urgent_border : wm->unfocused_border;
+    XSetWindowBorder(wm->display, client->window, pixel);
 }
 
 static bool init_tab_resources(WM *wm)
@@ -1147,11 +1327,13 @@ static bool init_bar_resources(WM *wm)
     for (unsigned int i = 0; i < UI_MODE_STATE_COUNT; ++i)
         mode_styles[i] = mode_style_for_state(wm, (UIModeVisualState)i);
     UIStyle title = title_style(wm);
+    UIStyle status = status_style(wm);
+    UIStyle clock = clock_style(wm);
 
     XftColor *colors[1 + UI_WORKSPACE_STATE_COUNT * 2 +
-                     UI_MODE_STATE_COUNT * 2 + 2];
+                     UI_MODE_STATE_COUNT * 2 + 6];
     const char *names[1 + UI_WORKSPACE_STATE_COUNT * 2 +
-                      UI_MODE_STATE_COUNT * 2 + 2];
+                      UI_MODE_STATE_COUNT * 2 + 6];
     size_t count = bar_color_pointers(wm, colors);
     size_t n = 0;
     names[n++] = wm->config.bar.style.bg;
@@ -1165,6 +1347,10 @@ static bool init_bar_resources(WM *wm)
     }
     names[n++] = title.fg;
     names[n++] = title.bg;
+    names[n++] = status.fg;
+    names[n++] = status.bg;
+    names[n++] = clock.fg;
+    names[n++] = clock.bg;
     if (n != count) {
         close_bar_fonts(wm);
         return false;
@@ -1186,10 +1372,21 @@ static bool init_bar_resources(WM *wm)
 
 bool ui_init(WM *wm)
 {
-    if (!init_tab_resources(wm)) return false;
+    init_border_resources(wm);
+    ui_status_refresh(wm);
+    update_clock_text(wm);
+    if (!init_tab_resources(wm)) {
+        free_border_resources(wm);
+        free(wm->status_text);
+        wm->status_text = NULL;
+        return false;
+    }
     if (!init_bar_resources(wm)) {
         free_tab_colors(wm);
         close_tab_fonts(wm);
+        free_border_resources(wm);
+        free(wm->status_text);
+        wm->status_text = NULL;
         return false;
     }
 
@@ -1204,6 +1401,9 @@ bool ui_init(WM *wm)
                 close_bar_fonts(wm);
                 free_tab_colors(wm);
                 close_tab_fonts(wm);
+                free_border_resources(wm);
+                free(wm->status_text);
+                wm->status_text = NULL;
                 return false;
             }
         }
@@ -1225,13 +1425,21 @@ bool ui_init(WM *wm)
             }
             free_tab_colors(wm);
             close_tab_fonts(wm);
+            free_border_resources(wm);
+            free(wm->status_text);
+            wm->status_text = NULL;
             return false;
         }
     }
     wm->tab_resources_ready = true;
+    ui_update(wm);
+    return true;
+}
+
+void ui_update(WM *wm)
+{
     ui_bar_update(wm);
     ui_tab_update(wm);
-    return true;
 }
 
 void ui_destroy(WM *wm)
@@ -1251,4 +1459,7 @@ void ui_destroy(WM *wm)
         wm->tab_resources_ready = false;
     }
     close_tab_fonts(wm);
+    free_border_resources(wm);
+    free(wm->status_text);
+    wm->status_text = NULL;
 }

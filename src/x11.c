@@ -128,6 +128,81 @@ WindowType x11_read_window_type(WM *wm, Window window)
     return type;
 }
 
+
+static bool valid_utf8(const unsigned char *text, size_t length)
+{
+    size_t i = 0;
+    while (i < length) {
+        unsigned char first = text[i];
+        if (first < 0x80) {
+            ++i;
+            continue;
+        }
+        unsigned int needed;
+        unsigned int value;
+        unsigned int minimum;
+        if (first >= 0xc2 && first <= 0xdf) {
+            needed = 1; value = first & 0x1fU; minimum = 0x80U;
+        } else if (first >= 0xe0 && first <= 0xef) {
+            needed = 2; value = first & 0x0fU; minimum = 0x800U;
+        } else if (first >= 0xf0 && first <= 0xf4) {
+            needed = 3; value = first & 0x07U; minimum = 0x10000U;
+        } else {
+            return false;
+        }
+        if (i + needed >= length) return false;
+        for (unsigned int j = 1; j <= needed; ++j) {
+            unsigned char next = text[i + j];
+            if ((next & 0xc0U) != 0x80U) return false;
+            value = (value << 6) | (next & 0x3fU);
+        }
+        if (value < minimum || value > 0x10ffffU ||
+            (value >= 0xd800U && value <= 0xdfffU)) return false;
+        i += needed + 1U;
+    }
+    return true;
+}
+
+char *x11_read_root_status(WM *wm)
+{
+    XTextProperty property = {0};
+    if (XGetTextProperty(wm->display, wm->root, &property,
+                         wm->atoms.net_wm_name)) {
+        bool usable = property.encoding == wm->atoms.utf8_string &&
+                      property.format == 8 &&
+                      valid_utf8(property.value, property.nitems);
+        if (usable) {
+            char *copy = property.nitems
+                ? strndup((const char *)property.value, property.nitems)
+                : strdup("");
+            if (property.value) XFree(property.value);
+            return copy;
+        }
+        if (property.value) XFree(property.value);
+    }
+
+    property = (XTextProperty){0};
+    if (!XGetTextProperty(wm->display, wm->root, &property, XA_WM_NAME) ||
+        !property.value || !property.nitems) {
+        if (property.value) XFree(property.value);
+        return strdup("");
+    }
+    char *copy = NULL;
+    if (property.encoding == XA_STRING) {
+        copy = strndup((const char *)property.value, property.nitems);
+    } else {
+        char **list = NULL;
+        int list_count = 0;
+        if (XmbTextPropertyToTextList(wm->display, &property, &list,
+                                      &list_count) >= Success &&
+            list_count > 0 && list && list[0])
+            copy = strdup(list[0]);
+        if (list) XFreeStringList(list);
+    }
+    XFree(property.value);
+    return copy ? copy : strdup("");
+}
+
 char *x11_read_window_title(WM *wm, Window window)
 {
     Atom actual_type;

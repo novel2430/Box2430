@@ -148,8 +148,7 @@ static void discard_enter_events(WM *wm)
 
 static void enforce_stacking(WM *wm)
 {
-    ui_bar_update(wm);
-    ui_tab_update(wm);
+    ui_update(wm);
     for (SpecialWindow *special = wm->special_windows; special; special = special->next)
         if (special->type == WINDOW_TYPE_DESKTOP)
             XLowerWindow(wm->display, special->window);
@@ -283,12 +282,9 @@ static void set_client_urgent(WM *wm, Client *client, bool urgent)
         }
         XFree(hints);
     }
-    if (wm->focused_client != client)
-        XSetWindowBorder(wm->display, client->window,
-                         urgent ? wm->urgent_border : wm->unfocused_border);
+    ui_client_border_refresh(wm, client);
     if (changed) {
-        ui_bar_update(wm);
-        ui_tab_update(wm);
+        ui_update(wm);
     }
 }
 
@@ -367,17 +363,16 @@ static void focus_client(WM *wm, Client *client, Time time)
 {
     if (client && !client_can_focus(client)) return;
     if (wm->focused_client == client && client) return;
-    if (wm->focused_client) {
-        XSetWindowBorder(wm->display, wm->focused_client->window,
-                         wm->unfocused_border);
-        grab_client_buttons(wm, wm->focused_client, false);
-    }
+    Client *previous = wm->focused_client;
     wm->focused_client = client;
+    if (previous) {
+        ui_client_border_refresh(wm, previous);
+        grab_client_buttons(wm, previous, false);
+    }
     if (!client) {
         XSetInputFocus(wm->display, wm->root, RevertToPointerRoot, time);
         x11_update_active_window(wm);
-        ui_bar_update(wm);
-        ui_tab_update(wm);
+        ui_update(wm);
         return;
     }
 
@@ -385,11 +380,10 @@ static void focus_client(WM *wm, Client *client, Time time)
     x11_update_workarea(wm);
     promote_workspace_focus(client->workspace, client);
     set_client_urgent(wm, client, false);
-    XSetWindowBorder(wm->display, client->window, wm->focused_border);
+    ui_client_border_refresh(wm, client);
     grab_client_buttons(wm, client, true);
     set_client_input_focus(wm, client, time);
-    ui_bar_update(wm);
-    ui_tab_update(wm);
+    ui_update(wm);
     if (wm->config.raise_on_focus) client_raise(wm, client);
 }
 
@@ -664,8 +658,7 @@ static void recompute_workareas(WM *wm)
     calculate_workareas(wm);
     rematerialize_all_clients(wm);
     x11_update_workarea(wm);
-    ui_bar_update(wm);
-    ui_tab_update(wm);
+    ui_update(wm);
 }
 
 void client_snap(WM *wm, Client *client, SnapState state)
@@ -1436,7 +1429,7 @@ static void manage_window(WM *wm, Window window, bool map_window)
                  EnterWindowMask | FocusChangeMask | PropertyChangeMask);
     grab_client_buttons(wm, client, false);
     XSetWindowBorderWidth(wm->display, window, client->border_width);
-    XSetWindowBorder(wm->display, window, wm->unfocused_border);
+    ui_client_border_refresh(wm, client);
     materialize_client_geometry(wm, client);
     x11_set_wm_state(wm, window, NormalState);
     read_wm_hints(wm, client);
@@ -1801,8 +1794,7 @@ static void reconcile_monitors(WM *wm)
     }
 
     x11_update_workarea(wm);
-    ui_bar_update(wm);
-    ui_tab_update(wm);
+    ui_update(wm);
     enforce_stacking(wm);
     x11_update_client_lists(wm);
     free_topology_plan(&plan);
@@ -1996,13 +1988,18 @@ static void handle_event(WM *wm, XEvent *event)
         }
         break;
     case PropertyNotify:
+        if (event->xproperty.window == wm->root &&
+            (event->xproperty.atom == wm->atoms.net_wm_name ||
+             event->xproperty.atom == XA_WM_NAME)) {
+            ui_status_refresh(wm);
+            break;
+        }
         client = find_client(wm, event->xproperty.window);
         if (client && event->xproperty.atom == XA_WM_NORMAL_HINTS) {
             client->size_hints_valid = false;
         } else if (client && event->xproperty.atom == XA_WM_HINTS) {
             read_wm_hints(wm, client);
-            ui_bar_update(wm);
-            ui_tab_update(wm);
+            ui_update(wm);
         } else if (client && event->xproperty.atom == wm->atoms.wm_protocols) {
             read_wm_protocols(wm, client);
         } else if (client && (event->xproperty.atom == wm->atoms.net_wm_name ||
@@ -2011,8 +2008,7 @@ static void handle_event(WM *wm, XEvent *event)
             if (title) {
                 free(client->title);
                 client->title = title;
-                ui_bar_update(wm);
-                ui_tab_update(wm);
+                ui_update(wm);
             }
         } else if (client && event->xproperty.atom == XA_WM_CLASS) {
             char *instance = NULL;
@@ -2023,8 +2019,7 @@ static void handle_event(WM *wm, XEvent *event)
                 free(client->class_name);
                 client->instance = instance;
                 client->class_name = class_name;
-                ui_bar_update(wm);
-                ui_tab_update(wm);
+                ui_update(wm);
             } else {
                 free(instance);
                 free(class_name);
@@ -2148,12 +2143,6 @@ bool wm_init(WM *wm, const char *display_name, const char *config_path,
     recompute_workareas(wm);
     if (!ui_init(wm)) return false;
 
-    wm->focused_border = named_color(wm, wm->config.border_focused,
-                                      WhitePixel(wm->display, wm->screen));
-    wm->unfocused_border = named_color(wm, wm->config.border_unfocused,
-                                        BlackPixel(wm->display, wm->screen));
-    wm->urgent_border = named_color(wm, wm->config.border_urgent,
-                                     WhitePixel(wm->display, wm->screen));
     wm->snap_preview_color = named_color(wm, wm->config.snap_preview_color,
                                          WhitePixel(wm->display, wm->screen));
     grab_default_keys(wm);
@@ -2185,7 +2174,9 @@ void wm_run(WM *wm, const char *autostart_path)
             handle_event(wm, &event);
         }
         if (!wm->running || stop_requested) break;
-        int result = poll(&descriptor, 1, -1);
+        ui_clock_tick(wm);
+        int timeout = ui_clock_visible(wm) ? 1000 : -1;
+        int result = poll(&descriptor, 1, timeout);
         if (result < 0 && errno != EINTR) {
             fprintf(stderr, "box2430: poll: %s\n", strerror(errno));
             break;

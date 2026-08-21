@@ -5,6 +5,7 @@
 
 bool ui_init(WM *wm);
 void ui_destroy(WM *wm);
+void ui_update(WM *wm);
 
 UIStyle ui_resolve_style(UIStyle base, const UIStyleOverride *override);
 const char *ui_client_label(const Client *client, UILabelSource source);
@@ -22,6 +23,10 @@ void ui_bar_destroy_monitor(WM *wm, Monitor *monitor);
 void ui_bar_name_monitor(WM *wm, Monitor *monitor);
 void ui_bar_update(WM *wm);
 void ui_bar_draw(WM *wm, Monitor *monitor);
+void ui_status_refresh(WM *wm);
+bool ui_clock_visible(const WM *wm);
+void ui_clock_tick(WM *wm);
+void ui_client_border_refresh(WM *wm, Client *client);
 Monitor *ui_bar_monitor_for_window(WM *wm, Window window);
 Workspace *ui_bar_workspace_hit_test(WM *wm, Monitor *monitor, int x);
 UIWorkspaceVisualState ui_workspace_visual_state(const Monitor *monitor,

@@ -10,6 +10,12 @@ Client *workspace_focus_target(Workspace *workspace)
     return NULL;
 }
 
+char *x11_read_root_status(WM *wm)
+{
+    (void)wm;
+    return strdup("");
+}
+
 static int fail(const char *message)
 {
     fprintf(stderr, "FAIL: %s\n", message);
@@ -86,6 +92,25 @@ int main(void)
     if (ui_workspace_visual_state(&monitor, &active) != UI_WORKSPACE_ACTIVE_URGENT)
         return fail("active+urgent workspace state mismatch");
 
-    puts("PASS: UI client label/format/style/workspace-state helpers");
+    WM wm = {0};
+    Monitor clock_monitor = {.bar_geometry = {0, 0, 800, 24}};
+    wm.monitors = &clock_monitor;
+    wm.monitor_count = 1;
+    wm.config.bar.enabled = true;
+    if (ui_clock_visible(&wm))
+        return fail("clock visibility enabled without a configured clock widget");
+    wm.config.bar.right[0] = UI_WIDGET_CLOCK;
+    wm.config.bar.right_count = 1;
+    if (!ui_clock_visible(&wm))
+        return fail("configured visible clock widget was not detected");
+    clock_monitor.bar_geometry.height = 0;
+    if (ui_clock_visible(&wm))
+        return fail("zero-height native bar incorrectly requests clock wakeups");
+    clock_monitor.bar_geometry.height = 24;
+    wm.config.bar.enabled = false;
+    if (ui_clock_visible(&wm))
+        return fail("disabled native bar incorrectly requests clock wakeups");
+
+    puts("PASS: UI client label/format/style/workspace-state/clock-visibility helpers");
     return 0;
 }

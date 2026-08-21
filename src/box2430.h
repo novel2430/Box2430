@@ -17,6 +17,7 @@ enum {
     BOX2430_MAX_TAB_FONTS = 16,
     BOX2430_MAX_UI_FORMAT = 128,
     BOX2430_MAX_UI_LABEL = 128,
+    BOX2430_MAX_CLOCK_TEXT = 256,
     BOX2430_MAX_BAR_WIDGETS = 6,
 };
 
@@ -407,6 +408,9 @@ typedef struct WM {
     unsigned long focused_border;
     unsigned long unfocused_border;
     unsigned long urgent_border;
+    bool focused_border_allocated;
+    bool unfocused_border_allocated;
+    bool urgent_border_allocated;
     unsigned int numlock_mask;
     bool running;
     bool restart_requested;
@@ -444,6 +448,12 @@ typedef struct WM {
     XftColor bar_mode_bg[UI_MODE_STATE_COUNT];
     XftColor bar_title_fg;
     XftColor bar_title_bg;
+    XftColor bar_status_fg;
+    XftColor bar_status_bg;
+    XftColor bar_clock_fg;
+    XftColor bar_clock_bg;
+    char *status_text;
+    char clock_text[BOX2430_MAX_CLOCK_TEXT];
     bool tab_resources_ready;
     bool bar_resources_ready;
 } WM;
@@ -503,6 +513,7 @@ void x11_update_client_lists(WM *wm);
 void x11_update_active_window(WM *wm);
 WindowType x11_read_window_type(WM *wm, Window window);
 char *x11_read_window_title(WM *wm, Window window);
+char *x11_read_root_status(WM *wm);
 void x11_read_window_class(WM *wm, Window window, char **instance,
                            char **class_name);
 bool x11_window_requests_fullscreen(WM *wm, Window window);

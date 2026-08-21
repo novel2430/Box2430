@@ -1,0 +1,58 @@
+[workspaces]
+count = 2
+
+[appearance.bar]
+enabled = true
+position = "top"
+height = 24
+padding = 8
+gap = 8
+font = "monospace:size=10"
+font_bold = "monospace:style=Bold:size=10"
+fg = "#ffffff"
+bg = "#000000"
+left = ["workspaces"]
+center = ["title"]
+right = ["status", "clock"]
+
+[appearance.bar.widgets.workspaces]
+format = " %s "
+font_style = "normal"
+
+[appearance.bar.widgets.workspaces.empty]
+fg = "#ffffff"
+bg = "#111111"
+font_style = "normal"
+format = " %s "
+
+[appearance.bar.widgets.workspaces.active]
+fg = "#ffffff"
+bg = "#003300"
+font_style = "normal"
+format = " %s "
+
+[appearance.bar.widgets.title]
+source = "title"
+fg = "#ffffff"
+bg = "#000055"
+font_style = "normal"
+format = "%s"
+
+[appearance.bar.widgets.status]
+fg = "#ffffff"
+bg = "#550000"
+font_style = "normal"
+format = "<%s>"
+
+[appearance.bar.widgets.clock]
+fg = "#ffffff"
+bg = "#005555"
+font_style = "normal"
+format = "%S"
+
+[appearance.tabs]
+enabled = true
+height = 24
+
+[bindings]
+inherit_defaults = true
