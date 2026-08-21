@@ -13,7 +13,7 @@ BINDIR ?= $(PREFIX)/bin
 DATADIR ?= $(PREFIX)/share
 BUILD_DIR = build/$(PROFILE)
 TARGET = $(BUILD_DIR)/box2430
-SOURCES = src/main.c src/wm.c src/monitor.c src/command.c src/config.c src/x11.c \
+SOURCES = src/main.c src/wm.c src/ui.c src/monitor.c src/command.c src/config.c src/x11.c \
 	vendor/tomlc17/tomlc17.c
 OBJECTS = $(SOURCES:%.c=$(BUILD_DIR)/%.o)
 DEPS = $(OBJECTS:.o=.d)

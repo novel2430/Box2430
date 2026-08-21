@@ -1,4 +1,5 @@
 #include "box2430.h"
+#include "ui.h"
 
 #include <X11/Xatom.h>
 #include <X11/extensions/Xinerama.h>
@@ -25,9 +26,6 @@ static void recompute_workareas(WM *wm);
 static void apply_normal_hints(WM *wm, Client *client, int *width, int *height);
 static void materialize_client_geometry(WM *wm, Client *client);
 static void grab_client_buttons(WM *wm, Client *client, bool focused);
-static void update_tab_bars(WM *wm);
-static bool create_tab_bar(WM *wm, Monitor *monitor);
-static unsigned int monocle_tab_height(const WM *wm, const Monitor *monitor);
 static void reconcile_client_mapping(WM *wm, Client *client);
 
 static void handle_signal(int signal_number)
@@ -141,191 +139,6 @@ static SpecialWindow *find_special_window(WM *wm, Window window)
     return NULL;
 }
 
-static Monitor *find_tab_monitor(WM *wm, Window window)
-{
-    for (unsigned int i = 0; i < wm->monitor_count; ++i)
-        if (wm->monitors[i].tab_bar == window) return &wm->monitors[i];
-    return NULL;
-}
-
-static bool tab_uses_bold(WM *wm, const Client *client)
-{
-    return client->urgent ? wm->config.tab_urgent_bold
-        : client == wm->focused_client ? wm->config.tab_active_bold
-        : wm->config.tab_inactive_bold;
-}
-
-static int utf8_length(const FcChar8 *text, FcChar32 *character)
-{
-    unsigned char first = text[0];
-    if (first < 0x80) { *character = first; return 1; }
-    int length = first >= 0xf0 && first <= 0xf4 ? 4
-        : first >= 0xe0 ? 3 : first >= 0xc2 ? 2 : 1;
-    FcChar32 value = length == 4 ? first & 0x07U
-        : length == 3 ? first & 0x0fU : length == 2 ? first & 0x1fU : first;
-    if (length == 1) { *character = value; return 1; }
-    for (int i = 1; i < length; ++i) {
-        if (!text[i] || (text[i] & 0xc0U) != 0x80U) {
-            *character = first;
-            return 1;
-        }
-        value = (value << 6) | (text[i] & 0x3fU);
-    }
-    FcChar32 minimum = length == 4 ? 0x10000U : length == 3 ? 0x800U : 0x80U;
-    if (value < minimum || value > 0x10ffffU ||
-        (value >= 0xd800U && value <= 0xdfffU)) {
-        *character = first;
-        return 1;
-    }
-    *character = value;
-    return length;
-}
-
-static XftFont *tab_font_for_character(WM *wm, bool bold, FcChar32 character)
-{
-    XftFont **fonts = bold ? wm->tab_fonts_bold : wm->tab_fonts;
-    unsigned int count = bold ? wm->tab_font_bold_count : wm->tab_font_count;
-    for (unsigned int i = 0; i < count; ++i)
-        if (XftCharExists(wm->display, fonts[i], character)) return fonts[i];
-    return fonts[0];
-}
-
-static unsigned int natural_tab_width(WM *wm, const Client *client)
-{
-    const char *title = client->title && client->title[0] ? client->title : "(untitled)";
-    bool bold = tab_uses_bold(wm, client);
-    const FcChar8 *cursor = (const FcChar8 *)title;
-    unsigned int width = 0;
-    while (*cursor) {
-        FcChar32 character;
-        int length = utf8_length(cursor, &character);
-        XGlyphInfo extents = {0};
-        XftTextExtentsUtf8(wm->display,
-                           tab_font_for_character(wm, bold, character),
-                           cursor, length, &extents);
-        width += (unsigned int)extents.xOff;
-        cursor += length;
-    }
-    return width + 2 * wm->config.tab_padding;
-}
-
-static unsigned int tab_count(const Workspace *workspace)
-{
-    unsigned int count = 0;
-    for (const Client *client = workspace->tab_head; client; client = client->tab_next)
-        ++count;
-    return count;
-}
-
-static void tab_bounds(WM *wm, Monitor *monitor, Client *wanted,
-                       int *x_return, unsigned int *width_return)
-{
-    Workspace *workspace = monitor->active_workspace;
-    unsigned int count = tab_count(workspace);
-    unsigned int total = 0;
-    for (Client *client = workspace->tab_head; client; client = client->tab_next)
-        total += natural_tab_width(wm, client);
-    int x = 0;
-    unsigned int index = 0;
-    for (Client *client = workspace->tab_head; client; client = client->tab_next) {
-        unsigned int width = total <= (unsigned int)monitor->workarea.width
-            ? natural_tab_width(wm, client)
-            : (unsigned int)monitor->workarea.width / count +
-              (index < (unsigned int)monitor->workarea.width % count ? 1U : 0U);
-        if (client == wanted) {
-            *x_return = x;
-            *width_return = width;
-            return;
-        }
-        x += (int)width;
-        ++index;
-    }
-    *x_return = x;
-    *width_return = 0;
-}
-
-static Client *tab_at(WM *wm, Monitor *monitor, int x)
-{
-    Workspace *workspace = monitor->active_workspace;
-    for (Client *client = workspace->tab_head; client; client = client->tab_next) {
-        int left;
-        unsigned int width;
-        tab_bounds(wm, monitor, client, &left, &width);
-        if (x >= left && x < left + (int)width) return client;
-    }
-    return NULL;
-}
-
-static void draw_tab_bar(WM *wm, Monitor *monitor)
-{
-    if (!monitor->tab_draw) return;
-    unsigned int tab_height = monocle_tab_height(wm, monitor);
-    if (!tab_height) tab_height = 1;
-    XClearWindow(wm->display, monitor->tab_bar);
-    Workspace *workspace = monitor->active_workspace;
-    for (Client *client = workspace->tab_head; client; client = client->tab_next) {
-        int x;
-        unsigned int width;
-        tab_bounds(wm, monitor, client, &x, &width);
-        XftColor *fg;
-        XftColor *bg;
-        if (client->urgent) {
-            fg = &wm->tab_urgent_fg; bg = &wm->tab_urgent_bg;
-        } else if (client == wm->focused_client) {
-            fg = &wm->tab_active_fg; bg = &wm->tab_active_bg;
-        } else {
-            fg = &wm->tab_inactive_fg; bg = &wm->tab_inactive_bg;
-        }
-        XSetForeground(wm->display, DefaultGC(wm->display, wm->screen), bg->pixel);
-        XFillRectangle(wm->display, monitor->tab_bar,
-                       DefaultGC(wm->display, wm->screen), x, 0, width,
-                       tab_height);
-        XRectangle clip = {(short)x, 0, (unsigned short)width,
-                           (unsigned short)tab_height};
-        XftDrawSetClipRectangles(monitor->tab_draw, 0, 0, &clip, 1);
-        bool bold = tab_uses_bold(wm, client);
-        XftFont *font = bold ? wm->tab_fonts_bold[0] : wm->tab_fonts[0];
-        int baseline = ((int)tab_height - font->ascent - font->descent) / 2 +
-                       font->ascent;
-        const char *title = client->title && client->title[0] ? client->title : "(untitled)";
-        const FcChar8 *cursor = (const FcChar8 *)title;
-        int text_x = x + (int)wm->config.tab_padding;
-        while (*cursor) {
-            FcChar32 character;
-            int length = utf8_length(cursor, &character);
-            font = tab_font_for_character(wm, bold, character);
-            XftDrawStringUtf8(monitor->tab_draw, fg, font, text_x, baseline,
-                              cursor, length);
-            XGlyphInfo extents = {0};
-            XftTextExtentsUtf8(wm->display, font, cursor, length, &extents);
-            text_x += extents.xOff;
-            cursor += length;
-        }
-    }
-    XftDrawSetClip(monitor->tab_draw, NULL);
-}
-
-static void update_tab_bars(WM *wm)
-{
-    if (!wm->tab_resources_ready) return;
-    for (unsigned int i = 0; i < wm->monitor_count; ++i) {
-        Monitor *monitor = &wm->monitors[i];
-        unsigned int tab_height = monocle_tab_height(wm, monitor);
-        bool visible = wm->config.tabs_enabled &&
-            monitor->active_workspace->mode == WORKSPACE_MONOCLE && tab_height;
-        unsigned int window_height = tab_height ? tab_height : 1;
-        XMoveResizeWindow(wm->display, monitor->tab_bar,
-                          monitor->workarea.x, monitor->workarea.y,
-                          (unsigned int)monitor->workarea.width, window_height);
-        if (visible) {
-            XMapWindow(wm->display, monitor->tab_bar);
-            draw_tab_bar(wm, monitor);
-        } else {
-            XUnmapWindow(wm->display, monitor->tab_bar);
-        }
-    }
-}
-
 static void discard_enter_events(WM *wm)
 {
     XEvent event;
@@ -335,7 +148,7 @@ static void discard_enter_events(WM *wm)
 
 static void enforce_stacking(WM *wm)
 {
-    update_tab_bars(wm);
+    ui_tab_update(wm);
     for (SpecialWindow *special = wm->special_windows; special; special = special->next)
         if (special->type == WINDOW_TYPE_DESKTOP)
             XLowerWindow(wm->display, special->window);
@@ -356,6 +169,14 @@ static void enforce_stacking(WM *wm)
             client->workspace == client->workspace->monitor->active_workspace)
             XRaiseWindow(wm->display, client->window);
     discard_enter_events(wm);
+}
+
+static unsigned int tab_count(const Workspace *workspace)
+{
+    unsigned int count = 0;
+    for (const Client *client = workspace->tab_head; client; client = client->tab_next)
+        ++count;
+    return count;
 }
 
 static void append_workspace_orders(Workspace *workspace, Client *client)
@@ -461,7 +282,7 @@ static void set_client_urgent(WM *wm, Client *client, bool urgent)
     if (wm->focused_client != client)
         XSetWindowBorder(wm->display, client->window,
                          urgent ? wm->urgent_border : wm->unfocused_border);
-    if (changed) update_tab_bars(wm);
+    if (changed) ui_tab_update(wm);
 }
 
 static void read_wm_hints(WM *wm, Client *client)
@@ -548,7 +369,7 @@ static void focus_client(WM *wm, Client *client, Time time)
     if (!client) {
         XSetInputFocus(wm->display, wm->root, RevertToPointerRoot, time);
         x11_update_active_window(wm);
-        update_tab_bars(wm);
+        ui_tab_update(wm);
         return;
     }
 
@@ -559,7 +380,7 @@ static void focus_client(WM *wm, Client *client, Time time)
     XSetWindowBorder(wm->display, client->window, wm->focused_border);
     grab_client_buttons(wm, client, true);
     set_client_input_focus(wm, client, time);
-    update_tab_bars(wm);
+    ui_tab_update(wm);
     if (wm->config.raise_on_focus) client_raise(wm, client);
 }
 
@@ -591,20 +412,10 @@ static Rect fit_workarea(WM *wm, const Client *client, Rect area)
     return (Rect){area.x, area.y, width, height};
 }
 
-static unsigned int monocle_tab_height(const WM *wm, const Monitor *monitor)
-{
-    int minimum_content_height = 2 * (int)wm->config.border_width + 1;
-    if (!wm->config.tabs_enabled ||
-        monitor->workarea.height <= minimum_content_height) return 0;
-    unsigned int available =
-        (unsigned int)(monitor->workarea.height - minimum_content_height);
-    return wm->config.tab_height < available ? wm->config.tab_height : available;
-}
-
 static Rect monocle_content_area(const WM *wm, const Monitor *monitor)
 {
     Rect area = monitor->workarea;
-    int tab_height = (int)monocle_tab_height(wm, monitor);
+    int tab_height = (int)ui_tab_height(wm, monitor);
     area.y += tab_height;
     area.height -= tab_height;
     return area;
@@ -822,7 +633,7 @@ static void recompute_workareas(WM *wm)
     calculate_workareas(wm);
     rematerialize_all_clients(wm);
     x11_update_workarea(wm);
-    update_tab_bars(wm);
+    ui_tab_update(wm);
 }
 
 void client_snap(WM *wm, Client *client, SnapState state)
@@ -1800,14 +1611,6 @@ static void retarget_monitor_workspaces(WM *wm, Monitor *monitor)
         monitor->workspaces[i].monitor = monitor;
 }
 
-static void name_tab_bar(WM *wm, Monitor *monitor)
-{
-    if (!monitor->tab_bar) return;
-    char name[64];
-    snprintf(name, sizeof(name), "box2430-tabbar-%u", monitor->index);
-    XStoreName(wm->display, monitor->tab_bar, name);
-}
-
 static bool client_is_visible(const Client *client)
 {
     return client->workspace == client->workspace->monitor->active_workspace;
@@ -1826,14 +1629,13 @@ static void reconcile_client_mapping(WM *wm, Client *client)
     }
 }
 
-static void destroy_removed_monitor_resources(WM *wm, const Monitor *old_monitors,
+static void destroy_removed_monitor_resources(WM *wm, Monitor *old_monitors,
                                               const MonitorTopologyPlan *plan)
 {
     for (unsigned int old_index = 0; old_index < plan->old_count; ++old_index) {
         if (plan->new_for_old[old_index] >= 0) continue;
-        const Monitor *removed = &old_monitors[old_index];
-        if (removed->tab_draw) XftDrawDestroy(removed->tab_draw);
-        if (removed->tab_bar) XDestroyWindow(wm->display, removed->tab_bar);
+        Monitor *removed = &old_monitors[old_index];
+        ui_tab_destroy_monitor(wm, removed);
         free(removed->workspaces);
     }
 }
@@ -1921,13 +1723,13 @@ static void reconcile_monitors(WM *wm)
     calculate_workareas(wm);
     if (wm->tab_resources_ready) {
         for (unsigned int i = 0; i < wm->monitor_count; ++i) {
-            if (added[i] && !create_tab_bar(wm, &wm->monitors[i])) {
+            if (added[i] && !ui_tab_create_monitor(wm, &wm->monitors[i])) {
                 fprintf(stderr, "box2430: cannot create state for added monitor\n");
                 free_topology_plan(&plan);
                 wm->running = false;
                 return;
             }
-            name_tab_bar(wm, &wm->monitors[i]);
+            ui_tab_name_monitor(wm, &wm->monitors[i]);
         }
     }
 
@@ -1955,7 +1757,7 @@ static void reconcile_monitors(WM *wm)
     }
 
     x11_update_workarea(wm);
-    update_tab_bars(wm);
+    ui_tab_update(wm);
     enforce_stacking(wm);
     x11_update_client_lists(wm);
     free_topology_plan(&plan);
@@ -2060,7 +1862,7 @@ static void handle_event(WM *wm, XEvent *event)
         break;
     case ButtonPress:
         {
-        Monitor *tab_monitor = find_tab_monitor(wm, event->xbutton.window);
+        Monitor *tab_monitor = ui_tab_monitor_for_window(wm, event->xbutton.window);
         if (tab_monitor) {
             MouseBinding *matched = NULL;
             for (unsigned int i = 0; i < wm->config.tab_binding_count; ++i) {
@@ -2074,7 +1876,7 @@ static void handle_event(WM *wm, XEvent *event)
                 for (int i = 0; i < matched->argc; ++i) argv[i] = matched->argv[i];
                 CommandContext context = {
                     .type = COMMAND_CONTEXT_TABBAR,
-                    .client = tab_at(wm, tab_monitor, event->xbutton.x),
+                    .client = ui_tab_hit_test(wm, tab_monitor, event->xbutton.x),
                     .root_x = event->xbutton.x_root,
                     .root_y = event->xbutton.y_root,
                     .time = event->xbutton.time,
@@ -2145,7 +1947,7 @@ static void handle_event(WM *wm, XEvent *event)
             client->size_hints_valid = false;
         } else if (client && event->xproperty.atom == XA_WM_HINTS) {
             read_wm_hints(wm, client);
-            update_tab_bars(wm);
+            ui_tab_update(wm);
         } else if (client && event->xproperty.atom == wm->atoms.wm_protocols) {
             read_wm_protocols(wm, client);
         } else if (client && (event->xproperty.atom == wm->atoms.net_wm_name ||
@@ -2154,7 +1956,7 @@ static void handle_event(WM *wm, XEvent *event)
             if (title) {
                 free(client->title);
                 client->title = title;
-                update_tab_bars(wm);
+                ui_tab_update(wm);
             }
         } else if (client && event->xproperty.atom == XA_WM_CLASS) {
             char *instance = NULL;
@@ -2206,8 +2008,8 @@ static void handle_event(WM *wm, XEvent *event)
         break;
     case Expose:
         {
-        Monitor *tab_monitor = find_tab_monitor(wm, event->xexpose.window);
-        if (tab_monitor && event->xexpose.count == 0) draw_tab_bar(wm, tab_monitor);
+        Monitor *tab_monitor = ui_tab_monitor_for_window(wm, event->xexpose.window);
+        if (tab_monitor && event->xexpose.count == 0) ui_tab_draw(wm, tab_monitor);
         break;
         }
     default:
@@ -2254,98 +2056,6 @@ static void discover_existing_windows(WM *wm)
     XFree(children);
 }
 
-static bool create_tab_bar(WM *wm, Monitor *monitor)
-{
-    Visual *visual = DefaultVisual(wm->display, wm->screen);
-    XSetWindowAttributes attributes = {
-        .override_redirect = True,
-        .background_pixel = wm->tab_inactive_bg.pixel,
-        .event_mask = ExposureMask | ButtonPressMask,
-    };
-    unsigned int tab_height = monocle_tab_height(wm, monitor);
-    if (!tab_height) tab_height = 1;
-    monitor->tab_bar = XCreateWindow(
-        wm->display, wm->root, monitor->workarea.x, monitor->workarea.y,
-        (unsigned int)monitor->workarea.width, tab_height, 0,
-        DefaultDepth(wm->display, wm->screen), InputOutput, visual,
-        CWOverrideRedirect | CWBackPixel | CWEventMask, &attributes);
-    char name[64];
-    snprintf(name, sizeof(name), "box2430-tabbar-%u", monitor->index);
-    XStoreName(wm->display, monitor->tab_bar, name);
-    monitor->tab_draw = XftDrawCreate(
-        wm->display, monitor->tab_bar, visual,
-        DefaultColormap(wm->display, wm->screen));
-    if (!monitor->tab_draw) {
-        XDestroyWindow(wm->display, monitor->tab_bar);
-        monitor->tab_bar = None;
-        return false;
-    }
-    return true;
-}
-
-static unsigned int load_tab_fonts(WM *wm, const char *name, bool bold,
-                                   XftFont **fonts)
-{
-    unsigned int count = 0;
-    fonts[count] = XftFontOpenName(wm->display, wm->screen, name);
-    if (!fonts[count]) return 0;
-    ++count;
-    const char *regular[] = {
-        "sans:lang=zh-cn", "sans:lang=ja", "sans:lang=ko", "sans",
-    };
-    const char *heavy[] = {
-        "sans:style=Bold:lang=zh-cn", "sans:style=Bold:lang=ja",
-        "sans:style=Bold:lang=ko", "sans:style=Bold",
-    };
-    const char *const *fallbacks = bold ? heavy : regular;
-    for (size_t i = 0; i < sizeof(regular) / sizeof(regular[0]) &&
-                       count < BOX2430_MAX_TAB_FONTS; ++i) {
-        XftFont *font = XftFontOpenName(wm->display, wm->screen, fallbacks[i]);
-        if (font) fonts[count++] = font;
-    }
-    return count;
-}
-
-static bool init_tab_resources(WM *wm)
-{
-    Visual *visual = DefaultVisual(wm->display, wm->screen);
-    Colormap colormap = DefaultColormap(wm->display, wm->screen);
-    wm->tab_font_count = load_tab_fonts(wm, wm->config.tab_font, false,
-                                        wm->tab_fonts);
-    wm->tab_font_bold_count = load_tab_fonts(wm, wm->config.tab_font_bold, true,
-                                             wm->tab_fonts_bold);
-    if (!wm->tab_font_count || !wm->tab_font_bold_count) {
-        fprintf(stderr, "box2430: cannot open configured tab bar fonts\n");
-        return false;
-    }
-    XftColor *colors[] = {
-        &wm->tab_active_fg, &wm->tab_active_bg,
-        &wm->tab_inactive_fg, &wm->tab_inactive_bg,
-        &wm->tab_urgent_fg, &wm->tab_urgent_bg,
-    };
-    const char *names[] = {
-        wm->config.tab_active_fg, wm->config.tab_active_bg,
-        wm->config.tab_inactive_fg, wm->config.tab_inactive_bg,
-        wm->config.tab_urgent_fg, wm->config.tab_urgent_bg,
-    };
-    for (size_t i = 0; i < sizeof(colors) / sizeof(colors[0]); ++i) {
-        if (!XftColorAllocName(wm->display, visual, colormap, names[i], colors[i])) {
-            fprintf(stderr, "box2430: cannot allocate tab bar color %s\n", names[i]);
-            for (size_t j = 0; j < i; ++j)
-                XftColorFree(wm->display, visual, colormap, colors[j]);
-            return false;
-        }
-    }
-    for (unsigned int i = 0; i < wm->monitor_count; ++i) {
-        Monitor *monitor = &wm->monitors[i];
-        if (!create_tab_bar(wm, monitor)) {
-            fprintf(stderr, "box2430: cannot create tab bar drawing context\n");
-            return false;
-        }
-    }
-    wm->tab_resources_ready = true;
-    return true;
-}
 
 bool wm_init(WM *wm, const char *display_name, const char *config_path,
              bool session_start)
@@ -2373,7 +2083,7 @@ bool wm_init(WM *wm, const char *display_name, const char *config_path,
     x11_update_active_window(wm);
     if (!init_monitors(wm)) return false;
     recompute_workareas(wm);
-    if (!init_tab_resources(wm)) return false;
+    if (!ui_init(wm)) return false;
 
     wm->focused_border = named_color(wm, wm->config.border_focused,
                                       WhitePixel(wm->display, wm->screen));
@@ -2448,25 +2158,7 @@ void wm_destroy(WM *wm)
     for (size_t i = 0; i < 4; ++i)
         if (wm->drag.preview_windows[i])
             XDestroyWindow(wm->display, wm->drag.preview_windows[i]);
-    for (unsigned int i = 0; i < wm->monitor_count; ++i) {
-        if (wm->monitors[i].tab_draw) XftDrawDestroy(wm->monitors[i].tab_draw);
-        if (wm->monitors[i].tab_bar) XDestroyWindow(wm->display, wm->monitors[i].tab_bar);
-    }
-    if (wm->tab_resources_ready) {
-        Visual *visual = DefaultVisual(wm->display, wm->screen);
-        Colormap colormap = DefaultColormap(wm->display, wm->screen);
-        XftColor *colors[] = {
-            &wm->tab_active_fg, &wm->tab_active_bg,
-            &wm->tab_inactive_fg, &wm->tab_inactive_bg,
-            &wm->tab_urgent_fg, &wm->tab_urgent_bg,
-        };
-        for (size_t i = 0; i < sizeof(colors) / sizeof(colors[0]); ++i)
-            XftColorFree(wm->display, visual, colormap, colors[i]);
-    }
-    for (unsigned int i = 0; i < wm->tab_font_count; ++i)
-        XftFontClose(wm->display, wm->tab_fonts[i]);
-    for (unsigned int i = 0; i < wm->tab_font_bold_count; ++i)
-        XftFontClose(wm->display, wm->tab_fonts_bold[i]);
+    ui_destroy(wm);
     XSync(wm->display, False);
     for (unsigned int i = 0; i < wm->monitor_count; ++i)
         free(wm->monitors[i].workspaces);
