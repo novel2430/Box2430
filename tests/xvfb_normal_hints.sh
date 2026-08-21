@@ -4,6 +4,7 @@ set -eu
 display=${BOX2430_TEST_DISPLAY:-:143}
 box2430_bin=${BOX2430_BIN:-./build/debug/box2430}
 fixture_bin=${BOX2430_SIZE_HINTS_BIN:-./build/debug/x11-size-hints-client}
+configure_bin=${BOX2430_CONFIGURE_BIN:-./build/debug/x11-configure-request}
 tmp_dir=$(mktemp -d)
 xvfb_pid= wm_pid= client_pid=
 
@@ -79,9 +80,19 @@ wait_for "test \"\$(DISPLAY=$display xwininfo -id $client | awk '/Height:/ {prin
 assert_size "$client" 140 140 "base-relative increment"
 
 # Updating WM_NORMAL_HINTS invalidates the cached 20x10 increments. The next
-# request must lazily read the new base=80, increments=30x25 values.
+# next size request must lazily read the new base=80, increments=30x25 values.
 DISPLAY=$display "$fixture_bin" update "$client"
 sleep 0.05
+
+# A border-only ConfigureRequest must not opportunistically re-apply newly
+# invalidated size hints. Before Round 2 this changed 140x140 into 140x130.
+notice=$(DISPLAY=$display "$configure_bin" "$client" b 0 0 1 1 17)
+set -- $notice
+[ "$3 $4 $5 $6" = "140 140 2 1" ] ||
+    fail "border-only ConfigureRequest changed geometry or managed border"
+assert_size "$client" 140 140 "border-only after hint invalidation"
+[ "$(field "$client" 'Border width:')" = 2 ] || fail "border-only request changed WM border"
+
 DISPLAY=$display xdotool windowsize "$client" 157 147
 wait_for "test \"\$(DISPLAY=$display xwininfo -id $client | awk '/Height:/ {print \$2; exit}')\" = 130" || fail "updated increments were not applied"
 assert_size "$client" 140 130 "runtime hint invalidation"

@@ -1,0 +1,23 @@
+[placement]
+normal = "client"
+
+[fullscreen]
+client_policy = "fake"
+
+[appearance.border]
+width = 4
+
+[bindings]
+inherit_defaults = true
+
+[bindings.keys]
+"Super+n" = "snap none"
+"Super+g" = "fullscreen"
+
+[[rules]]
+title = "GeometryAllow"
+fullscreen_policy = "allow"
+
+[[rules]]
+title = "GeometryDeny"
+fullscreen_policy = "deny"

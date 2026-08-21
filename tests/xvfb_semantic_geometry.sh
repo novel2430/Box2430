@@ -5,10 +5,10 @@ display=${BOX2430_TEST_DISPLAY:-:141}
 box2430_bin=${BOX2430_BIN:-./build/debug/box2430}
 fixture_bin=${BOX2430_FIXTURE_BIN:-./build/debug/x11-test-client}
 tmp_dir=$(mktemp -d)
-xvfb_pid= wm_pid= max_pid= snap_pid= dock_pid= next_dock_pid=
+xvfb_pid= wm_pid= max_pid= snap_pid= monocle_pid= dock_pid= next_dock_pid=
 
 cleanup() {
-    for pid in "$next_dock_pid" "$dock_pid" "$snap_pid" "$max_pid" "$wm_pid" "$xvfb_pid"; do
+    for pid in "$next_dock_pid" "$dock_pid" "$monocle_pid" "$snap_pid" "$max_pid" "$wm_pid" "$xvfb_pid"; do
         if [ -n "$pid" ]; then kill "$pid" 2>/dev/null || true; fi
     done
     rm -rf "$tmp_dir"
@@ -94,8 +94,52 @@ DISPLAY=$display xdotool key super+f
 wait_for "test \"\$(DISPLAY=$display xwininfo -id $max | awk '/Height:/ {print \$2; exit}')\" = 576" || fail "maximize fullscreen exit did not rematerialize"
 assert_geometry "$max" 0 20 796 576 "maximized fullscreen + strut"
 
-kill "$next_dock_pid" "$snap_pid" "$max_pid" 2>/dev/null || true
-next_dock_pid= snap_pid= max_pid=
+# MONOCLE is a presentation layer: repeated workarea rematerialization must not
+# overwrite the FREE rectangle used when MONOCLE eventually exits.
+kill "$next_dock_pid" 2>/dev/null || true; next_dock_pid=
+wait_for "DISPLAY=$display xprop -root _NET_WORKAREA | grep -q '0, 0, 800, 600'" || fail "dock removal before MONOCLE failed"
+DISPLAY=$display xterm -title SemanticMonocle -geometry 32x9+87+93 >"$tmp_dir/monocle.log" 2>&1 & monocle_pid=$!
+wait_for "DISPLAY=$display xdotool search --name SemanticMonocle >/dev/null 2>&1" || fail "MONOCLE client missing"
+monocle=$(DISPLAY=$display xdotool search --name SemanticMonocle | head -n 1)
+free_x=$(field "$monocle" 'Absolute upper-left X:')
+free_y=$(field "$monocle" 'Absolute upper-left Y:')
+free_w=$(field "$monocle" 'Width:')
+free_h=$(field "$monocle" 'Height:')
+DISPLAY=$display xdotool key super+m
+wait_for "test \"\$(DISPLAY=$display xwininfo -id $monocle | awk '/Absolute upper-left Y:/ {print \$4; exit}')\" = 24" || fail "MONOCLE entry failed"
+assert_geometry "$monocle" 0 24 796 572 "MONOCLE initial presentation"
+
+DISPLAY=$display "$fixture_bin" DOCK SemanticMonocleDock30 0 0 800 30 30 >"$tmp_dir/monocle-dock30.log" 2>&1 & dock_pid=$!
+wait_for "DISPLAY=$display xprop -root _NET_WORKAREA | grep -q '0, 30, 800, 570'" || fail "MONOCLE 30px strut missing"
+assert_geometry "$monocle" 0 54 796 542 "MONOCLE first workarea rematerialization"
+kill "$dock_pid" 2>/dev/null || true; dock_pid=
+DISPLAY=$display "$fixture_bin" DOCK SemanticMonocleDock50 0 0 800 50 50 >"$tmp_dir/monocle-dock50.log" 2>&1 & next_dock_pid=$!
+wait_for "DISPLAY=$display xprop -root _NET_WORKAREA | grep -q '0, 50, 800, 550'" || fail "MONOCLE 50px strut missing"
+assert_geometry "$monocle" 0 74 796 522 "MONOCLE second workarea rematerialization"
+DISPLAY=$display xdotool key super+m
+wait_for "test \"\$(DISPLAY=$display xwininfo -id $monocle | awk '/Width:/ {print \$2; exit}')\" = $free_w" || fail "MONOCLE exit did not restore FREE geometry"
+assert_geometry "$monocle" "$free_x" "$free_y" "$free_w" "$free_h" "MONOCLE FREE restore after workarea changes"
+
+# Nest real fullscreen above MONOCLE, change workarea while fullscreen hides the
+# MONOCLE geometry, then unwind one layer at a time.
+DISPLAY=$display xdotool key super+m
+wait_for "test \"\$(DISPLAY=$display xwininfo -id $monocle | awk '/Absolute upper-left Y:/ {print \$4; exit}')\" = 74" || fail "nested MONOCLE entry failed"
+DISPLAY=$display xdotool key super+f
+wait_for "test \"\$(DISPLAY=$display xwininfo -id $monocle | awk '/Height:/ {print \$2; exit}')\" = 600" || fail "nested fullscreen entry failed"
+assert_geometry "$monocle" 0 0 800 600 "MONOCLE fullscreen presentation"
+kill "$next_dock_pid" 2>/dev/null || true; next_dock_pid=
+DISPLAY=$display "$fixture_bin" DOCK SemanticMonocleDock20 0 0 800 20 20 >"$tmp_dir/monocle-dock20.log" 2>&1 & next_dock_pid=$!
+wait_for "DISPLAY=$display xprop -root _NET_WORKAREA | grep -q '0, 20, 800, 580'" || fail "nested 20px strut missing"
+assert_geometry "$monocle" 0 0 800 600 "fullscreen ignores workarea presentation"
+DISPLAY=$display xdotool key super+f
+wait_for "test \"\$(DISPLAY=$display xwininfo -id $monocle | awk '/Absolute upper-left Y:/ {print \$4; exit}')\" = 44" || fail "fullscreen exit did not rematerialize MONOCLE"
+assert_geometry "$monocle" 0 44 796 552 "fullscreen unwind to MONOCLE"
+DISPLAY=$display xdotool key super+m
+wait_for "test \"\$(DISPLAY=$display xwininfo -id $monocle | awk '/Width:/ {print \$2; exit}')\" = $free_w" || fail "nested MONOCLE exit did not restore FREE geometry"
+assert_geometry "$monocle" "$free_x" "$free_y" "$free_w" "$free_h" "nested FREE restore"
+
+kill "$next_dock_pid" "$monocle_pid" "$snap_pid" "$max_pid" 2>/dev/null || true
+next_dock_pid= monocle_pid= snap_pid= max_pid=
 kill "$wm_pid"; wait "$wm_pid"; wm_pid=
 if grep -q "box2430: X11 error" "$tmp_dir/wm.log"; then
     sed -n '1,160p' "$tmp_dir/wm.log" >&2

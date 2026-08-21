@@ -56,7 +56,7 @@ test-tools: $(BUILD_DIR)/x11-test-client $(BUILD_DIR)/x11-set-urgency \
 	$(BUILD_DIR)/x11-size-hints-client $(BUILD_DIR)/x11-sigchld-client \
 	$(BUILD_DIR)/x11-lifecycle-client $(BUILD_DIR)/x11-focus-compat-client \
 	$(BUILD_DIR)/x11-root-color $(BUILD_DIR)/x11-workspace-transition-observer \
-	$(BUILD_DIR)/monitor-geometry-test
+	$(BUILD_DIR)/x11-configure-request $(BUILD_DIR)/monitor-geometry-test
 
 test: all test-tools
 	$(BUILD_DIR)/monitor-geometry-test
@@ -108,6 +108,10 @@ $(BUILD_DIR)/x11-root-color: tests/x11_root_color.c
 
 $(BUILD_DIR)/x11-workspace-transition-observer: \
 		tests/x11_workspace_transition_observer.c
+	@mkdir -p $(dir $@)
+	$(CC) $(CPPFLAGS) $(CFLAGS_COMMON) $(CFLAGS) -o $@ $< $(LDLIBS)
+
+$(BUILD_DIR)/x11-configure-request: tests/x11_configure_request.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CPPFLAGS) $(CFLAGS_COMMON) $(CFLAGS) -o $@ $< $(LDLIBS)
 

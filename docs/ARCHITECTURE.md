@@ -257,6 +257,13 @@ Most ordinary placement, snap, and maximize operations use the workarea.
 
 Real fullscreen uses the full monitor geometry and removes the client border.
 
+For normal clients, `normal_geometry` is the FREE rectangle preserved before
+snap/maximize, while `geometry` is the current semantic rectangle for the
+FREE/snap/maximize layer. `commit_client_geometry()` updates that semantic
+rectangle and presents it to X11. `present_client_geometry()` only changes the
+X11 presentation and is used for temporary MONOCLE/fullscreen geometry so those
+states cannot overwrite the geometry needed when they unwind.
+
 The presentation priority in `materialize_client_geometry()` is effectively:
 
 ```text
@@ -294,6 +301,13 @@ minimal operability check. A window whose outer frame is entirely outside an
 edge is moved back to that edge, while a window that still intersects the
 workarea is left at its requested position. This deliberately allows ordinary
 FREE windows to remain partially off-screen or overlap screen-edge UI.
+
+For managed FREE clients, `ConfigureRequest` commits only requested geometry
+fields and applies size hints when width/height are requested. Managed border
+width is WM-owned: `CWBorderWidth` does not change Box2430's border policy.
+When snap, maximize, MONOCLE, or real fullscreen owns the presentation, client
+geometry requests are acknowledged with the actual presented geometry without
+changing the underlying semantic/restore state.
 
 ### Fullscreen
 

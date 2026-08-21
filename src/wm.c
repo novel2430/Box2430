@@ -562,11 +562,21 @@ static void focus_client(WM *wm, Client *client, Time time)
     if (wm->config.raise_on_focus) client_raise(wm, client);
 }
 
-static void apply_client_geometry(WM *wm, Client *client, Rect geometry)
+static void present_client_geometry(WM *wm, Client *client, Rect geometry)
 {
-    client->geometry = geometry;
     XMoveResizeWindow(wm->display, client->window, geometry.x, geometry.y,
                       (unsigned int)geometry.width, (unsigned int)geometry.height);
+}
+
+/*
+ * Commit geometry that belongs to the client's normal/snap/maximize semantic
+ * state. Temporary presentations such as MONOCLE and real fullscreen must use
+ * present_client_geometry() instead so they cannot overwrite restore state.
+ */
+static void commit_client_geometry(WM *wm, Client *client, Rect geometry)
+{
+    client->geometry = geometry;
+    present_client_geometry(wm, client, geometry);
 }
 
 static Rect fit_workarea(WM *wm, const Client *client, Rect area)
@@ -736,22 +746,26 @@ static void materialize_client_geometry(WM *wm, Client *client)
 {
     Monitor *monitor = client->workspace->monitor;
     if (client->fullscreen) {
-        Rect area = monitor->geometry;
-        XMoveResizeWindow(wm->display, client->window, area.x, area.y,
-                          (unsigned int)area.width, (unsigned int)area.height);
+        present_client_geometry(wm, client, monitor->geometry);
     } else if (client->workspace->mode == WORKSPACE_MONOCLE) {
         Rect area = fit_workarea(wm, client, monocle_content_area(wm, monitor));
-        XMoveResizeWindow(wm->display, client->window, area.x, area.y,
-                          (unsigned int)area.width, (unsigned int)area.height);
+        present_client_geometry(wm, client, area);
     } else if (client->maximized) {
-        apply_client_geometry(wm, client,
-                              fit_workarea(wm, client, monitor->workarea));
+        commit_client_geometry(wm, client,
+                               fit_workarea(wm, client, monitor->workarea));
     } else if (client->snap_state != SNAP_NONE) {
-        apply_client_geometry(wm, client,
-                              snap_geometry(wm, client, client->snap_state));
+        commit_client_geometry(wm, client,
+                               snap_geometry(wm, client, client->snap_state));
     } else {
-        apply_client_geometry(wm, client, client->geometry);
+        present_client_geometry(wm, client, client->geometry);
     }
+}
+
+static bool client_geometry_is_wm_owned(const Client *client)
+{
+    return client->workspace->mode == WORKSPACE_MONOCLE ||
+           client->fullscreen || client->maximized ||
+           client->snap_state != SNAP_NONE;
 }
 
 static bool ranges_overlap(int start, int end, unsigned long other_start,
@@ -806,7 +820,7 @@ void client_snap(WM *wm, Client *client, SnapState state)
         if (client->snap_state != SNAP_NONE || client->maximized) {
             client->snap_state = SNAP_NONE;
             client->maximized = false;
-            apply_client_geometry(wm, client, client->normal_geometry);
+            commit_client_geometry(wm, client, client->normal_geometry);
         }
         return;
     }
@@ -814,7 +828,7 @@ void client_snap(WM *wm, Client *client, SnapState state)
         client->normal_geometry = client->geometry;
     client->maximized = false;
     client->snap_state = state;
-    apply_client_geometry(wm, client, snap_geometry(wm, client, state));
+    commit_client_geometry(wm, client, snap_geometry(wm, client, state));
 }
 
 static Monitor *monitor_at_point(WM *wm, int x, int y)
@@ -913,7 +927,7 @@ void mouse_begin_drag(WM *wm, Client *client, bool resize, int root_x, int root_
     if (client->snap_state != SNAP_NONE || client->maximized) {
         client->snap_state = SNAP_NONE;
         client->maximized = false;
-        apply_client_geometry(wm, client, client->normal_geometry);
+        commit_client_geometry(wm, client, client->normal_geometry);
     }
     focus_client(wm, client, CurrentTime);
     wm->drag.client = client;
@@ -958,7 +972,7 @@ static void update_drag(WM *wm, int root_x, int root_y)
     }
     client->snap_state = SNAP_NONE;
     client->maximized = false;
-    apply_client_geometry(wm, client, geometry);
+    commit_client_geometry(wm, client, geometry);
     client->normal_geometry = geometry;
 
     if (!wm->drag.resize) {
@@ -1035,12 +1049,13 @@ void client_set_maximized(WM *wm, Client *client, bool maximized)
         if (client->snap_state == SNAP_NONE) client->normal_geometry = client->geometry;
         client->snap_state = SNAP_NONE;
         client->maximized = true;
-        apply_client_geometry(wm, client,
-                              fit_workarea(wm, client, client->workspace->monitor->workarea));
+        commit_client_geometry(
+            wm, client,
+            fit_workarea(wm, client, client->workspace->monitor->workarea));
     } else {
         client->maximized = false;
         client->snap_state = SNAP_NONE;
-        apply_client_geometry(wm, client, client->normal_geometry);
+        commit_client_geometry(wm, client, client->normal_geometry);
     }
 }
 
@@ -1056,14 +1071,18 @@ static void apply_real_fullscreen(WM *wm, Client *client, bool fullscreen)
     x11_update_client_lists(wm);
 }
 
+static bool client_wants_real_fullscreen(const Client *client)
+{
+    return client->user_fullscreen ||
+           (client->client_fullscreen &&
+            client->fullscreen_policy == CLIENT_FULLSCREEN_ALLOW);
+}
+
 void client_set_fullscreen(WM *wm, Client *client, bool fullscreen)
 {
     if (!client) return;
     client->user_fullscreen = fullscreen;
-    bool real = fullscreen ||
-        (client->client_fullscreen &&
-         client->fullscreen_policy == CLIENT_FULLSCREEN_ALLOW);
-    apply_real_fullscreen(wm, client, real);
+    apply_real_fullscreen(wm, client, client_wants_real_fullscreen(client));
     update_fullscreen_property(wm, client);
 }
 
@@ -1074,10 +1093,7 @@ static void client_set_requested_fullscreen(WM *wm, Client *client, bool request
     } else {
         client->client_fullscreen = requested;
     }
-    bool real = client->user_fullscreen ||
-        (client->client_fullscreen &&
-         client->fullscreen_policy == CLIENT_FULLSCREEN_ALLOW);
-    apply_real_fullscreen(wm, client, real);
+    apply_real_fullscreen(wm, client, client_wants_real_fullscreen(client));
     update_fullscreen_property(wm, client);
 }
 
@@ -1695,21 +1711,23 @@ static void handle_configure_request(WM *wm, XConfigureRequestEvent *event)
         return;
     }
 
-    bool presentation = client->workspace->mode == WORKSPACE_MONOCLE ||
-                        client->fullscreen || client->maximized ||
-                        client->snap_state != SNAP_NONE;
-    if (!presentation) {
+    unsigned long geometry_mask =
+        (unsigned long)event->value_mask & (CWX | CWY | CWWidth | CWHeight);
+    if (!client_geometry_is_wm_owned(client) && geometry_mask != 0) {
         Rect geometry = client->geometry;
         if (event->value_mask & CWX) geometry.x = event->x;
         if (event->value_mask & CWY) geometry.y = event->y;
         if (event->value_mask & CWWidth) geometry.width = event->width;
         if (event->value_mask & CWHeight) geometry.height = event->height;
-        apply_normal_hints(wm, client, &geometry.width, &geometry.height);
+        if (event->value_mask & (CWWidth | CWHeight))
+            apply_normal_hints(wm, client, &geometry.width, &geometry.height);
         if (geometry.width < 1) geometry.width = 1;
         if (geometry.height < 1) geometry.height = 1;
         client->normal_geometry = geometry;
-        apply_client_geometry(wm, client, geometry);
+        commit_client_geometry(wm, client, geometry);
     }
+
+    /* CWBorderWidth is intentionally ignored for managed clients. */
 
     XWindowAttributes attrs;
     if (XGetWindowAttributes(wm->display, client->window, &attrs)) {

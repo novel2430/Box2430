@@ -162,7 +162,8 @@ The suite currently covers areas including:
 * strict configuration parsing and binding validation;
 * rules and fullscreen policies;
 * docks, struts, workareas, and special windows;
-* semantic geometry, snap, maximize, and fullscreen;
+* semantic geometry, snap, maximize, MONOCLE/fullscreen nesting, and
+  ConfigureRequest geometry ownership/idempotence;
 * interactive mouse move/resize and snap preview;
 * NumLock-insensitive bindings;
 * duplicate-KeySym/all-KeyCode grabs and runtime keyboard-map rebuilds;

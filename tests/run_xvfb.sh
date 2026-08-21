@@ -9,6 +9,8 @@ for scenario in \
     xvfb_rules.sh \
     xvfb_special_windows.sh \
     xvfb_semantic_geometry.sh \
+    xvfb_configure_request.sh \
+    xvfb_fullscreen_transitions.sh \
     xvfb_mouse.sh \
     xvfb_numlock.sh \
     xvfb_keymap.sh \
