@@ -1,0 +1,4 @@
+[appearance.bar]
+left = ["title"]
+center = ["title"]
+right = []

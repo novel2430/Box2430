@@ -4,15 +4,26 @@ height = 31
 padding = 12
 font = "monospace:size=10"
 font_bold = "monospace:style=Bold:size=10"
-active_fg = "#ffffff"
-active_bg = "#315577"
-inactive_fg = "#aaaaaa"
-inactive_bg = "#182028"
-urgent_fg = "#ffffff"
-urgent_bg = "#aa2233"
-active_bold = true
-inactive_bold = false
-urgent_bold = true
+source = "class"
+format = "[%s]"
+fg = "#aaaaaa"
+bg = "#182028"
+font_style = "normal"
+
+[appearance.tabs.active]
+fg = "#ffffff"
+bg = "#315577"
+font_style = "bold"
+
+[appearance.tabs.inactive]
+fg = "#aaaaaa"
+bg = "#182028"
+font_style = "normal"
+
+[appearance.tabs.urgent]
+fg = "#ffffff"
+bg = "#aa2233"
+font_style = "bold"
 
 [bindings]
 inherit_defaults = true

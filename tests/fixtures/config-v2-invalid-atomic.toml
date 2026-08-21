@@ -1,0 +1,5 @@
+[appearance.border]
+width = 7
+
+[appearance.bar.widgets.title]
+source = "fallback"

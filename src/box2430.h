@@ -14,6 +14,9 @@ enum {
     BOX2430_MAX_RULE_PATTERN = 256,
     BOX2430_MAX_MONITORS = 32,
     BOX2430_MAX_TAB_FONTS = 16,
+    BOX2430_MAX_UI_FORMAT = 128,
+    BOX2430_MAX_UI_LABEL = 128,
+    BOX2430_MAX_BAR_WIDGETS = 6,
 };
 
 typedef struct KeyBinding {
@@ -45,6 +48,124 @@ typedef enum ClientFullscreenPolicy {
     CLIENT_FULLSCREEN_FAKE,
     CLIENT_FULLSCREEN_DENY,
 } ClientFullscreenPolicy;
+
+typedef enum UIFontStyle {
+    UI_FONT_NORMAL,
+    UI_FONT_BOLD,
+} UIFontStyle;
+
+typedef enum UILabelSource {
+    UI_LABEL_TITLE,
+    UI_LABEL_CLASS,
+    UI_LABEL_INSTANCE,
+} UILabelSource;
+
+typedef enum UIBarPosition {
+    UI_BAR_TOP,
+    UI_BAR_BOTTOM,
+} UIBarPosition;
+
+typedef enum UIBarWidget {
+    UI_WIDGET_WORKSPACES,
+    UI_WIDGET_MODE,
+    UI_WIDGET_TITLE,
+    UI_WIDGET_STATUS,
+    UI_WIDGET_CLOCK,
+    UI_WIDGET_TRAY,
+    UI_WIDGET_COUNT,
+} UIBarWidget;
+
+typedef struct UILabelFormat {
+    char prefix[BOX2430_MAX_UI_FORMAT];
+    char suffix[BOX2430_MAX_UI_FORMAT];
+} UILabelFormat;
+
+typedef struct UIStyle {
+    char fg[8];
+    char bg[8];
+    UIFontStyle font_style;
+    UILabelFormat format;
+} UIStyle;
+
+typedef struct UIStyleOverride {
+    bool has_fg;
+    bool has_bg;
+    bool has_font_style;
+    bool has_format;
+    char fg[8];
+    char bg[8];
+    UIFontStyle font_style;
+    UILabelFormat format;
+} UIStyleOverride;
+
+typedef struct TabConfig {
+    bool enabled;
+    unsigned int height;
+    unsigned int padding;
+    char font[128];
+    char font_bold[128];
+    UILabelSource source;
+    UIStyle style;
+    UIStyleOverride inactive;
+    UIStyleOverride active;
+    UIStyleOverride urgent;
+} TabConfig;
+
+typedef struct WorkspaceWidgetConfig {
+    UIStyleOverride style;
+    UIStyleOverride empty;
+    UIStyleOverride occupied;
+    UIStyleOverride active;
+    UIStyleOverride urgent;
+    UIStyleOverride active_urgent;
+} WorkspaceWidgetConfig;
+
+typedef struct ModeStateConfig {
+    char label[BOX2430_MAX_UI_LABEL];
+    UIStyleOverride style;
+} ModeStateConfig;
+
+typedef struct ModeWidgetConfig {
+    UIStyleOverride style;
+    ModeStateConfig free;
+    ModeStateConfig monocle;
+} ModeWidgetConfig;
+
+typedef struct TitleWidgetConfig {
+    UILabelSource source;
+    UIStyleOverride style;
+} TitleWidgetConfig;
+
+typedef struct StatusWidgetConfig {
+    UIStyleOverride style;
+} StatusWidgetConfig;
+
+typedef struct ClockWidgetConfig {
+    char format[BOX2430_MAX_UI_FORMAT];
+    UIStyleOverride style;
+} ClockWidgetConfig;
+
+typedef struct BarConfig {
+    bool enabled;
+    UIBarPosition position;
+    unsigned int height;
+    unsigned int padding;
+    unsigned int gap;
+    char font[128];
+    char font_bold[128];
+    UIStyle style;
+    UIBarWidget left[BOX2430_MAX_BAR_WIDGETS];
+    unsigned int left_count;
+    UIBarWidget center[BOX2430_MAX_BAR_WIDGETS];
+    unsigned int center_count;
+    UIBarWidget right[BOX2430_MAX_BAR_WIDGETS];
+    unsigned int right_count;
+    WorkspaceWidgetConfig workspaces;
+    ModeWidgetConfig mode;
+    TitleWidgetConfig title;
+    StatusWidgetConfig status;
+    ClockWidgetConfig clock;
+} BarConfig;
 
 typedef enum WindowType {
     WINDOW_TYPE_NORMAL,
@@ -102,20 +223,8 @@ typedef struct Config {
     double snap_side_ratio;
     double snap_corner_width_ratio;
     double snap_corner_height_ratio;
-    bool tabs_enabled;
-    unsigned int tab_height;
-    unsigned int tab_padding;
-    char tab_font[128];
-    char tab_font_bold[128];
-    char tab_active_fg[8];
-    char tab_active_bg[8];
-    char tab_inactive_fg[8];
-    char tab_inactive_bg[8];
-    char tab_urgent_fg[8];
-    char tab_urgent_bg[8];
-    bool tab_active_bold;
-    bool tab_inactive_bold;
-    bool tab_urgent_bold;
+    TabConfig tabs;
+    BarConfig bar;
     bool inherit_default_bindings;
     unsigned int key_binding_count;
     KeyBinding key_bindings[BOX2430_MAX_KEY_BINDINGS];
@@ -310,6 +419,7 @@ bool wm_init(WM *wm, const char *display_name, const char *config_path,
              bool session_start);
 void wm_run(WM *wm, const char *autostart_path);
 void wm_destroy(WM *wm);
+Client *workspace_focus_target(Workspace *workspace);
 void workspace_activate(WM *wm, Monitor *monitor, Workspace *workspace);
 void monitor_select(WM *wm, Monitor *monitor);
 void client_close(WM *wm, Client *client);

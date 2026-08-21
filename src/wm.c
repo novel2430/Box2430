@@ -158,7 +158,7 @@ static void enforce_stacking(WM *wm)
             if (!client->fullscreen) XRaiseWindow(wm->display, client->window);
     }
     for (unsigned int i = 0; i < wm->monitor_count; ++i)
-        if (wm->config.tabs_enabled &&
+        if (wm->config.tabs.enabled &&
             wm->monitors[i].active_workspace->mode == WORKSPACE_MONOCLE)
             XRaiseWindow(wm->display, wm->monitors[i].tab_bar);
     for (SpecialWindow *special = wm->special_windows; special; special = special->next)
@@ -334,7 +334,7 @@ static Client *workspace_focus_fallback(Workspace *workspace, Client *removed)
     return workspace_stable_focus_fallback(workspace, removed);
 }
 
-static Client *workspace_focus_target(Workspace *workspace)
+Client *workspace_focus_target(Workspace *workspace)
 {
     return workspace_focus_fallback(workspace, NULL);
 }
@@ -1967,6 +1967,7 @@ static void handle_event(WM *wm, XEvent *event)
                 free(client->class_name);
                 client->instance = instance;
                 client->class_name = class_name;
+                ui_tab_update(wm);
             } else {
                 free(instance);
                 free(class_name);

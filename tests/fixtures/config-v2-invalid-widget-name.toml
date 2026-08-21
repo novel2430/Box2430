@@ -1,0 +1,4 @@
+[appearance.bar]
+left = ["workspaces", "battery"]
+center = []
+right = []

@@ -6,6 +6,10 @@
 bool ui_init(WM *wm);
 void ui_destroy(WM *wm);
 
+UIStyle ui_resolve_style(UIStyle base, const UIStyleOverride *override);
+const char *ui_client_label(const Client *client, UILabelSource source);
+char *ui_format_label(const UILabelFormat *format, const char *value);
+
 unsigned int ui_text_width(Display *display, XftFont *const *fonts,
                            unsigned int font_count, const char *text);
 void ui_draw_text(Display *display, XftDraw *draw, const XftColor *color,

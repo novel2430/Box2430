@@ -24,21 +24,110 @@ focused = "#89b4fa"
 unfocused = "#45475a"
 urgent = "#f38ba8"
 
+[appearance.bar]
+enabled = true
+position = "top"
+height = 24
+padding = 8
+gap = 8
+font = "monospace:size=10"
+font_bold = "monospace:style=Bold:size=10"
+fg = "#aaaaaa"
+bg = "#222222"
+left = ["workspaces", "mode"]
+center = ["title"]
+right = ["status", "clock", "tray"]
+
+[appearance.bar.widgets.workspaces]
+format = " %s "
+font_style = "normal"
+
+[appearance.bar.widgets.workspaces.empty]
+fg = "#666666"
+bg = "#222222"
+font_style = "normal"
+format = " %s "
+
+[appearance.bar.widgets.workspaces.occupied]
+fg = "#aaaaaa"
+bg = "#222222"
+font_style = "normal"
+format = " %s "
+
+[appearance.bar.widgets.workspaces.active]
+fg = "#ffffff"
+bg = "#3b4252"
+font_style = "bold"
+format = "[ %s ]"
+
+[appearance.bar.widgets.workspaces.urgent]
+fg = "#ffffff"
+bg = "#bf616a"
+font_style = "bold"
+format = "! %s !"
+
+[appearance.bar.widgets.workspaces.active_urgent]
+fg = "#ffffff"
+bg = "#bf616a"
+font_style = "bold"
+format = "[! %s !]"
+
+[appearance.bar.widgets.mode]
+format = "%s"
+font_style = "normal"
+
+[appearance.bar.widgets.mode.free]
+label = "F"
+format = "[ %s ]"
+font_style = "normal"
+
+[appearance.bar.widgets.mode.monocle]
+label = "M"
+format = "[ %s ]"
+font_style = "bold"
+
+[appearance.bar.widgets.title]
+source = "title"
+format = "%s"
+font_style = "normal"
+
+[appearance.bar.widgets.status]
+format = "%s"
+font_style = "normal"
+
+[appearance.bar.widgets.clock]
+format = "%H:%M"
+font_style = "normal"
+
 [appearance.tabs]
 enabled = true
 height = 24
 padding = 8
 font = "monospace:size=10"
 font_bold = "monospace:style=Bold:size=10"
-active_fg = "#ffffff"
-active_bg = "#3b4252"
-inactive_fg = "#aaaaaa"
-inactive_bg = "#222222"
-urgent_fg = "#ffffff"
-urgent_bg = "#bf616a"
-active_bold = true
-inactive_bold = false
-urgent_bold = true
+source = "title"
+format = "%s"
+fg = "#aaaaaa"
+bg = "#222222"
+font_style = "normal"
+
+[appearance.tabs.inactive]
+fg = "#aaaaaa"
+bg = "#222222"
+font_style = "normal"
+format = "%s"
+
+[appearance.tabs.active]
+fg = "#ffffff"
+bg = "#3b4252"
+font_style = "bold"
+format = "%s"
+
+[appearance.tabs.urgent]
+fg = "#ffffff"
+bg = "#bf616a"
+font_style = "bold"
+format = "%s"
 
 [appearance.snap_preview]
 color = "#89b4fa"

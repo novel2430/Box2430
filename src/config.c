@@ -78,6 +78,37 @@ static void set_default_bindings(Config *config)
     }
 }
 
+static void set_label_format(UILabelFormat *format, const char *prefix,
+                             const char *suffix)
+{
+    snprintf(format->prefix, sizeof(format->prefix), "%s", prefix);
+    snprintf(format->suffix, sizeof(format->suffix), "%s", suffix);
+}
+
+static void set_style(UIStyle *style, const char *fg, const char *bg,
+                      UIFontStyle font_style, const char *prefix,
+                      const char *suffix)
+{
+    memcpy(style->fg, fg, 8);
+    memcpy(style->bg, bg, 8);
+    style->font_style = font_style;
+    set_label_format(&style->format, prefix, suffix);
+}
+
+static void set_style_override(UIStyleOverride *style, const char *fg,
+                               const char *bg, UIFontStyle font_style,
+                               const char *prefix, const char *suffix)
+{
+    style->has_fg = fg != NULL;
+    style->has_bg = bg != NULL;
+    style->has_font_style = true;
+    style->has_format = prefix != NULL && suffix != NULL;
+    if (fg) memcpy(style->fg, fg, 8);
+    if (bg) memcpy(style->bg, bg, 8);
+    style->font_style = font_style;
+    if (style->has_format) set_label_format(&style->format, prefix, suffix);
+}
+
 void config_set_defaults(Config *config)
 {
     *config = (Config){
@@ -98,12 +129,26 @@ void config_set_defaults(Config *config)
         .snap_side_ratio = 0.5,
         .snap_corner_width_ratio = 0.5,
         .snap_corner_height_ratio = 0.5,
-        .tabs_enabled = true,
-        .tab_height = 24,
-        .tab_padding = 8,
-        .tab_active_bold = true,
-        .tab_inactive_bold = false,
-        .tab_urgent_bold = true,
+        .tabs = {
+            .enabled = true,
+            .height = 24,
+            .padding = 8,
+            .source = UI_LABEL_TITLE,
+        },
+        .bar = {
+            .enabled = true,
+            .position = UI_BAR_TOP,
+            .height = 24,
+            .padding = 8,
+            .gap = 8,
+            .left = {UI_WIDGET_WORKSPACES, UI_WIDGET_MODE},
+            .left_count = 2,
+            .center = {UI_WIDGET_TITLE},
+            .center_count = 1,
+            .right = {UI_WIDGET_STATUS, UI_WIDGET_CLOCK, UI_WIDGET_TRAY},
+            .right_count = 3,
+            .title = {.source = UI_LABEL_TITLE},
+        },
         .inherit_default_bindings = true,
     };
     memcpy(config->background, "#000000", 8);
@@ -111,15 +156,54 @@ void config_set_defaults(Config *config)
     memcpy(config->border_unfocused, "#45475a", 8);
     memcpy(config->border_urgent, "#f38ba8", 8);
     memcpy(config->snap_preview_color, "#89b4fa", 8);
-    snprintf(config->tab_font, sizeof(config->tab_font), "monospace:size=10");
-    snprintf(config->tab_font_bold, sizeof(config->tab_font_bold),
+
+    snprintf(config->tabs.font, sizeof(config->tabs.font), "monospace:size=10");
+    snprintf(config->tabs.font_bold, sizeof(config->tabs.font_bold),
              "monospace:style=Bold:size=10");
-    memcpy(config->tab_active_fg, "#ffffff", 8);
-    memcpy(config->tab_active_bg, "#3b4252", 8);
-    memcpy(config->tab_inactive_fg, "#aaaaaa", 8);
-    memcpy(config->tab_inactive_bg, "#222222", 8);
-    memcpy(config->tab_urgent_fg, "#ffffff", 8);
-    memcpy(config->tab_urgent_bg, "#bf616a", 8);
+    set_style(&config->tabs.style, "#aaaaaa", "#222222", UI_FONT_NORMAL,
+              "", "");
+    set_style_override(&config->tabs.active, "#ffffff", "#3b4252",
+                       UI_FONT_BOLD, NULL, NULL);
+    set_style_override(&config->tabs.urgent, "#ffffff", "#bf616a",
+                       UI_FONT_BOLD, NULL, NULL);
+
+    snprintf(config->bar.font, sizeof(config->bar.font), "monospace:size=10");
+    snprintf(config->bar.font_bold, sizeof(config->bar.font_bold),
+             "monospace:style=Bold:size=10");
+    set_style(&config->bar.style, "#aaaaaa", "#222222", UI_FONT_NORMAL,
+              "", "");
+
+    set_style_override(&config->bar.workspaces.style, NULL, NULL,
+                       UI_FONT_NORMAL, " ", " ");
+    set_style_override(&config->bar.workspaces.empty, "#666666", "#222222",
+                       UI_FONT_NORMAL, " ", " ");
+    set_style_override(&config->bar.workspaces.occupied, "#aaaaaa", "#222222",
+                       UI_FONT_NORMAL, " ", " ");
+    set_style_override(&config->bar.workspaces.active, "#ffffff", "#3b4252",
+                       UI_FONT_BOLD, "[ ", " ]");
+    set_style_override(&config->bar.workspaces.urgent, "#ffffff", "#bf616a",
+                       UI_FONT_BOLD, "! ", " !");
+    set_style_override(&config->bar.workspaces.active_urgent,
+                       "#ffffff", "#bf616a", UI_FONT_BOLD, "[! ", " !]");
+
+    set_style_override(&config->bar.mode.style, NULL, NULL,
+                       UI_FONT_NORMAL, "", "");
+    snprintf(config->bar.mode.free.label, sizeof(config->bar.mode.free.label), "F");
+    set_style_override(&config->bar.mode.free.style, NULL, NULL,
+                       UI_FONT_NORMAL, "[ ", " ]");
+    snprintf(config->bar.mode.monocle.label,
+             sizeof(config->bar.mode.monocle.label), "M");
+    set_style_override(&config->bar.mode.monocle.style, NULL, NULL,
+                       UI_FONT_BOLD, "[ ", " ]");
+
+    set_style_override(&config->bar.title.style, NULL, NULL,
+                       UI_FONT_NORMAL, "", "");
+    set_style_override(&config->bar.status.style, NULL, NULL,
+                       UI_FONT_NORMAL, "", "");
+    snprintf(config->bar.clock.format, sizeof(config->bar.clock.format), "%%H:%%M");
+    config->bar.clock.style.has_font_style = true;
+    config->bar.clock.style.font_style = UI_FONT_NORMAL;
+
     set_default_bindings(config);
 }
 
@@ -242,6 +326,163 @@ static bool read_text(toml_datum_t table, const char *prefix, const char *key,
         return false;
     }
     strcpy(output, datum.u.s);
+    return true;
+}
+
+static bool read_label_format(toml_datum_t table, const char *prefix,
+                              const char *key, UILabelFormat *format)
+{
+    toml_datum_t datum = toml_get(table, key);
+    if (datum.type == TOML_UNKNOWN) return true;
+    if (datum.type != TOML_STRING) {
+        fprintf(stderr, "box2430: config option %s.%s must be a string with exactly one %%s\n",
+                prefix, key);
+        return false;
+    }
+    const char *placeholder = strstr(datum.u.s, "%s");
+    if (!placeholder || strstr(placeholder + 2, "%s")) {
+        fprintf(stderr, "box2430: config option %s.%s must contain exactly one %%s\n",
+                prefix, key);
+        return false;
+    }
+    size_t prefix_length = (size_t)(placeholder - datum.u.s);
+    size_t suffix_length = strlen(placeholder + 2);
+    if (prefix_length >= sizeof(format->prefix) ||
+        suffix_length >= sizeof(format->suffix)) {
+        fprintf(stderr, "box2430: config option %s.%s is too long\n", prefix, key);
+        return false;
+    }
+    memcpy(format->prefix, datum.u.s, prefix_length);
+    format->prefix[prefix_length] = '\0';
+    memcpy(format->suffix, placeholder + 2, suffix_length + 1);
+    return true;
+}
+
+static bool read_label_source(toml_datum_t table, const char *prefix,
+                              const char *key, UILabelSource *source)
+{
+    static const char *sources[] = {"title", "class", "instance"};
+    unsigned int choice = (unsigned int)*source;
+    if (!read_enum(table, prefix, key, sources, 3, &choice)) return false;
+    *source = (UILabelSource)choice;
+    return true;
+}
+
+static bool read_font_style(toml_datum_t table, const char *prefix,
+                            const char *key, UIFontStyle *style)
+{
+    static const char *styles[] = {"normal", "bold"};
+    unsigned int choice = (unsigned int)*style;
+    if (!read_enum(table, prefix, key, styles, 2, &choice)) return false;
+    *style = (UIFontStyle)choice;
+    return true;
+}
+
+static bool read_style_override(toml_datum_t table, const char *prefix,
+                                UIStyleOverride *style, bool allow_format)
+{
+    toml_datum_t datum = toml_get(table, "fg");
+    if (datum.type != TOML_UNKNOWN) {
+        if (!read_color(table, prefix, "fg", style->fg)) return false;
+        style->has_fg = true;
+    }
+    datum = toml_get(table, "bg");
+    if (datum.type != TOML_UNKNOWN) {
+        if (!read_color(table, prefix, "bg", style->bg)) return false;
+        style->has_bg = true;
+    }
+    datum = toml_get(table, "font_style");
+    if (datum.type != TOML_UNKNOWN) {
+        if (!read_font_style(table, prefix, "font_style", &style->font_style))
+            return false;
+        style->has_font_style = true;
+    }
+    datum = toml_get(table, "format");
+    if (datum.type != TOML_UNKNOWN && allow_format) {
+        if (!read_label_format(table, prefix, "format", &style->format)) return false;
+        style->has_format = true;
+    }
+    return true;
+}
+
+static bool read_base_style(toml_datum_t table, const char *prefix, UIStyle *style)
+{
+    return read_color(table, prefix, "fg", style->fg) &&
+           read_color(table, prefix, "bg", style->bg) &&
+           read_font_style(table, prefix, "font_style", &style->font_style) &&
+           read_label_format(table, prefix, "format", &style->format);
+}
+
+static bool parse_style_state(toml_datum_t parent, const char *name,
+                              const char *prefix, UIStyleOverride *style)
+{
+    toml_datum_t table = toml_get(parent, name);
+    static const char *keys[] = {"fg", "bg", "font_style", "format"};
+    char path[128];
+    snprintf(path, sizeof(path), "%s.%s", prefix, name);
+    return validate_keys(table, path, keys, 4) &&
+           read_style_override(table, path, style, true);
+}
+
+static int bar_widget_from_name(const char *name)
+{
+    static const char *names[] = {
+        "workspaces", "mode", "title", "status", "clock", "tray",
+    };
+    for (int i = 0; i < UI_WIDGET_COUNT; ++i)
+        if (strcmp(name, names[i]) == 0) return i;
+    return -1;
+}
+
+static bool read_widget_list(toml_datum_t bar, const char *key,
+                             UIBarWidget output[BOX2430_MAX_BAR_WIDGETS],
+                             unsigned int *count)
+{
+    toml_datum_t datum = toml_get(bar, key);
+    if (datum.type == TOML_UNKNOWN) return true;
+    if (datum.type != TOML_ARRAY || datum.u.arr.size > BOX2430_MAX_BAR_WIDGETS) {
+        fprintf(stderr, "box2430: config option appearance.bar.%s must be an array of at most %d widget names\n",
+                key, BOX2430_MAX_BAR_WIDGETS);
+        return false;
+    }
+    *count = 0;
+    for (int32_t i = 0; i < datum.u.arr.size; ++i) {
+        toml_datum_t item = datum.u.arr.elem[i];
+        if (item.type != TOML_STRING) {
+            fprintf(stderr, "box2430: config option appearance.bar.%s must contain only widget names\n",
+                    key);
+            return false;
+        }
+        int widget = bar_widget_from_name(item.u.s);
+        if (widget < 0) {
+            fprintf(stderr, "box2430: unknown bar widget %s\n", item.u.s);
+            return false;
+        }
+        output[(*count)++] = (UIBarWidget)widget;
+    }
+    return true;
+}
+
+static bool validate_widget_uniqueness(const BarConfig *bar)
+{
+    bool seen[UI_WIDGET_COUNT] = {false};
+    const UIBarWidget *lists[] = {bar->left, bar->center, bar->right};
+    const unsigned int counts[] = {
+        bar->left_count, bar->center_count, bar->right_count,
+    };
+    for (size_t list = 0; list < 3; ++list) {
+        for (unsigned int i = 0; i < counts[list]; ++i) {
+            UIBarWidget widget = lists[list][i];
+            if (seen[widget]) {
+                static const char *names[] = {
+                    "workspaces", "mode", "title", "status", "clock", "tray",
+                };
+                fprintf(stderr, "box2430: duplicate bar widget %s\n", names[widget]);
+                return false;
+            }
+            seen[widget] = true;
+        }
+    }
     return true;
 }
 
@@ -624,6 +865,156 @@ static bool parse_rules(Config *candidate, toml_datum_t rules)
     return true;
 }
 
+static bool parse_tabs(Config *candidate, toml_datum_t tabs)
+{
+    static const char *keys[] = {
+        "enabled", "height", "padding", "font", "font_bold", "source",
+        "format", "fg", "bg", "font_style", "inactive", "active", "urgent",
+    };
+    return validate_keys(tabs, "appearance.tabs", keys, 13) &&
+           read_bool(tabs, "appearance.tabs", "enabled", &candidate->tabs.enabled) &&
+           read_uint(tabs, "appearance.tabs", "height", 12, 128,
+                     &candidate->tabs.height) &&
+           read_uint(tabs, "appearance.tabs", "padding", 0, 128,
+                     &candidate->tabs.padding) &&
+           read_text(tabs, "appearance.tabs", "font", candidate->tabs.font,
+                     sizeof(candidate->tabs.font)) &&
+           read_text(tabs, "appearance.tabs", "font_bold",
+                     candidate->tabs.font_bold, sizeof(candidate->tabs.font_bold)) &&
+           read_label_source(tabs, "appearance.tabs", "source",
+                             &candidate->tabs.source) &&
+           read_base_style(tabs, "appearance.tabs", &candidate->tabs.style) &&
+           parse_style_state(tabs, "inactive", "appearance.tabs",
+                             &candidate->tabs.inactive) &&
+           parse_style_state(tabs, "active", "appearance.tabs",
+                             &candidate->tabs.active) &&
+           parse_style_state(tabs, "urgent", "appearance.tabs",
+                             &candidate->tabs.urgent);
+}
+
+static bool parse_workspace_widget(BarConfig *bar, toml_datum_t table)
+{
+    static const char *keys[] = {
+        "fg", "bg", "font_style", "format", "empty", "occupied",
+        "active", "urgent", "active_urgent",
+    };
+    return validate_keys(table, "appearance.bar.widgets.workspaces", keys, 9) &&
+           read_style_override(table, "appearance.bar.widgets.workspaces",
+                               &bar->workspaces.style, true) &&
+           parse_style_state(table, "empty", "appearance.bar.widgets.workspaces",
+                             &bar->workspaces.empty) &&
+           parse_style_state(table, "occupied", "appearance.bar.widgets.workspaces",
+                             &bar->workspaces.occupied) &&
+           parse_style_state(table, "active", "appearance.bar.widgets.workspaces",
+                             &bar->workspaces.active) &&
+           parse_style_state(table, "urgent", "appearance.bar.widgets.workspaces",
+                             &bar->workspaces.urgent) &&
+           parse_style_state(table, "active_urgent",
+                             "appearance.bar.widgets.workspaces",
+                             &bar->workspaces.active_urgent);
+}
+
+static bool parse_mode_state(toml_datum_t parent, const char *name,
+                             ModeStateConfig *state)
+{
+    toml_datum_t table = toml_get(parent, name);
+    static const char *keys[] = {"label", "fg", "bg", "font_style", "format"};
+    char path[128];
+    snprintf(path, sizeof(path), "appearance.bar.widgets.mode.%s", name);
+    return validate_keys(table, path, keys, 5) &&
+           read_text(table, path, "label", state->label, sizeof(state->label)) &&
+           read_style_override(table, path, &state->style, true);
+}
+
+static bool parse_mode_widget(BarConfig *bar, toml_datum_t table)
+{
+    static const char *keys[] = {
+        "fg", "bg", "font_style", "format", "free", "monocle",
+    };
+    return validate_keys(table, "appearance.bar.widgets.mode", keys, 6) &&
+           read_style_override(table, "appearance.bar.widgets.mode",
+                               &bar->mode.style, true) &&
+           parse_mode_state(table, "free", &bar->mode.free) &&
+           parse_mode_state(table, "monocle", &bar->mode.monocle);
+}
+
+static bool parse_title_widget(BarConfig *bar, toml_datum_t table)
+{
+    static const char *keys[] = {"source", "fg", "bg", "font_style", "format"};
+    return validate_keys(table, "appearance.bar.widgets.title", keys, 5) &&
+           read_label_source(table, "appearance.bar.widgets.title", "source",
+                             &bar->title.source) &&
+           read_style_override(table, "appearance.bar.widgets.title",
+                               &bar->title.style, true);
+}
+
+static bool parse_status_widget(BarConfig *bar, toml_datum_t table)
+{
+    static const char *keys[] = {"fg", "bg", "font_style", "format"};
+    return validate_keys(table, "appearance.bar.widgets.status", keys, 4) &&
+           read_style_override(table, "appearance.bar.widgets.status",
+                               &bar->status.style, true);
+}
+
+static bool parse_clock_widget(BarConfig *bar, toml_datum_t table)
+{
+    static const char *keys[] = {"fg", "bg", "font_style", "format"};
+    return validate_keys(table, "appearance.bar.widgets.clock", keys, 4) &&
+           read_text(table, "appearance.bar.widgets.clock", "format",
+                     bar->clock.format, sizeof(bar->clock.format)) &&
+           read_style_override(table, "appearance.bar.widgets.clock",
+                               &bar->clock.style, false);
+}
+
+static bool parse_bar_widgets(BarConfig *bar, toml_datum_t widgets)
+{
+    static const char *keys[] = {
+        "workspaces", "mode", "title", "status", "clock", "tray",
+    };
+    if (!validate_keys(widgets, "appearance.bar.widgets", keys, 6)) return false;
+    toml_datum_t tray = toml_get(widgets, "tray");
+    return parse_workspace_widget(bar, toml_get(widgets, "workspaces")) &&
+           parse_mode_widget(bar, toml_get(widgets, "mode")) &&
+           parse_title_widget(bar, toml_get(widgets, "title")) &&
+           parse_status_widget(bar, toml_get(widgets, "status")) &&
+           parse_clock_widget(bar, toml_get(widgets, "clock")) &&
+           validate_keys(tray, "appearance.bar.widgets.tray", NULL, 0);
+}
+
+static bool parse_bar(Config *candidate, toml_datum_t bar)
+{
+    static const char *keys[] = {
+        "enabled", "position", "height", "padding", "gap", "font", "font_bold",
+        "fg", "bg", "left", "center", "right", "widgets",
+    };
+    static const char *positions[] = {"top", "bottom"};
+    unsigned int position = (unsigned int)candidate->bar.position;
+    if (!validate_keys(bar, "appearance.bar", keys, 13) ||
+        !read_bool(bar, "appearance.bar", "enabled", &candidate->bar.enabled) ||
+        !read_enum(bar, "appearance.bar", "position", positions, 2, &position) ||
+        !read_uint(bar, "appearance.bar", "height", 12, 128,
+                   &candidate->bar.height) ||
+        !read_uint(bar, "appearance.bar", "padding", 0, 128,
+                   &candidate->bar.padding) ||
+        !read_uint(bar, "appearance.bar", "gap", 0, 128,
+                   &candidate->bar.gap) ||
+        !read_text(bar, "appearance.bar", "font", candidate->bar.font,
+                   sizeof(candidate->bar.font)) ||
+        !read_text(bar, "appearance.bar", "font_bold", candidate->bar.font_bold,
+                   sizeof(candidate->bar.font_bold)) ||
+        !read_color(bar, "appearance.bar", "fg", candidate->bar.style.fg) ||
+        !read_color(bar, "appearance.bar", "bg", candidate->bar.style.bg) ||
+        !read_widget_list(bar, "left", candidate->bar.left,
+                          &candidate->bar.left_count) ||
+        !read_widget_list(bar, "center", candidate->bar.center,
+                          &candidate->bar.center_count) ||
+        !read_widget_list(bar, "right", candidate->bar.right,
+                          &candidate->bar.right_count)) return false;
+    candidate->bar.position = (UIBarPosition)position;
+    return validate_widget_uniqueness(&candidate->bar) &&
+           parse_bar_widgets(&candidate->bar, toml_get(bar, "widgets"));
+}
+
 static bool parse_supported_config(Config *candidate, toml_datum_t root)
 {
     static const char *top_keys[] = {
@@ -677,9 +1068,9 @@ static bool parse_supported_config(Config *candidate, toml_datum_t root)
 
     toml_datum_t appearance = toml_get(root, "appearance");
     static const char *appearance_keys[] = {
-        "background", "border", "tabs", "snap_preview",
+        "background", "border", "tabs", "bar", "snap_preview",
     };
-    if (!validate_keys(appearance, "appearance", appearance_keys, 4) ||
+    if (!validate_keys(appearance, "appearance", appearance_keys, 5) ||
         !read_color(appearance, "appearance", "background", candidate->background))
         return false;
     toml_datum_t border = toml_get(appearance, "border");
@@ -697,32 +1088,8 @@ static bool parse_supported_config(Config *candidate, toml_datum_t root)
                     candidate->snap_preview_color) ||
         !read_uint(preview, "appearance.snap_preview", "width", 1, 32,
                    &candidate->snap_preview_width)) return false;
-    toml_datum_t tabs = toml_get(appearance, "tabs");
-    static const char *tab_keys[] = {
-        "enabled", "height", "padding", "font", "font_bold",
-        "active_fg", "active_bg", "inactive_fg", "inactive_bg",
-        "urgent_fg", "urgent_bg", "active_bold", "inactive_bold", "urgent_bold",
-    };
-    if (!validate_keys(tabs, "appearance.tabs", tab_keys, 14) ||
-        !read_bool(tabs, "appearance.tabs", "enabled", &candidate->tabs_enabled) ||
-        !read_uint(tabs, "appearance.tabs", "height", 12, 128,
-                   &candidate->tab_height) ||
-        !read_uint(tabs, "appearance.tabs", "padding", 0, 128,
-                   &candidate->tab_padding) ||
-        !read_text(tabs, "appearance.tabs", "font", candidate->tab_font,
-                   sizeof(candidate->tab_font)) ||
-        !read_text(tabs, "appearance.tabs", "font_bold", candidate->tab_font_bold,
-                   sizeof(candidate->tab_font_bold)) ||
-        !read_color(tabs, "appearance.tabs", "active_fg", candidate->tab_active_fg) ||
-        !read_color(tabs, "appearance.tabs", "active_bg", candidate->tab_active_bg) ||
-        !read_color(tabs, "appearance.tabs", "inactive_fg", candidate->tab_inactive_fg) ||
-        !read_color(tabs, "appearance.tabs", "inactive_bg", candidate->tab_inactive_bg) ||
-        !read_color(tabs, "appearance.tabs", "urgent_fg", candidate->tab_urgent_fg) ||
-        !read_color(tabs, "appearance.tabs", "urgent_bg", candidate->tab_urgent_bg) ||
-        !read_bool(tabs, "appearance.tabs", "active_bold", &candidate->tab_active_bold) ||
-        !read_bool(tabs, "appearance.tabs", "inactive_bold", &candidate->tab_inactive_bold) ||
-        !read_bool(tabs, "appearance.tabs", "urgent_bold", &candidate->tab_urgent_bold))
-        return false;
+    if (!parse_tabs(candidate, toml_get(appearance, "tabs")) ||
+        !parse_bar(candidate, toml_get(appearance, "bar"))) return false;
 
     toml_datum_t snap = toml_get(root, "snap");
     static const char *snap_keys[] = {

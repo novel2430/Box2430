@@ -1,7 +1,53 @@
 #include "ui.h"
 
 #include <limits.h>
+#include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+UIStyle ui_resolve_style(UIStyle base, const UIStyleOverride *override)
+{
+    if (!override) return base;
+    if (override->has_fg) memcpy(base.fg, override->fg, sizeof(base.fg));
+    if (override->has_bg) memcpy(base.bg, override->bg, sizeof(base.bg));
+    if (override->has_font_style) base.font_style = override->font_style;
+    if (override->has_format) base.format = override->format;
+    return base;
+}
+
+const char *ui_client_label(const Client *client, UILabelSource source)
+{
+    if (!client) return "";
+    switch (source) {
+    case UI_LABEL_TITLE:
+        return client->title ? client->title : "";
+    case UI_LABEL_CLASS:
+        return client->class_name ? client->class_name : "";
+    case UI_LABEL_INSTANCE:
+        return client->instance ? client->instance : "";
+    }
+    return "";
+}
+
+char *ui_format_label(const UILabelFormat *format, const char *value)
+{
+    if (!format || !value || !value[0]) return strdup("");
+    size_t prefix_length = strlen(format->prefix);
+    size_t value_length = strlen(value);
+    size_t suffix_length = strlen(format->suffix);
+    if (prefix_length > SIZE_MAX - value_length ||
+        prefix_length + value_length > SIZE_MAX - suffix_length - 1U)
+        return NULL;
+    size_t length = prefix_length + value_length + suffix_length;
+    char *output = malloc(length + 1U);
+    if (!output) return NULL;
+    memcpy(output, format->prefix, prefix_length);
+    memcpy(output + prefix_length, value, value_length);
+    memcpy(output + prefix_length + value_length, format->suffix,
+           suffix_length + 1U);
+    return output;
+}
 
 static int utf8_length(const FcChar8 *text, FcChar32 *character)
 {
@@ -173,10 +219,16 @@ void ui_draw_text(Display *display, XftDraw *draw, const XftColor *color,
     XftDrawSetClip(draw, NULL);
 }
 
-static XftFont *const *tab_fonts(const WM *wm, bool bold,
+typedef enum TabVisualState {
+    TAB_VISUAL_INACTIVE,
+    TAB_VISUAL_ACTIVE,
+    TAB_VISUAL_URGENT,
+} TabVisualState;
+
+static XftFont *const *tab_fonts(const WM *wm, UIFontStyle style,
                                  unsigned int *count_return)
 {
-    if (bold) {
+    if (style == UI_FONT_BOLD) {
         *count_return = wm->tab_font_bold_count;
         return wm->tab_fonts_bold;
     }
@@ -184,25 +236,39 @@ static XftFont *const *tab_fonts(const WM *wm, bool bold,
     return wm->tab_fonts;
 }
 
-static bool tab_uses_bold(const WM *wm, const Client *client)
+static TabVisualState tab_visual_state(const Client *client)
 {
-    return client->urgent ? wm->config.tab_urgent_bold
-        : client == wm->focused_client ? wm->config.tab_active_bold
-        : wm->config.tab_inactive_bold;
+    if (client->urgent) return TAB_VISUAL_URGENT;
+    if (workspace_focus_target(client->workspace) == client)
+        return TAB_VISUAL_ACTIVE;
+    return TAB_VISUAL_INACTIVE;
 }
 
-static const char *tab_label(const Client *client)
+static UIStyle tab_style(const WM *wm, TabVisualState state)
 {
-    return client->title && client->title[0] ? client->title : "(untitled)";
+    const UIStyleOverride *override = state == TAB_VISUAL_URGENT
+        ? &wm->config.tabs.urgent
+        : state == TAB_VISUAL_ACTIVE ? &wm->config.tabs.active
+        : &wm->config.tabs.inactive;
+    return ui_resolve_style(wm->config.tabs.style, override);
+}
+
+static char *tab_label(const WM *wm, const Client *client, const UIStyle *style)
+{
+    const char *value = ui_client_label(client, wm->config.tabs.source);
+    return ui_format_label(&style->format, value);
 }
 
 static unsigned int natural_tab_width(WM *wm, const Client *client)
 {
+    UIStyle style = tab_style(wm, tab_visual_state(client));
+    char *label = tab_label(wm, client, &style);
+    if (!label) return UINT_MAX;
     unsigned int font_count;
-    XftFont *const *fonts = tab_fonts(wm, tab_uses_bold(wm, client), &font_count);
-    unsigned int text_width = ui_text_width(wm->display, fonts, font_count,
-                                            tab_label(client));
-    unsigned int padding = 2U * wm->config.tab_padding;
+    XftFont *const *fonts = tab_fonts(wm, style.font_style, &font_count);
+    unsigned int text_width = ui_text_width(wm->display, fonts, font_count, label);
+    free(label);
+    unsigned int padding = 2U * wm->config.tabs.padding;
     return UINT_MAX - text_width < padding ? UINT_MAX : text_width + padding;
 }
 
@@ -246,11 +312,11 @@ static void tab_bounds(WM *wm, Monitor *monitor, Client *wanted,
 unsigned int ui_tab_height(const WM *wm, const Monitor *monitor)
 {
     int minimum_content_height = 2 * (int)wm->config.border_width + 1;
-    if (!wm->config.tabs_enabled ||
+    if (!wm->config.tabs.enabled ||
         monitor->workarea.height <= minimum_content_height) return 0;
     int available = monitor->workarea.height - minimum_content_height;
-    return wm->config.tab_height <= (unsigned int)available
-        ? wm->config.tab_height : (unsigned int)available;
+    return wm->config.tabs.height <= (unsigned int)available
+        ? wm->config.tabs.height : (unsigned int)available;
 }
 
 Monitor *ui_tab_monitor_for_window(WM *wm, Window window)
@@ -283,27 +349,24 @@ void ui_tab_draw(WM *wm, Monitor *monitor)
         int x;
         unsigned int width;
         tab_bounds(wm, monitor, client, &x, &width);
-        XftColor *fg;
-        XftColor *bg;
-        if (client->urgent) {
-            fg = &wm->tab_urgent_fg;
-            bg = &wm->tab_urgent_bg;
-        } else if (client == wm->focused_client) {
-            fg = &wm->tab_active_fg;
-            bg = &wm->tab_active_bg;
-        } else {
-            fg = &wm->tab_inactive_fg;
-            bg = &wm->tab_inactive_bg;
-        }
+        TabVisualState state = tab_visual_state(client);
+        UIStyle style = tab_style(wm, state);
+        XftColor *fg = state == TAB_VISUAL_URGENT ? &wm->tab_urgent_fg
+            : state == TAB_VISUAL_ACTIVE ? &wm->tab_active_fg
+            : &wm->tab_inactive_fg;
+        XftColor *bg = state == TAB_VISUAL_URGENT ? &wm->tab_urgent_bg
+            : state == TAB_VISUAL_ACTIVE ? &wm->tab_active_bg
+            : &wm->tab_inactive_bg;
         XSetForeground(wm->display, DefaultGC(wm->display, wm->screen), bg->pixel);
         XFillRectangle(wm->display, monitor->tab_bar,
                        DefaultGC(wm->display, wm->screen), x, 0, width, height);
+        char *label = tab_label(wm, client, &style);
+        if (!label) continue;
         unsigned int font_count;
-        XftFont *const *fonts = tab_fonts(wm, tab_uses_bold(wm, client),
-                                         &font_count);
+        XftFont *const *fonts = tab_fonts(wm, style.font_style, &font_count);
         ui_draw_text(wm->display, monitor->tab_draw, fg, fonts, font_count,
-                     x, 0, width, height, wm->config.tab_padding,
-                     tab_label(client));
+                     x, 0, width, height, wm->config.tabs.padding, label);
+        free(label);
     }
 }
 
@@ -313,7 +376,7 @@ void ui_tab_update(WM *wm)
     for (unsigned int i = 0; i < wm->monitor_count; ++i) {
         Monitor *monitor = &wm->monitors[i];
         unsigned int height = ui_tab_height(wm, monitor);
-        bool visible = wm->config.tabs_enabled &&
+        bool visible = wm->config.tabs.enabled &&
             monitor->active_workspace->mode == WORKSPACE_MONOCLE && height;
         unsigned int window_height = height ? height : 1;
         XMoveResizeWindow(wm->display, monitor->tab_bar,
@@ -425,9 +488,9 @@ bool ui_init(WM *wm)
 {
     Visual *visual = DefaultVisual(wm->display, wm->screen);
     Colormap colormap = DefaultColormap(wm->display, wm->screen);
-    wm->tab_font_count = load_fonts(wm, wm->config.tab_font, false,
+    wm->tab_font_count = load_fonts(wm, wm->config.tabs.font, false,
                                     wm->tab_fonts);
-    wm->tab_font_bold_count = load_fonts(wm, wm->config.tab_font_bold, true,
+    wm->tab_font_bold_count = load_fonts(wm, wm->config.tabs.font_bold, true,
                                          wm->tab_fonts_bold);
     if (!wm->tab_font_count || !wm->tab_font_bold_count) {
         fprintf(stderr, "box2430: cannot open configured tab bar fonts\n");
@@ -440,10 +503,13 @@ bool ui_init(WM *wm)
         &wm->tab_inactive_fg, &wm->tab_inactive_bg,
         &wm->tab_urgent_fg, &wm->tab_urgent_bg,
     };
+    UIStyle active = tab_style(wm, TAB_VISUAL_ACTIVE);
+    UIStyle inactive = tab_style(wm, TAB_VISUAL_INACTIVE);
+    UIStyle urgent = tab_style(wm, TAB_VISUAL_URGENT);
     const char *names[] = {
-        wm->config.tab_active_fg, wm->config.tab_active_bg,
-        wm->config.tab_inactive_fg, wm->config.tab_inactive_bg,
-        wm->config.tab_urgent_fg, wm->config.tab_urgent_bg,
+        active.fg, active.bg,
+        inactive.fg, inactive.bg,
+        urgent.fg, urgent.bg,
     };
     size_t color_count = sizeof(colors) / sizeof(colors[0]);
     size_t allocated = 0;

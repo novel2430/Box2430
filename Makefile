@@ -56,10 +56,12 @@ test-tools: $(BUILD_DIR)/x11-test-client $(BUILD_DIR)/x11-set-urgency \
 	$(BUILD_DIR)/x11-size-hints-client $(BUILD_DIR)/x11-sigchld-client \
 	$(BUILD_DIR)/x11-lifecycle-client $(BUILD_DIR)/x11-focus-compat-client \
 	$(BUILD_DIR)/x11-root-color $(BUILD_DIR)/x11-workspace-transition-observer \
-	$(BUILD_DIR)/x11-configure-request $(BUILD_DIR)/monitor-geometry-test
+	$(BUILD_DIR)/x11-configure-request $(BUILD_DIR)/monitor-geometry-test \
+	$(BUILD_DIR)/ui-label-test
 
 test: all test-tools
 	$(BUILD_DIR)/monitor-geometry-test
+	$(BUILD_DIR)/ui-label-test
 	tests/run_xvfb.sh
 
 $(BUILD_DIR)/x11-test-client: tests/x11_test_client.c
@@ -120,5 +122,10 @@ $(BUILD_DIR)/monitor-geometry-test: tests/monitor_geometry_test.c src/monitor.c 
 	@mkdir -p $(dir $@)
 	$(CC) $(CPPFLAGS) $(CFLAGS_COMMON) $(CFLAGS) -o $@ \
 		tests/monitor_geometry_test.c src/monitor.c $(LDLIBS)
+
+$(BUILD_DIR)/ui-label-test: tests/ui_label_test.c src/ui.c src/ui.h src/box2430.h
+	@mkdir -p $(dir $@)
+	$(CC) $(CPPFLAGS) $(CFLAGS_COMMON) $(CFLAGS) -o $@ \
+		tests/ui_label_test.c src/ui.c $(LDLIBS)
 
 -include $(DEPS)
