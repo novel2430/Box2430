@@ -12,7 +12,7 @@ The implementation keeps most window-management behavior in one place rather tha
 | --------------- | -------------------------------------------------------------------------------------------------------- |
 | `src/main.c`    | CLI parsing, WM lifecycle, and restart                                                                   |
 | `src/wm.c`      | Core state, event handling, focus, geometry, workspaces, monitors, tabs, snapping, and window management |
-| `src/command.c` | Command validation and dispatch, including `spawn`                                                       |
+| `src/command.c` | Command validation and dispatch, including process spawning                                                       |
 | `src/config.c`  | Built-in defaults and strict TOML configuration loading                                                  |
 | `src/x11.c`     | X11 ownership, atoms, window metadata, struts, and EWMH/ICCCM-facing helpers                             |
 | `src/box2430.h` | Shared data structures and public internal interfaces                                                    |
@@ -357,7 +357,7 @@ At runtime the relevant X event produces a `CommandContext`, then `command_run()
 
 Context-specific commands such as `mouse move-window` and `tab close` are rejected outside their valid input path.
 
-`spawn` forks from the WM process, closes the inherited X connection file descriptor in the child, starts a new session, and executes the requested program. The WM ignores `SIGCHLD` with `SA_NOCLDWAIT`; the spawned child resets `SIGCHLD` to the default disposition before `exec` so applications inherit normal child-process behavior.
+`spawn` and `spawn-shell` share one argv-based child-process launch path. `spawn` executes the supplied argv directly, while `spawn-shell` constructs `/bin/sh -c <command>` and then uses the same spawn primitive. The child closes the inherited X connection file descriptor, starts a new session, and resets `SIGCHLD` to the default disposition before `exec`; the WM itself ignores `SIGCHLD` with `SA_NOCLDWAIT`.
 
 ## Event Loop
 

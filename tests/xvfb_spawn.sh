@@ -27,6 +27,7 @@ wait_for() {
 Xvfb "$display" -screen 0 800x600x24 -nolisten tcp >"$tmp_dir/xvfb.log" 2>&1 &
 xvfb_pid=$!
 wait_for "DISPLAY=$display xdpyinfo >/dev/null 2>&1" || fail "Xvfb did not start"
+BOX2430_SPAWN_SHELL_TEST_FILE="$tmp_dir/spawn-shell.out" \
 PATH="$(dirname "$sigchld_bin"):$PATH" DISPLAY=$display \
     "$box2430_bin" -c tests/fixtures/config-spawn.toml >"$tmp_dir/wm.log" 2>&1 &
 wm_pid=$!
@@ -45,6 +46,10 @@ child_pid=$(DISPLAY=$display xprop -id "$window" _NET_WM_PID 2>/dev/null |
 DISPLAY=$display xdotool keydown super key e keyup super
 wait_for "grep -q 'box2430: spawn box2430-command-that-does-not-exist:' '$tmp_dir/wm.log'" ||
     fail "spawn exec failure did not report program name and error"
+
+DISPLAY=$display xdotool keydown super key h keyup super
+wait_for "grep -qx shell-ok '$tmp_dir/spawn-shell.out' 2>/dev/null" ||
+    fail "spawn-shell did not perform shell expansion/redirection"
 
 # Repeated key-bound spawns must create distinct managed clients even though
 # center placement makes identical xterms completely overlap in FREE mode.
@@ -75,4 +80,4 @@ wait_for "test \"\$(DISPLAY=$display xdotool search --name SpawnedXterm 2>/dev/n
     fail "xterm spawn after close missing"
 
 kill "$wm_pid"; wait "$wm_pid"; wm_pid=
-echo "PASS: Xvfb spawn SIGCHLD/error-reporting scenario"
+echo "PASS: Xvfb spawn direct/shell SIGCHLD/error-reporting scenario"

@@ -165,7 +165,7 @@ The suite currently covers areas including:
 * stable client-order focus cycling and urgency;
 * MONOCLE tab-bar behavior;
 * restart behavior;
-* `spawn` and SIGCHLD inheritance behavior.
+* direct `spawn`, shell-backed `spawn-shell`, and SIGCHLD inheritance behavior.
 
 Individual scenarios can be run directly, for example:
 

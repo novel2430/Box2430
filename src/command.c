@@ -26,14 +26,8 @@ static CommandStatus command_wm(WM *wm, const CommandContext *context,
     return COMMAND_OK;
 }
 
-static CommandStatus command_spawn(WM *wm, const CommandContext *context,
-                                   int argc, const char *const *argv)
+static CommandStatus spawn_argv(WM *wm, char *const arguments[])
 {
-    (void)context;
-    if (argc < 1 || argc > BOX2430_MAX_COMMAND_ARGS) return COMMAND_INVALID;
-    char *arguments[BOX2430_MAX_COMMAND_ARGS + 1];
-    for (int i = 0; i < argc; ++i) arguments[i] = (char *)argv[i];
-    arguments[argc] = NULL;
     pid_t child = fork();
     if (child < 0) return COMMAND_INVALID;
     if (child == 0) {
@@ -43,17 +37,38 @@ static CommandStatus command_spawn(WM *wm, const CommandContext *context,
         if (sigaction(SIGCHLD, &action, NULL) < 0) {
             int error = errno;
             fprintf(stderr, "box2430: spawn %s: cannot reset SIGCHLD: %s\n",
-                    argv[0], strerror(error));
+                    arguments[0], strerror(error));
             _exit(127);
         }
         close(wm->x_fd);
         setsid();
         execvp(arguments[0], arguments);
         int error = errno;
-        fprintf(stderr, "box2430: spawn %s: %s\n", argv[0], strerror(error));
+        fprintf(stderr, "box2430: spawn %s: %s\n",
+                arguments[0], strerror(error));
         _exit(127);
     }
     return COMMAND_OK;
+}
+
+static CommandStatus command_spawn(WM *wm, const CommandContext *context,
+                                   int argc, const char *const *argv)
+{
+    (void)context;
+    if (argc < 1 || argc > BOX2430_MAX_COMMAND_ARGS) return COMMAND_INVALID;
+    char *arguments[BOX2430_MAX_COMMAND_ARGS + 1];
+    for (int i = 0; i < argc; ++i) arguments[i] = (char *)argv[i];
+    arguments[argc] = NULL;
+    return spawn_argv(wm, arguments);
+}
+
+static CommandStatus command_spawn_shell(WM *wm, const CommandContext *context,
+                                         int argc, const char *const *argv)
+{
+    (void)context;
+    if (argc != 1) return COMMAND_INVALID;
+    char *arguments[] = {"/bin/sh", "-c", (char *)argv[0], NULL};
+    return spawn_argv(wm, arguments);
 }
 
 static CommandStatus command_workspace(WM *wm, const CommandContext *context,
@@ -246,6 +261,7 @@ static CommandStatus command_fullscreen(WM *wm, const CommandContext *context,
 static const CommandDef commands[] = {
     {"wm", command_wm},
     {"spawn", command_spawn},
+    {"spawn-shell", command_spawn_shell},
     {"workspace", command_workspace},
     {"monitor", command_monitor},
     {"window", command_window},
@@ -321,6 +337,7 @@ bool command_validate(const Config *config, CommandContextType context, int argc
         return argc == 2 && (strcmp(argv[1], "quit") == 0 ||
                              strcmp(argv[1], "restart") == 0);
     if (strcmp(argv[0], "spawn") == 0) return argc >= 2;
+    if (strcmp(argv[0], "spawn-shell") == 0) return argc == 2;
     if (strcmp(argv[0], "workspace") == 0)
         return argc == 2 && (strcmp(argv[1], "next") == 0 ||
                strcmp(argv[1], "prev") == 0 || valid_workspace_number(config, argv[1]));

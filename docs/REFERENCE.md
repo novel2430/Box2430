@@ -10,7 +10,8 @@ Commands are used by keyboard, mouse, and tab-bar bindings.
 | --- | --- |
 | `wm quit` | Exit Box2430 |
 | `wm restart` | Restart Box2430 |
-| `spawn <program> [args...]` | Launch a program |
+| `spawn <program> [args...]` | Launch a program directly without shell interpretation |
+| `spawn-shell <command>` | Run a command through `/bin/sh -c` |
 | `workspace <N>` | Switch to workspace `N` on the selected monitor |
 | `workspace next\|prev` | Switch workspace relatively |
 | `monitor next\|prev` | Select another monitor |
@@ -32,6 +33,8 @@ Commands are used by keyboard, mouse, and tab-bar bindings.
 | `tab close` | Close the clicked tab; tab-bar context only |
 
 Workspace numbers are 1-based. `--follow` moves focus with the window. `--keep-workspace` preserves the workspace number when moving between monitors instead of using the target monitor's active workspace.
+
+`spawn` executes its argv directly. Use `spawn-shell` when shell syntax such as pipes, redirects, variable expansion, or command substitution is required.
 
 `focus next` / `focus prev` use the workspace's stable client order. New clients are appended; focusing or raising a client does not reorder the cycle.
 
@@ -62,6 +65,7 @@ Keyboard bindings use X11 keysym names and the modifiers `Super`, `Shift`, `Ctrl
 ```toml
 [bindings.keys]
 "Super+Return" = "spawn kitty"
+"Super+p" = "spawn-shell 'playerctl pause && notify-send Paused'"
 "Super+Shift+q" = "wm quit"
 ```
 
