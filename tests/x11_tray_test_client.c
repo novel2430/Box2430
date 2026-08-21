@@ -190,59 +190,20 @@ static int run_icon(Display *display, int screen, const char *name,
     return 0;
 }
 
-static int run_restart_icon(Display *display, int screen, const char *name,
-                            unsigned int width, unsigned int height)
+static int run_ordinary_xembed(Display *display, int screen, const char *name,
+                               unsigned int width, unsigned int height)
 {
     Window root = RootWindow(display, screen);
-    Atom selection = tray_selection(display, screen);
-    Atom manager = XInternAtom(display, "MANAGER", False);
-    Atom opcode = XInternAtom(display, "_NET_SYSTEM_TRAY_OPCODE", False);
-    Atom xembed = XInternAtom(display, "_XEMBED", False);
     Atom xembed_info = XInternAtom(display, "_XEMBED_INFO", False);
-
-    Window icon = XCreateSimpleWindow(display, root, 20, 20,
-                                      width ? width : 1U,
-                                      height ? height : 1U,
-                                      0, 0, 0x335577);
-    XStoreName(display, icon, name);
-    XSelectInput(display, root, StructureNotifyMask);
-    XSelectInput(display, icon, StructureNotifyMask | PropertyChangeMask);
-    set_xembed_info(display, icon, xembed_info, true);
-    XMapWindow(display, icon);
-    XSync(display, False);
-    printf("0x%lx\n", icon);
-    fflush(stdout);
-
-    Window owner = None;
-    for (unsigned int attempts = 0; attempts < 500 && owner == None; ++attempts) {
-        while (XPending(display)) {
-            XEvent event;
-            XNextEvent(display, &event);
-            if (event.type == ClientMessage &&
-                event.xclient.message_type == manager &&
-                event.xclient.format == 32 &&
-                (Atom)event.xclient.data.l[1] == selection) {
-                owner = (Window)event.xclient.data.l[2];
-                break;
-            }
-        }
-        if (owner == None) {
-            struct timespec delay = {.tv_nsec = 10000000L};
-            nanosleep(&delay, NULL);
-        }
-    }
-    if (owner == None) {
-        XDestroyWindow(display, icon);
-        return 1;
-    }
-
-    send_dock_request(display, owner, opcode, icon);
-    Window host = None;
-    if (!wait_embedded(display, icon, xembed, &host)) {
-        XDestroyWindow(display, icon);
-        return 1;
-    }
-    printf("0x%lx 0x%lx\n", icon, host);
+    Window window = XCreateSimpleWindow(display, root, 20, 20,
+                                        width ? width : 1U,
+                                        height ? height : 1U,
+                                        0, 0, 0x557733);
+    XStoreName(display, window, name);
+    set_xembed_info(display, window, xembed_info, true);
+    XMapWindow(display, window);
+    XFlush(display);
+    printf("0x%lx\n", window);
     fflush(stdout);
 
     while (!stop_requested) {
@@ -254,7 +215,7 @@ static int run_restart_icon(Display *display, int screen, const char *name,
         struct timespec delay = {.tv_nsec = 10000000L};
         nanosleep(&delay, NULL);
     }
-    XDestroyWindow(display, icon);
+    XDestroyWindow(display, window);
     XSync(display, False);
     return 0;
 }
@@ -283,10 +244,10 @@ int main(int argc, char **argv)
         Window owner = XGetSelectionOwner(display, tray_selection(display, screen));
         if (owner != None) printf("0x%lx\n", owner);
         result = owner != None ? 0 : 1;
-    } else if (strcmp(argv[1], "restart-icon") == 0 && argc >= 5) {
+    } else if (strcmp(argv[1], "ordinary-xembed") == 0 && argc >= 5) {
         unsigned int width = (unsigned int)strtoul(argv[3], NULL, 10);
         unsigned int height = (unsigned int)strtoul(argv[4], NULL, 10);
-        result = run_restart_icon(display, screen, argv[2], width, height);
+        result = run_ordinary_xembed(display, screen, argv[2], width, height);
     } else if (strcmp(argv[1], "icon") == 0 && argc >= 6) {
         unsigned int width = (unsigned int)strtoul(argv[3], NULL, 10);
         unsigned int height = (unsigned int)strtoul(argv[4], NULL, 10);

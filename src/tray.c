@@ -74,25 +74,6 @@ static TrayIcon *find_icon(const Tray *tray, Window window)
     return NULL;
 }
 
-bool tray_window_is_candidate(WM *wm, Window window)
-{
-    Tray *tray = wm ? wm->tray : NULL;
-    if (!tray || !window) return false;
-
-    Atom actual_type = None;
-    int actual_format = 0;
-    unsigned long count = 0;
-    unsigned long remaining = 0;
-    unsigned char *data = NULL;
-    int result = XGetWindowProperty(
-        wm->display, window, tray->xembed_info, 0, 2, False, AnyPropertyType,
-        &actual_type, &actual_format, &count, &remaining, &data);
-    bool candidate = result == Success && actual_type != None &&
-        actual_format == 32 && count >= 2;
-    if (data) XFree(data);
-    return candidate;
-}
-
 static bool read_xembed_info(WM *wm, TrayIcon *icon,
                              unsigned long *version, bool *mapped)
 {
@@ -549,12 +530,7 @@ TrayEventResult tray_handle_event(WM *wm, XEvent *event)
 {
     Tray *tray = wm ? wm->tray : NULL;
     if (!tray || !event) return TRAY_EVENT_NONE;
-    if (!tray->active) {
-        if (event->type == MapRequest &&
-            tray_window_is_candidate(wm, event->xmaprequest.window))
-            return TRAY_EVENT_CONSUMED;
-        return TRAY_EVENT_NONE;
-    }
+    if (!tray->active) return TRAY_EVENT_NONE;
 
     TrayIcon *icon = NULL;
     switch (event->type) {
@@ -624,8 +600,6 @@ TrayEventResult tray_handle_event(WM *wm, XEvent *event)
             return TRAY_EVENT_CONSUMED |
                 (changed ? TRAY_EVENT_CHANGED : 0U);
         }
-        if (tray_window_is_candidate(wm, event->xmaprequest.window))
-            return TRAY_EVENT_CONSUMED;
         break;
     case UnmapNotify:
         icon = find_icon(tray, event->xunmap.window);

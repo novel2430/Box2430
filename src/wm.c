@@ -2097,8 +2097,7 @@ static void discover_existing_windows(WM *wm)
         for (unsigned int i = 0; i < count; ++i) {
             XWindowAttributes attrs;
             if (!XGetWindowAttributes(wm->display, children[i], &attrs) ||
-                attrs.override_redirect || attrs.class == InputOnly ||
-                tray_window_is_candidate(wm, children[i])) {
+                attrs.override_redirect || attrs.class == InputOnly) {
                 continue;
             }
             WindowType type = x11_read_window_type(wm, children[i]);

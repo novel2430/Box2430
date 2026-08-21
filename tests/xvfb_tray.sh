@@ -6,10 +6,10 @@ box2430_bin=${BOX2430_BIN:-./build/debug/box2430}
 tray_bin=${BOX2430_TRAY_BIN:-./build/debug/x11-tray-test-client}
 stacking_bin=${BOX2430_STACKING_BIN:-./build/debug/x11-stacking-order}
 tmp_dir=$(mktemp -d)
-xvfb_pid= wm_pid= watch_pid= restart_pid= icon1_pid= icon2_pid= icon3_pid= blocker_pid=
+xvfb_pid= wm_pid= watch_pid= pre_xembed_pid= runtime_xembed_pid= icon1_pid= icon2_pid= icon3_pid= blocker_pid=
 
 cleanup() {
-    for pid in "$icon3_pid" "$icon2_pid" "$icon1_pid" "$restart_pid" "$blocker_pid" "$watch_pid" "$wm_pid" "$xvfb_pid"; do
+    for pid in "$icon3_pid" "$icon2_pid" "$icon1_pid" "$runtime_xembed_pid" "$pre_xembed_pid" "$blocker_pid" "$watch_pid" "$wm_pid" "$xvfb_pid"; do
         if [ -n "$pid" ]; then kill "$pid" 2>/dev/null || true; fi
     done
     rm -rf "$tmp_dir"
@@ -51,14 +51,16 @@ wait_for "DISPLAY=$display xdpyinfo >/dev/null 2>&1" || fail "Xvfb did not start
 # Watch before WM startup so the ICCCM MANAGER announcement is observable.
 DISPLAY=$display "$tray_bin" watch >"$tmp_dir/manager.out" 2>"$tmp_dir/manager.err" &
 watch_pid=$!
-# A mapped normal root child carrying _XEMBED_INFO models an icon surviving a
-# WM restart.  It must never be adopted into Box2430's ordinary Client list
-# while it waits for the new MANAGER announcement and re-docks.
-DISPLAY=$display "$tray_bin" restart-icon TrayRestartIcon 32 32 >"$tmp_dir/restart.out" 2>"$tmp_dir/restart.err" &
-restart_pid=$!
-wait_for "test -s $tmp_dir/restart.out" || fail "restart-style tray icon did not start"
-restart_icon=$(head -n 1 "$tmp_dir/restart.out")
-sleep 0.05
+
+# _XEMBED_INFO describes XEmbed state; it is not proof of system-tray
+# membership. A normal mapped root child carrying the property before WM
+# startup must still be adopted as an ordinary Client unless it explicitly
+# sends SYSTEM_TRAY_REQUEST_DOCK.
+DISPLAY=$display "$tray_bin" ordinary-xembed PreExistingXEmbed 220 120 >"$tmp_dir/pre-xembed.out" 2>"$tmp_dir/pre-xembed.err" &
+pre_xembed_pid=$!
+wait_for "test -s $tmp_dir/pre-xembed.out" || fail "pre-existing XEmbed window did not start"
+pre_xembed=$(cat "$tmp_dir/pre-xembed.out")
+
 DISPLAY=$display "$box2430_bin" -c tests/fixtures/config-tray.toml >"$tmp_dir/wm.log" 2>&1 &
 wm_pid=$!
 wait_for "test -s $tmp_dir/manager.out" || fail "tray MANAGER announcement missing"
@@ -72,18 +74,23 @@ DISPLAY=$display xprop -id "$selection_owner" _NET_SYSTEM_TRAY_ORIENTATION | gre
 
 bar=$(DISPLAY=$display xwininfo -root -tree | awk '/"box2430-bar-0"/ {print $1; exit}')
 [ -n "$bar" ] || fail "native bar missing"
+wait_for "DISPLAY=$display xprop -root _NET_CLIENT_LIST | grep -qi $pre_xembed" ||
+    fail "pre-existing ordinary XEmbed window was excluded from Client lifecycle"
+wait_for "DISPLAY=$display xwininfo -id $pre_xembed | grep -q 'Map State: IsViewable'" ||
+    fail "pre-existing ordinary XEmbed window was not mapped"
+kill "$pre_xembed_pid"; wait "$pre_xembed_pid" 2>/dev/null || true; pre_xembed_pid=
 
-wait_for "test \"\$(wc -l < $tmp_dir/restart.out)\" -ge 2" || fail "restart-style tray icon did not re-dock"
-set -- $(tail -n 1 "$tmp_dir/restart.out"); redocked_icon=$1 restart_host=$2
-[ "$redocked_icon" = "$restart_icon" ] || fail "restart-style icon changed window identity"
-if DISPLAY=$display xprop -root _NET_CLIENT_LIST | grep -qi "$restart_icon"; then
-    fail "restart-style tray icon entered ordinary Client lifecycle"
-fi
-[ "$(parent_of "$restart_icon")" = "$restart_host" ] || fail "restart-style icon was not embedded"
-wait_for "test \"\$(DISPLAY=$display xwininfo -id $restart_host | awk '/Width:/ {print \$2; exit}')\" = 28" || fail "restart-style tray width incorrect"
-DISPLAY=$display "$stacking_bin" "$bar" "$restart_host" || fail "restart-style tray host is not above native bar"
-kill "$restart_pid"; wait "$restart_pid" 2>/dev/null || true; restart_pid=
-wait_for "DISPLAY=$display xwininfo -id $restart_host | grep -q 'Map State: IsUnMapped'" || fail "restart-style icon removal did not collapse tray"
+# The same rule applies after the WM is fully running: a new XEmbed-capable
+# top-level window is ordinary until REQUEST_DOCK establishes tray membership.
+DISPLAY=$display "$tray_bin" ordinary-xembed RuntimeXEmbed 220 120 >"$tmp_dir/runtime-xembed.out" 2>"$tmp_dir/runtime-xembed.err" &
+runtime_xembed_pid=$!
+wait_for "test -s $tmp_dir/runtime-xembed.out" || fail "runtime XEmbed window did not start"
+runtime_xembed=$(cat "$tmp_dir/runtime-xembed.out")
+wait_for "DISPLAY=$display xprop -root _NET_CLIENT_LIST | grep -qi $runtime_xembed" ||
+    fail "runtime ordinary XEmbed window was excluded from Client lifecycle"
+wait_for "DISPLAY=$display xwininfo -id $runtime_xembed | grep -q 'Map State: IsViewable'" ||
+    fail "runtime ordinary XEmbed window was not mapped"
+kill "$runtime_xembed_pid"; wait "$runtime_xembed_pid" 2>/dev/null || true; runtime_xembed_pid=
 
 # One square icon is normalized to the 24px bar height.  The visible host is a
 # root-level sibling with 2px leading/trailing spacing: 2 + 24 + 2 = 28.
