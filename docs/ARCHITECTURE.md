@@ -154,7 +154,7 @@ Each workspace keeps several independent views of the same clients.
 
 New clients are appended to the end. Focusing or raising a client does not reorder this list.
 
-`focus next` / `focus prev` cycle through this order with wraparound, skipping clients that cannot receive focus. This gives Box2430 one deterministic focus-cycle order instead of maintaining a separate focus-history structure.
+`focus next` / `focus prev` cycle through this order with wraparound, skipping clients that cannot receive focus. Focus history does not reorder this list.
 
 ### Stack order
 
@@ -164,9 +164,15 @@ Raise and lower operations modify this list. Focus and stacking are intentionall
 
 Stable client/tab order and stack order are independent: focus cycling does not change stacking, and raise/lower operations do not change focus-cycle order.
 
+### Focus order
+
+`focus_head` / `focus_tail` define most-recently-focused to least-recently-focused order for clients that have actually received focus in the workspace. This is a separate interaction stack; it is not X stacking order and it does not affect `focus next` / `focus prev`.
+
+A newly managed or moved client is not added merely because it exists in the workspace. `focus_client()` promotes a client to `focus_head` when Box2430 performs a real semantic focus transition. Removing or moving a client detaches it from this order.
+
 ## Focus Model
 
-`wm->focused_client` is the globally focused managed client. A workspace also stores `last_focused_client` so focus can be restored when returning to that workspace.
+`wm->focused_client` is the globally focused managed client. Each workspace keeps the independent focus order described above so focus can be restored by recency without coupling focus to X stacking.
 
 A client is focusable when it either accepts normal X input focus or supports `WM_TAKE_FOCUS`.
 
@@ -174,7 +180,7 @@ On focus, Box2430 may:
 
 1. update `focused_client`;
 2. select the client's monitor;
-3. update the workspace's `last_focused_client`;
+3. promote the client to the workspace's `focus_head`;
 4. clear urgency;
 5. call `XSetInputFocus` when appropriate;
 6. send `WM_TAKE_FOCUS` when supported;
@@ -195,14 +201,13 @@ Client `_NET_ACTIVE_WINDOW` requests default to marking an unfocused client
 urgent instead of allowing focus stealing. The `[focus].active_window` policy
 can be set to `"focus"` to retain direct focusing for visible, focusable clients.
 
-When a focused client disappears or leaves a workspace, focus falls back in
-stable client order: first to the next focusable client after the removed
-client, then to a previous focusable client if necessary. Workspace restoration
-prefers `last_focused_client`; if history is absent or cannot be focused,
-Box2430 falls back from the newest (`tab_tail`) end of the stable client order.
-During workspace
-or monitor activation, root focus is used only when the target workspace has no
-focusable client.
+When a focused client disappears or leaves a workspace, Box2430 first restores
+the most recently focused remaining client from the workspace focus order.
+Workspace and monitor activation use the same focus-order head. If no remaining
+client has focus history, Box2430 falls back to stable client order: removal
+prefers the next focusable client and then a previous one, while activation
+starts from the newest (`tab_tail`) end. Root focus is used only when no
+focusable client exists.
 
 ## FREE and MONOCLE
 

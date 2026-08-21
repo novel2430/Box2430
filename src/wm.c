@@ -377,6 +377,30 @@ static void append_workspace_orders(Workspace *workspace, Client *client)
     workspace->stack_tail = client;
 }
 
+static void unlink_workspace_focus(Workspace *workspace, Client *client)
+{
+    bool linked = workspace->focus_head == client || workspace->focus_tail == client ||
+        client->focus_prev || client->focus_next;
+    if (!linked) return;
+
+    if (client->focus_prev) client->focus_prev->focus_next = client->focus_next;
+    else workspace->focus_head = client->focus_next;
+    if (client->focus_next) client->focus_next->focus_prev = client->focus_prev;
+    else workspace->focus_tail = client->focus_prev;
+    client->focus_prev = NULL;
+    client->focus_next = NULL;
+}
+
+static void promote_workspace_focus(Workspace *workspace, Client *client)
+{
+    unlink_workspace_focus(workspace, client);
+    client->focus_prev = NULL;
+    client->focus_next = workspace->focus_head;
+    if (workspace->focus_head) workspace->focus_head->focus_prev = client;
+    else workspace->focus_tail = client;
+    workspace->focus_head = client;
+}
+
 static void unlink_workspace_orders(Workspace *workspace, Client *client)
 {
     Client **link = &workspace->clients;
@@ -397,9 +421,7 @@ static void unlink_workspace_orders(Workspace *workspace, Client *client)
     if (client->stack_next) client->stack_next->stack_prev = client->stack_prev;
     else workspace->stack_tail = client->stack_prev;
 
-    if (workspace->last_focused_client == client) {
-        workspace->last_focused_client = NULL;
-    }
+    unlink_workspace_focus(workspace, client);
 }
 
 static bool client_supports_protocol(WM *wm, Client *client, Atom protocol)
@@ -454,7 +476,7 @@ static bool client_can_focus(const Client *client)
     return client && (client->accepts_input || client->takes_focus);
 }
 
-static Client *workspace_focus_fallback(Workspace *workspace, Client *removed)
+static Client *workspace_stable_focus_fallback(Workspace *workspace, Client *removed)
 {
     if (removed) {
         for (Client *client = removed->tab_next; client; client = client->tab_next)
@@ -468,12 +490,16 @@ static Client *workspace_focus_fallback(Workspace *workspace, Client *removed)
     return NULL;
 }
 
+static Client *workspace_focus_fallback(Workspace *workspace, Client *removed)
+{
+    for (Client *client = workspace->focus_head; client; client = client->focus_next)
+        if (client != removed && client_can_focus(client)) return client;
+    return workspace_stable_focus_fallback(workspace, removed);
+}
+
 static Client *workspace_focus_target(Workspace *workspace)
 {
-    Client *client = workspace->last_focused_client;
-    if (!client || client->workspace != workspace || !client_can_focus(client))
-        client = workspace_focus_fallback(workspace, NULL);
-    return client;
+    return workspace_focus_fallback(workspace, NULL);
 }
 
 static void set_client_input_focus(WM *wm, Client *client, Time time)
@@ -512,7 +538,7 @@ static void focus_client(WM *wm, Client *client, Time time)
 
     wm->selected_monitor = client->workspace->monitor;
     x11_update_workarea(wm);
-    client->workspace->last_focused_client = client;
+    promote_workspace_focus(client->workspace, client);
     set_client_urgent(wm, client, false);
     XSetWindowBorder(wm->display, client->window, wm->focused_border);
     grab_client_buttons(wm, client, true);
@@ -1109,10 +1135,8 @@ void client_move_to_workspace(WM *wm, Client *client, Workspace *workspace,
     Monitor *old_monitor = old->monitor;
     Monitor *new_monitor = workspace->monitor;
     bool was_focused = wm->focused_client == client;
-    bool was_last_focused = old->last_focused_client == client;
-    Client *fallback = workspace_focus_fallback(old, client);
-    if (was_focused) focus_client(wm, fallback, CurrentTime);
-    else if (was_last_focused) old->last_focused_client = fallback;
+    if (was_focused)
+        focus_client(wm, workspace_focus_fallback(old, client), CurrentTime);
 
     if (old == old->monitor->active_workspace) {
         ++client->ignored_unmaps;
@@ -1135,6 +1159,7 @@ void client_move_to_workspace(WM *wm, Client *client, Workspace *workspace,
     client->workspace_next = NULL;
     client->tab_prev = client->tab_next = NULL;
     client->stack_prev = client->stack_next = NULL;
+    client->focus_prev = client->focus_next = NULL;
     append_workspace_orders(workspace, client);
 
     materialize_client_geometry(wm, client);
@@ -1528,13 +1553,10 @@ static void manage_window(WM *wm, Window window, bool map_window)
 static void unmanage_client(WM *wm, Client *client, bool withdrawn)
 {
     Workspace *workspace = client->workspace;
-    bool was_last_focused = workspace->last_focused_client == client;
-    Client *fallback = workspace_focus_fallback(workspace, client);
     if (wm->focused_client == client) {
+        Client *fallback = workspace_focus_fallback(workspace, client);
         wm->focused_client = NULL;
         focus_client(wm, fallback, CurrentTime);
-    } else if (was_last_focused) {
-        workspace->last_focused_client = fallback;
     }
     unlink_workspace_orders(workspace, client);
 

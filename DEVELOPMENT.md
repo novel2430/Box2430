@@ -166,7 +166,7 @@ The suite currently covers areas including:
 * interactive mouse move/resize and snap preview;
 * NumLock-insensitive bindings;
 * ICCCM size hints and focus protocol;
-* stable client-order focus cycling and urgency;
+* stable client-order focus cycling, focus-stack restoration, and urgency;
 * MONOCLE tab-bar behavior;
 * restart behavior;
 * direct `spawn`, shell-backed `spawn-shell`, and SIGCHLD inheritance behavior.

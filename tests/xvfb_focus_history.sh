@@ -56,12 +56,25 @@ wait_for "DISPLAY=$display xwininfo -id $client | grep -q 'Map State: IsViewable
 wait_for "DISPLAY=$display xprop -root _NET_ACTIVE_WINDOW | grep -qi $(printf '0x%x' "$client")" ||
     fail "workspace did not focus its newest fallback client"
 
+# Once a client has actually been focused, workspace activation restores the
+# focus-stack head rather than recomputing from stable order.
+DISPLAY=$display xdotool key alt+Tab
+wait_for "DISPLAY=$display xprop -root _NET_ACTIVE_WINDOW | grep -qi $(printf '0x%x' "$older")" ||
+    fail "older client did not receive focus"
+DISPLAY=$display xdotool key super+2 key super+1
+wait_for "DISPLAY=$display xprop -root _NET_ACTIVE_WINDOW | grep -qi $(printf '0x%x' "$older")" ||
+    fail "workspace did not restore its most recent focus"
+DISPLAY=$display xdotool key alt+Tab
+wait_for "DISPLAY=$display xprop -root _NET_ACTIVE_WINDOW | grep -qi $(printf '0x%x' "$client")" ||
+    fail "stable focus cycle changed after workspace restoration"
+
 kill "$client_pid" 2>/dev/null || true; client_pid=
 wait_for "! DISPLAY=$display xwininfo -id $older >/dev/null 2>&1" ||
     fail "older client did not withdraw"
 
-# Sending the focused client to a workspace with no focus history must still
-# focus it when that destination is activated.
+# Moving a client to a workspace does not itself add focus history. If that
+# destination has no history, activation falls back to its stable order, focuses
+# the moved client, and records that real focus transition in the focus stack.
 DISPLAY=$display xdotool key super+shift+2
 wait_for "DISPLAY=$display xwininfo -id $client | grep -q 'Map State: IsUnMapped'" ||
     fail "client was not sent to workspace 2"

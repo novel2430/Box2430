@@ -61,13 +61,20 @@ wait_active "$two" || fail "ordinary focus reordered the stable client cycle"
 DISPLAY=$display xdotool key super+k
 wait_active "$one" || fail "focus prev did not move from Two to One"
 
-# Removing the focused client falls forward to its next client in the same order.
-kill "$one_pid"
-one_pid=
-wait_active "$two" || fail "focused-client removal did not fall forward in client order"
+# Removal uses focus recency, not stable cycle order. Focus Three after One so
+# the MRU predecessor is One while Three's stable predecessor is Two.
+DISPLAY=$display xdotool windowactivate "$three"
+wait_active "$three" || fail "explicit activation of third client failed"
+kill "$three_pid"
+three_pid=
+wait_active "$one" || fail "focused-client removal did not restore previous focus"
 
-kill "$three_pid" "$two_pid" 2>/dev/null || true
-three_pid= two_pid=
+# Stable cycle order is still unchanged after focus-stack restoration.
+DISPLAY=$display xdotool key alt+Tab
+wait_active "$two" || fail "focus restoration reordered the stable client cycle"
+
+kill "$two_pid" "$one_pid" 2>/dev/null || true
+two_pid= one_pid=
 kill "$wm_pid"; wait "$wm_pid"; wm_pid=
 if grep -q "box2430: X11 error" "$tmp_dir/wm.log"; then
     sed -n '1,120p' "$tmp_dir/wm.log" >&2

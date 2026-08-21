@@ -177,6 +177,8 @@ struct Client {
     Client *tab_next;
     Client *stack_prev;
     Client *stack_next;
+    Client *focus_prev;
+    Client *focus_next;
     bool urgent;
     bool accepts_input;
     bool takes_focus;
@@ -211,11 +213,12 @@ struct Workspace {
     unsigned int index;
     WorkspaceMode mode;
     Client *clients;
-    Client *last_focused_client;
     Client *tab_head;
     Client *tab_tail;
     Client *stack_head;
     Client *stack_tail;
+    Client *focus_head;
+    Client *focus_tail;
 };
 
 struct Monitor {
