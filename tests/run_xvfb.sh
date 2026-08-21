@@ -18,6 +18,7 @@ for scenario in \
     xvfb_focus_cycle.sh \
     xvfb_tabbar.sh \
     xvfb_lifecycle.sh \
+    xvfb_visibility_withdrawal.sh \
     xvfb_restart.sh \
     xvfb_focus_urgency.sh \
     xvfb_focus_history.sh \

@@ -33,6 +33,11 @@ In configuration names such as `focus_on_map` and `raise_on_map`, **map refers t
 
 Managed and mapped are not the same as currently visible. A client may remain fully managed while Box2430 unmaps it because its workspace is inactive. When that workspace becomes active, Box2430 maps it again without treating it as a new client.
 
+At startup, an unmapped top-level window left in ICCCM `IconicState` by a
+previous window manager is also eligible for discovery. `IconicState` is only
+a discovery signal: after adoption the window enters the ordinary Box2430
+client and workspace model.
+
 This gives three useful questions:
 
 ```text

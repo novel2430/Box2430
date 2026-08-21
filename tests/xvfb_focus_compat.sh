@@ -92,6 +92,11 @@ DISPLAY=$display "$fixture_bin" focus "$b"
 wait_input_focus "$a" || fail "FocusIn conflict did not restore semantic focus"
 wait_active "$a" || fail "FocusIn correction changed semantic active client"
 
+# Root FocusIn uses the same semantic-focus recovery path as a client conflict.
+DISPLAY=$display "$fixture_bin" focus-root
+wait_input_focus "$a" || fail "root FocusIn did not restore semantic focus"
+wait_active "$a" || fail "root FocusIn correction changed semantic active client"
+
 # Default _NET_ACTIVE_WINDOW policy marks B urgent without moving focus.
 DISPLAY=$display "$fixture_bin" activate "$b"
 wait_active "$a" || fail "default _NET_ACTIVE_WINDOW request stole focus"

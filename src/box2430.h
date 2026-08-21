@@ -355,6 +355,7 @@ bool config_load(Config *config, const char *explicit_path);
 bool x11_acquire_wm_ownership(WM *wm);
 void x11_init_atoms(WM *wm);
 void x11_set_wm_state(WM *wm, Window window, long state);
+bool x11_window_is_iconic(WM *wm, Window window);
 void x11_update_client_lists(WM *wm);
 void x11_update_active_window(WM *wm);
 WindowType x11_read_window_type(WM *wm, Window window);

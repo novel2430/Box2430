@@ -37,29 +37,67 @@ static Window create_window(Display *display, int screen, const char *title,
     return window;
 }
 
+static void set_wm_state(Display *display, Window window, long state)
+{
+    Atom wm_state = XInternAtom(display, "WM_STATE", False);
+    long values[2] = {state, None};
+    XChangeProperty(display, window, wm_state, wm_state, 32,
+                    PropModeReplace, (unsigned char *)values, 2);
+}
+
+static int send_withdrawal(Display *display, Window window)
+{
+    Window root = DefaultRootWindow(display);
+    XEvent event = {0};
+    event.xunmap.type = UnmapNotify;
+    event.xunmap.display = display;
+    event.xunmap.event = root;
+    event.xunmap.window = window;
+    event.xunmap.from_configure = False;
+    XSendEvent(display, root, False,
+               SubstructureRedirectMask | SubstructureNotifyMask, &event);
+    XSync(display, False);
+    return 0;
+}
+
 static void usage(const char *program)
 {
     fprintf(stderr,
             "usage: %s border TITLE WIDTH\n"
-            "       %s transient PARENT_TITLE DIALOG_TITLE\n",
-            program, program);
+            "       %s transient PARENT_TITLE DIALOG_TITLE\n"
+            "       %s ordinary|iconic TITLE\n"
+            "       %s map|withdraw WINDOW\n",
+            program, program, program, program);
     exit(2);
 }
 
 int main(int argc, char **argv)
 {
-    if (argc != 4) usage(argv[0]);
+    if (argc != 3 && argc != 4) usage(argv[0]);
     Display *display = XOpenDisplay(NULL);
     if (!display) return 1;
     int screen = DefaultScreen(display);
 
-    if (strcmp(argv[1], "border") == 0) {
+    if (argc == 3 && strcmp(argv[1], "map") == 0) {
+        XMapWindow(display, (Window)strtoul(argv[2], NULL, 0));
+        XSync(display, False);
+        XCloseDisplay(display);
+        return 0;
+    }
+    if (argc == 3 && strcmp(argv[1], "withdraw") == 0) {
+        int result = send_withdrawal(
+            display, (Window)strtoul(argv[2], NULL, 0));
+        XCloseDisplay(display);
+        return result;
+    }
+
+    if (argc == 4 && strcmp(argv[1], "border") == 0) {
         unsigned int border_width = (unsigned int)strtoul(argv[3], NULL, 10);
         Window window = create_window(display, screen, argv[2],
                                       "LifecycleBorder", border_width);
         XMapWindow(display, window);
         printf("0x%lx\n", window);
-    } else if (strcmp(argv[1], "transient") == 0) {
+    } else if (argc == 4 && strcmp(argv[1], "transient") == 0) {
         Window parent = create_window(display, screen, argv[2],
                                       "LifecycleParent", 1);
         Window dialog = create_window(display, screen, argv[3],
@@ -71,6 +109,16 @@ int main(int argc, char **argv)
            discovery must use lifecycle semantics rather than that order. */
         XRaiseWindow(display, parent);
         printf("0x%lx 0x%lx\n", parent, dialog);
+    } else if (argc == 3 && strcmp(argv[1], "ordinary") == 0) {
+        Window window = create_window(display, screen, argv[2],
+                                      "LifecycleOrdinary", 1);
+        XMapWindow(display, window);
+        printf("0x%lx\n", window);
+    } else if (argc == 3 && strcmp(argv[1], "iconic") == 0) {
+        Window window = create_window(display, screen, argv[2],
+                                      "LifecycleIconic", 3);
+        set_wm_state(display, window, IconicState);
+        printf("0x%lx\n", window);
     } else {
         usage(argv[0]);
     }

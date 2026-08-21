@@ -32,7 +32,8 @@ bool x11_acquire_wm_ownership(WM *wm)
     XSetErrorHandler(ownership_error_handler);
     XSelectInput(wm->display, wm->root,
                  SubstructureRedirectMask | SubstructureNotifyMask |
-                     StructureNotifyMask | PropertyChangeMask);
+                     StructureNotifyMask | PropertyChangeMask |
+                     FocusChangeMask);
     XSync(wm->display, False);
     XSetErrorHandler(runtime_error_handler);
 
@@ -238,6 +239,24 @@ void x11_set_wm_state(WM *wm, Window window, long state)
     XChangeProperty(wm->display, window, wm->atoms.wm_state,
                     wm->atoms.wm_state, 32, PropModeReplace,
                     (unsigned char *)values, 2);
+}
+
+bool x11_window_is_iconic(WM *wm, Window window)
+{
+    Atom actual_type;
+    int actual_format;
+    unsigned long count, remaining;
+    unsigned char *data = NULL;
+    bool iconic = false;
+    if (XGetWindowProperty(wm->display, window, wm->atoms.wm_state,
+                           0, 2, False, wm->atoms.wm_state,
+                           &actual_type, &actual_format, &count, &remaining,
+                           &data) == Success && data &&
+        actual_type == wm->atoms.wm_state && actual_format == 32 && count >= 1) {
+        iconic = ((long *)data)[0] == IconicState;
+    }
+    if (data) XFree(data);
+    return iconic;
 }
 
 void x11_update_client_lists(WM *wm)

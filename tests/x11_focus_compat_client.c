@@ -116,6 +116,7 @@ static int probe_button_grab(Display *display, Window window)
 static void usage(const char *program)
 {
     fprintf(stderr, "usage: %s pair\n", program);
+    fprintf(stderr, "       %s focus-root\n", program);
     fprintf(stderr, "       %s focus|activate|probe-grab WINDOW\n", program);
 }
 
@@ -130,6 +131,8 @@ int main(int argc, char **argv)
     int result;
     if (argc == 2 && strcmp(argv[1], "pair") == 0) {
         result = run_pair(display);
+    } else if (argc == 2 && strcmp(argv[1], "focus-root") == 0) {
+        result = set_focus(display, DefaultRootWindow(display));
     } else if (argc == 3) {
         Window window = (Window)strtoul(argv[2], NULL, 0);
         if (strcmp(argv[1], "focus") == 0) result = set_focus(display, window);

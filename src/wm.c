@@ -28,6 +28,7 @@ static void grab_client_buttons(WM *wm, Client *client, bool focused);
 static void update_tab_bars(WM *wm);
 static bool create_tab_bar(WM *wm, Monitor *monitor);
 static unsigned int monocle_tab_height(const WM *wm, const Monitor *monitor);
+static void reconcile_client_mapping(WM *wm, Client *client);
 
 static void handle_signal(int signal_number)
 {
@@ -1535,8 +1536,9 @@ static void unmanage_special_window(WM *wm, SpecialWindow *special, bool withdra
 
 static void manage_window(WM *wm, Window window, bool map_window)
 {
-    if (find_client(wm, window)) {
-        if (map_window) XMapWindow(wm->display, window);
+    Client *existing = find_client(wm, window);
+    if (existing) {
+        if (map_window) reconcile_client_mapping(wm, existing);
         return;
     }
 
@@ -1595,7 +1597,7 @@ static void manage_window(WM *wm, Window window, bool map_window)
     read_wm_hints(wm, client);
     read_wm_protocols(wm, client);
     bool visible = client->workspace == client->workspace->monitor->active_workspace;
-    if (map_window && visible) {
+    if (visible && (map_window || attrs.map_state == IsUnmapped)) {
         XMapWindow(wm->display, window);
     } else if (!map_window && !visible && attrs.map_state == IsViewable) {
         ++client->ignored_unmaps;
@@ -2034,9 +2036,11 @@ static void handle_event(WM *wm, XEvent *event)
         break;
     case UnmapNotify:
         client = find_client(wm, event->xunmap.window);
-        if (client && client->ignored_unmaps) {
+        if (client && event->xunmap.send_event) {
+            unmanage_client(wm, client, true);
+        } else if (client && client->ignored_unmaps) {
             --client->ignored_unmaps;
-        } else if (client && !event->xunmap.send_event) {
+        } else if (client) {
             unmanage_client(wm, client, true);
         } else if (!client && !event->xunmap.send_event) {
             special = find_special_window(wm, event->xunmap.window);
@@ -2226,14 +2230,17 @@ static void discover_existing_windows(WM *wm)
         for (unsigned int i = 0; i < count; ++i) {
             XWindowAttributes attrs;
             if (!XGetWindowAttributes(wm->display, children[i], &attrs) ||
-                attrs.override_redirect || attrs.class == InputOnly ||
-                attrs.map_state != IsViewable) {
+                attrs.override_redirect || attrs.class == InputOnly) {
                 continue;
             }
             WindowType type = x11_read_window_type(wm, children[i]);
             bool special = type == WINDOW_TYPE_DOCK ||
                 type == WINDOW_TYPE_DESKTOP ||
                 type == WINDOW_TYPE_NOTIFICATION;
+            if (attrs.map_state != IsViewable &&
+                (special || !x11_window_is_iconic(wm, children[i]))) {
+                continue;
+            }
             Window transient_for;
             bool transient = XGetTransientForHint(wm->display, children[i],
                                                    &transient_for);
