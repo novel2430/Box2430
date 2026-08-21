@@ -4,9 +4,12 @@ set -eu
 display=${BOX2430_TEST_DISPLAY:-:133}
 box2430_bin=${BOX2430_BIN:-./build/debug/box2430}
 tmp_dir=$(mktemp -d)
-xvfb_pid= wm_pid= one_pid= two_pid= three_pid=
+xvfb_pid= wm_pid= one_pid= two_pid= three_pid= wm_stopped=
 
 cleanup() {
+    if [ -n "$wm_stopped" ] && [ -n "$wm_pid" ]; then
+        kill -CONT "$wm_pid" 2>/dev/null || true
+    fi
     for pid in "$three_pid" "$two_pid" "$one_pid" "$wm_pid" "$xvfb_pid"; do
         if [ -n "$pid" ]; then kill "$pid" 2>/dev/null || true; fi
     done
@@ -44,6 +47,19 @@ DISPLAY=$display xterm -title MruThree >"$tmp_dir/three.log" 2>&1 & three_pid=$!
 wait_for "DISPLAY=$display xdotool search --name MruThree >/dev/null 2>&1" || fail "third client missing"
 three=$(DISPLAY=$display xdotool search --name MruThree | head -n 1)
 wait_active "$three" || fail "last mapped client was not focused"
+
+# Queue a complete Alt-Tab while the WM cannot process the initiating press.
+# A synchronous passive grab must preserve both releases until the WM takes
+# over the keyboard; otherwise Alt release escapes to the newly focused client
+# and the next cycle continues the stale snapshot.
+kill -STOP "$wm_pid"
+wm_stopped=1
+DISPLAY=$display xdotool keydown alt key Tab keyup alt
+kill -CONT "$wm_pid"
+wm_stopped=
+wait_active "$two" || fail "first one-step MRU cycle did not select second-newest client"
+DISPLAY=$display xdotool keydown alt key Tab keyup alt
+wait_active "$three" || fail "queued modifier release did not commit the MRU cycle"
 
 # The frozen snapshot must traverse Three -> Two -> One without the
 # intermediate focus on Two turning the second step into a Two/Three toggle.

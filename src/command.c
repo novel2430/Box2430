@@ -166,9 +166,11 @@ static CommandStatus command_focus(WM *wm, const CommandContext *context,
     if (strcmp(argv[0], "next-tab") == 0) client_focus_relative(wm, true, true);
     else if (strcmp(argv[0], "prev-tab") == 0) client_focus_relative(wm, true, false);
     else if (strcmp(argv[0], "next-mru") == 0)
-        client_focus_mru_cycle(wm, true, context ? context->modifiers : 0);
+        client_focus_mru_cycle(wm, true, context ? context->modifiers : 0,
+                               context ? context->time : CurrentTime);
     else if (strcmp(argv[0], "prev-mru") == 0)
-        client_focus_mru_cycle(wm, false, context ? context->modifiers : 0);
+        client_focus_mru_cycle(wm, false, context ? context->modifiers : 0,
+                               context ? context->time : CurrentTime);
     else return COMMAND_INVALID;
     return COMMAND_OK;
 }

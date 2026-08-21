@@ -654,6 +654,8 @@ void client_focus_tab_target(WM *wm, Client *client, Time time)
 void client_commit_mru_cycle(WM *wm)
 {
     if (!wm->mru_cycle.active) return;
+    if (wm->mru_cycle.keyboard_grabbed)
+        XUngrabKeyboard(wm->display, CurrentTime);
     Client *client = wm->focused_client;
     if (client && client->workspace == wm->mru_cycle.workspace)
         promote_mru(client);
@@ -661,7 +663,8 @@ void client_commit_mru_cycle(WM *wm)
     memset(&wm->mru_cycle, 0, sizeof(wm->mru_cycle));
 }
 
-void client_focus_mru_cycle(WM *wm, bool forward, unsigned int modifiers)
+void client_focus_mru_cycle(WM *wm, bool forward, unsigned int modifiers,
+                            Time time)
 {
     Workspace *workspace = wm->selected_monitor->active_workspace;
     if (!modifiers) {
@@ -671,12 +674,24 @@ void client_focus_mru_cycle(WM *wm, bool forward, unsigned int modifiers)
     if (wm->mru_cycle.active && wm->mru_cycle.workspace != workspace)
         client_commit_mru_cycle(wm);
     if (!wm->mru_cycle.active) {
+        int grab_status = XGrabKeyboard(wm->display, wm->root, False,
+                                        GrabModeAsync, GrabModeAsync, time);
+        bool keyboard_grabbed = grab_status == GrabSuccess;
+        if (!keyboard_grabbed)
+            XAllowEvents(wm->display, AsyncKeyboard, time);
+
         size_t count = 0;
         for (Client *client = workspace->mru_head; client; client = client->mru_next)
             ++count;
-        if (!count) return;
+        if (!count) {
+            if (keyboard_grabbed) XUngrabKeyboard(wm->display, time);
+            return;
+        }
         Window *windows = calloc(count, sizeof(*windows));
-        if (!windows) return;
+        if (!windows) {
+            if (keyboard_grabbed) XUngrabKeyboard(wm->display, time);
+            return;
+        }
         size_t focused = count - 1;
         size_t index = 0;
         for (Client *client = workspace->mru_head; client; client = client->mru_next) {
@@ -690,6 +705,7 @@ void client_focus_mru_cycle(WM *wm, bool forward, unsigned int modifiers)
         wm->mru_cycle.workspace = workspace;
         wm->mru_cycle.modifiers = modifiers;
         wm->mru_cycle.active = true;
+        wm->mru_cycle.keyboard_grabbed = keyboard_grabbed;
     }
 
     for (size_t attempts = 0; attempts < wm->mru_cycle.count; ++attempts) {
@@ -702,9 +718,13 @@ void client_focus_mru_cycle(WM *wm, bool forward, unsigned int modifiers)
         if (target && target->workspace == workspace && client_can_focus(target)) {
             focus_client_internal(wm, target, CurrentTime, false);
             if (workspace->mode == WORKSPACE_MONOCLE) client_raise(wm, target);
+            if (!wm->mru_cycle.keyboard_grabbed)
+                client_commit_mru_cycle(wm);
             return;
         }
     }
+    if (!wm->mru_cycle.keyboard_grabbed)
+        client_commit_mru_cycle(wm);
 }
 
 void workspace_set_mode(WM *wm, Workspace *workspace, WorkspaceMode mode)
@@ -1222,6 +1242,13 @@ void client_move_to_workspace(WM *wm, Client *client, Workspace *workspace,
     }
 }
 
+static bool key_binding_is_mru(const KeyBinding *binding)
+{
+    return binding->argc == 2 && strcmp(binding->argv[0], "focus") == 0 &&
+        (strcmp(binding->argv[1], "next-mru") == 0 ||
+         strcmp(binding->argv[1], "prev-mru") == 0);
+}
+
 static void grab_default_keys(WM *wm)
 {
     XModifierKeymap *map = XGetModifierMapping(wm->display);
@@ -1242,10 +1269,12 @@ static void grab_default_keys(WM *wm)
          binding_index < wm->config.key_binding_count; ++binding_index) {
         KeyBinding *binding = &wm->config.key_bindings[binding_index];
         KeyCode code = XKeysymToKeycode(wm->display, binding->symbol);
+        int keyboard_mode = key_binding_is_mru(binding) && binding->modifiers
+            ? GrabModeSync : GrabModeAsync;
         for (size_t i = 0; i < sizeof(modifiers) / sizeof(modifiers[0]); ++i) {
             XGrabKey(wm->display, (int)code,
                      binding->modifiers | modifiers[i], wm->root,
-                     True, GrabModeAsync, GrabModeAsync);
+                     True, GrabModeAsync, keyboard_mode);
         }
     }
 }
@@ -1264,10 +1293,7 @@ static void handle_key_press(WM *wm, XKeyEvent *event)
                 .time = event->time,
                 .modifiers = binding->modifiers,
             };
-            bool is_mru = binding->argc == 2 &&
-                strcmp(binding->argv[0], "focus") == 0 &&
-                (strcmp(binding->argv[1], "next-mru") == 0 ||
-                 strcmp(binding->argv[1], "prev-mru") == 0);
+            bool is_mru = key_binding_is_mru(binding);
             if (!is_mru) client_commit_mru_cycle(wm);
             command_run(wm, &context, binding->argc, argv);
             return;
@@ -1294,7 +1320,8 @@ static void handle_key_release(WM *wm, XKeyEvent *event)
 {
     if (!wm->mru_cycle.active) return;
     unsigned int released = modifier_mask_for_keycode(wm, event->keycode);
-    if (released & wm->mru_cycle.modifiers) client_commit_mru_cycle(wm);
+    if (released & wm->mru_cycle.modifiers)
+        client_commit_mru_cycle(wm);
 }
 
 typedef struct InitialPolicy {

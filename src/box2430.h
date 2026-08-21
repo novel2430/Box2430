@@ -156,6 +156,7 @@ typedef struct MruCycle {
     Workspace *workspace;
     unsigned int modifiers;
     bool active;
+    bool keyboard_grabbed;
 } MruCycle;
 
 struct SpecialWindow {
@@ -300,7 +301,8 @@ void monitor_select(WM *wm, Monitor *monitor);
 void client_close(WM *wm, Client *client);
 void client_focus_relative(WM *wm, bool tab_order, bool forward);
 void client_focus_tab_target(WM *wm, Client *client, Time time);
-void client_focus_mru_cycle(WM *wm, bool forward, unsigned int modifiers);
+void client_focus_mru_cycle(WM *wm, bool forward, unsigned int modifiers,
+                            Time time);
 void client_commit_mru_cycle(WM *wm);
 void client_raise(WM *wm, Client *client);
 void client_lower(WM *wm, Client *client);
