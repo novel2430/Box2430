@@ -463,9 +463,17 @@ static Client *workspace_focus_fallback(Workspace *workspace, Client *removed)
             if (client_can_focus(client)) return client;
         return NULL;
     }
-    for (Client *client = workspace->tab_head; client; client = client->tab_next)
+    for (Client *client = workspace->tab_tail; client; client = client->tab_prev)
         if (client_can_focus(client)) return client;
     return NULL;
+}
+
+static Client *workspace_focus_target(Workspace *workspace)
+{
+    Client *client = workspace->last_focused_client;
+    if (!client || client->workspace != workspace || !client_can_focus(client))
+        client = workspace_focus_fallback(workspace, NULL);
+    return client;
 }
 
 static void set_client_input_focus(WM *wm, Client *client, Time time)
@@ -1054,10 +1062,7 @@ void workspace_activate(WM *wm, Monitor *monitor, Workspace *workspace)
         XMapWindow(wm->display, client->window);
         XRaiseWindow(wm->display, client->window);
     }
-    Client *restore = workspace->last_focused_client;
-    if (restore && !client_can_focus(restore))
-        restore = workspace_focus_fallback(workspace, NULL);
-    focus_client(wm, restore, CurrentTime);
+    focus_client(wm, workspace_focus_target(workspace), CurrentTime);
     enforce_stacking(wm);
 }
 
@@ -1070,11 +1075,7 @@ void monitor_select(WM *wm, Monitor *monitor)
     int y = monitor->geometry.y + monitor->geometry.height / 2;
     XWarpPointer(wm->display, None, wm->root, 0, 0, 0, 0, x, y);
     Workspace *workspace = monitor->active_workspace;
-    Client *restore = workspace->last_focused_client;
-    if (restore && !client_can_focus(restore))
-        restore = workspace_focus_fallback(workspace, NULL);
-    if (restore && restore->workspace == workspace) focus_client(wm, restore, CurrentTime);
-    else focus_client(wm, NULL, CurrentTime);
+    focus_client(wm, workspace_focus_target(workspace), CurrentTime);
 }
 
 static Rect clamp_to_workarea(Rect geometry, Rect area, unsigned int border_width)
@@ -1620,10 +1621,7 @@ static void reconcile_monitors(WM *wm)
     recompute_workareas(wm);
     if (!wm->focused_client) {
         Workspace *workspace = wm->selected_monitor->active_workspace;
-        Client *restore = workspace->last_focused_client;
-        if (restore && !client_can_focus(restore))
-            restore = workspace_focus_fallback(workspace, NULL);
-        focus_client(wm, restore, CurrentTime);
+        focus_client(wm, workspace_focus_target(workspace), CurrentTime);
     }
     enforce_stacking(wm);
     x11_update_client_lists(wm);

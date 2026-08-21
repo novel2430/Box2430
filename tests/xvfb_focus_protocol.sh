@@ -42,6 +42,7 @@ wait_for "DISPLAY=$display xprop -root _NET_ACTIVE_WINDOW | grep -qi $(printf '0
 DISPLAY=$display "$focus_bin" none NoFocusClient "$tmp_dir/none.marker" \
     >"$tmp_dir/none.log" 2>&1 & none_pid=$!
 wait_for "DISPLAY=$display xdotool search --name NoFocusClient >/dev/null 2>&1" || fail "no-focus client missing"
+none=$(DISPLAY=$display xdotool search --name NoFocusClient | head -n 1)
 DISPLAY=$display xprop -root _NET_ACTIVE_WINDOW | grep -qi "$(printf '0x%x' "$take")" ||
     fail "non-focusable client stole active keyboard focus"
 [ ! -e "$tmp_dir/none.marker" ] || fail "non-focusable client received WM_TAKE_FOCUS"
@@ -49,6 +50,14 @@ DISPLAY=$display xprop -root _NET_ACTIVE_WINDOW | grep -qi "$(printf '0x%x' "$ta
 kill "$take_pid" 2>/dev/null || true; take_pid=
 wait_for "DISPLAY=$display xprop -root _NET_ACTIVE_WINDOW | grep -q 0x0" ||
     fail "focus fallback selected a non-focusable client"
+
+# A workspace containing only clients that reject both input focus mechanisms
+# legitimately keeps root focus when reactivated.
+DISPLAY=$display xdotool key super+2 key super+1
+wait_for "DISPLAY=$display xwininfo -id $none | grep -q 'Map State: IsViewable'" ||
+    fail "non-focusable client did not remap"
+DISPLAY=$display xprop -root _NET_ACTIVE_WINDOW | grep -q 0x0 ||
+    fail "workspace activation selected a non-focusable client"
 
 kill "$none_pid" 2>/dev/null || true; none_pid=
 kill "$wm_pid"; wait "$wm_pid"; wm_pid=

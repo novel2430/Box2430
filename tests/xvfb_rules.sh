@@ -61,12 +61,14 @@ fi
 DISPLAY=$display xdotool set_window --name OrdinaryNow "$special"
 DISPLAY=$display xdotool key super+3
 wait_for "DISPLAY=$display xwininfo -id $special | grep -q 'Map State: IsViewable'" || fail "workspace 3 did not reveal rule client"
-DISPLAY=$display xprop -root _NET_ACTIVE_WINDOW | grep -q '0x0' ||
-    fail "revealing a never-focused rule client invented focus history"
+wait_for "DISPLAY=$display xprop -root _NET_ACTIVE_WINDOW | grep -qi $(printf '0x%x' "$special")" ||
+    fail "workspace 3 did not focus its available fallback client"
 [ "$(field "$special" 'Border width:')" = 2 ] || fail "title change reactively reapplied rules"
 
 DISPLAY=$display xdotool key super+2
 wait_for "DISPLAY=$display xwininfo -id $base | grep -q 'Map State: IsViewable'" || fail "workspace 2 did not reveal base client"
+wait_for "DISPLAY=$display xprop -root _NET_ACTIVE_WINDOW | grep -qi $(printf '0x%x' "$base")" ||
+    fail "workspace 2 did not focus its available fallback client"
 [ "$(field "$base" 'Border width:')" = 0 ] || fail "base rule state was lost"
 
 DISPLAY=$display "$fixture_bin" DIALOG FixtureDialog 19 29 180 90 >"$tmp_dir/dialog.log" 2>&1 &

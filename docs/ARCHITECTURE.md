@@ -195,7 +195,14 @@ Client `_NET_ACTIVE_WINDOW` requests default to marking an unfocused client
 urgent instead of allowing focus stealing. The `[focus].active_window` policy
 can be set to `"focus"` to retain direct focusing for visible, focusable clients.
 
-When a focused client disappears or leaves a workspace, focus falls back in stable client order: first to the next focusable client after the removed client, then to a previous focusable client if necessary. Workspace restoration still uses `last_focused_client`; if that client cannot be focused, Box2430 falls back from the head of the stable client order.
+When a focused client disappears or leaves a workspace, focus falls back in
+stable client order: first to the next focusable client after the removed
+client, then to a previous focusable client if necessary. Workspace restoration
+prefers `last_focused_client`; if history is absent or cannot be focused,
+Box2430 falls back from the newest (`tab_tail`) end of the stable client order.
+During workspace
+or monitor activation, root focus is used only when the target workspace has no
+focusable client.
 
 ## FREE and MONOCLE
 

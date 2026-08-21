@@ -113,8 +113,8 @@ wait_pointer_lt 800 || fail "move-monitor unexpectedly followed"
 [ "$(window_x "$one")" -ge 800 ] ||
     fail "move-monitor changed ownership without translating geometry"
 DISPLAY=$display xdotool key super+ctrl+Right
-DISPLAY=$display xprop -root _NET_ACTIVE_WINDOW | grep -q '0x0' ||
-    fail "monitor selection invented focus history for moved client"
+wait_active "$one" ||
+    fail "monitor selection did not focus its available fallback client"
 DISPLAY=$display xdotool mousemove --window "$one" 20 20 click 1
 wait_active "$one" || fail "moved client was not on monitor 1 active workspace"
 
