@@ -1,0 +1,5 @@
+[focus]
+active_window = "focus"
+
+[placement]
+normal = "client"

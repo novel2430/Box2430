@@ -147,8 +147,12 @@ make test-tools
 Run the full suite:
 
 ```sh
-tests/run_xvfb.sh
+make test
 ```
+
+`make test` first checks pure monitor-topology normalization and then runs the
+Xvfb integration scenarios. `tests/run_xvfb.sh` runs only those Xvfb scenarios
+directly after the binaries and test tools have been built.
 
 The suite currently covers areas including:
 

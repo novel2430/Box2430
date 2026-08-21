@@ -3,6 +3,7 @@ count = 2
 
 [focus]
 mode = "sloppy"
+active_window = "focus"
 raise_on_focus = false
 focus_on_map = false
 raise_on_map = false

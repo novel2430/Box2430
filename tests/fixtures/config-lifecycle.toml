@@ -1,0 +1,16 @@
+[workspaces]
+count = 3
+
+[appearance.border]
+width = 4
+
+[bindings]
+inherit_defaults = true
+
+[[rules]]
+class = "LifecycleParent"
+workspace = 2
+
+[[rules]]
+title = "StartupOverrideDialog"
+workspace = 3

@@ -5,10 +5,10 @@ display=${BOX2430_TEST_DISPLAY:-:139}
 box2430_bin=${BOX2430_BIN:-./build/debug/box2430}
 urgency_bin=${BOX2430_URGENCY_BIN:-./build/debug/x11-set-urgency}
 tmp_dir=$(mktemp -d)
-xvfb_pid= wm_pid= one_pid= two_pid=
+xvfb_pid= wm_pid= one_pid= two_pid= overlap_pid=
 
 cleanup() {
-    for pid in "$two_pid" "$one_pid" "$wm_pid" "$xvfb_pid"; do
+    for pid in "$overlap_pid" "$two_pid" "$one_pid" "$wm_pid" "$xvfb_pid"; do
         if [ -n "$pid" ]; then kill "$pid" 2>/dev/null || true; fi
     done
     rm -rf "$tmp_dir"
@@ -47,6 +47,16 @@ two=$(DISPLAY=$display xdotool search --name SloppyTwo | head -n 1)
 
 DISPLAY=$display xdotool mousemove --window "$one" 20 20
 wait_active "$one" || fail "sloppy enter did not focus first client"
+
+# Raising a newly mapped window under a stationary pointer creates crossing
+# events. enforce_stacking must discard those stale enters rather than treating
+# them as user pointer motion.
+DISPLAY=$display xterm -title SloppyOverlap -geometry 30x8+20+20 >"$tmp_dir/overlap.log" 2>&1 & overlap_pid=$!
+wait_for "DISPLAY=$display xdotool search --name SloppyOverlap >/dev/null 2>&1" || fail "overlap client missing"
+wait_active "$one" || fail "restack stale EnterNotify changed sloppy focus"
+kill "$overlap_pid" 2>/dev/null || true; overlap_pid=
+wait_active "$one" || fail "overlap withdrawal stale EnterNotify changed sloppy focus"
+
 DISPLAY=$display xdotool mousemove 790 590
 wait_active "$one" || fail "root enter incorrectly cleared sloppy focus"
 DISPLAY=$display xdotool mousemove --window "$two" 20 20

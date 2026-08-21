@@ -9,3 +9,8 @@ inherit_defaults = true
 "Super+Alt+Right" = "window move-monitor next --follow --keep-workspace"
 "Super+Alt+2" = "window move-workspace 2 --follow"
 "Super+Alt+1" = "window move-workspace 1 --follow"
+
+[[rules]]
+class = "LifecycleParent"
+monitor = 2
+workspace = 2

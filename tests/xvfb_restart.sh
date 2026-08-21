@@ -36,10 +36,21 @@ window=$(DISPLAY=$display xdotool search --name RestartClient | head -n 1)
 wait_for "test \"\$(DISPLAY=$display xwininfo -id $window | awk '/Border width:/ {print \$3}')\" = 2" ||
     fail "initial config was not applied"
 
+DISPLAY=$display xdotool key super+2
+wait_for "DISPLAY=$display xwininfo -id $window | grep -q 'Map State: IsUnMapped'" ||
+    fail "client was not hidden on the inactive workspace before restart"
+
 sed -i 's/width = 2/width = 7/' "$tmp_dir/config.toml"
 DISPLAY=$display xdotool key super+r
 wait_for "test \"\$(DISPLAY=$display xwininfo -id $window | awk '/Border width:/ {print \$3}')\" = 7" ||
     fail "restart did not exec and reload startup config"
+DISPLAY=$display xdotool key super+1
+wait_for "DISPLAY=$display xwininfo -id $window | grep -q 'Map State: IsViewable'" ||
+    fail "hidden workspace client was not rediscovered after restart"
+wait_for "DISPLAY=$display xprop -root _NET_CLIENT_LIST | grep -qi $(printf '0x%x' "$window")" ||
+    fail "hidden workspace client was not managed after restart"
+wait_for "DISPLAY=$display xprop -root _NET_ACTIVE_WINDOW | grep -qi $(printf '0x%x' "$window")" ||
+    fail "hidden workspace client did not regain focus after restart"
 kill -0 "$wm_pid" 2>/dev/null || fail "restart did not preserve a running WM process"
 
 kill "$client_pid" 2>/dev/null || true; client_pid=

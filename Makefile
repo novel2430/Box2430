@@ -13,11 +13,12 @@ BINDIR ?= $(PREFIX)/bin
 DATADIR ?= $(PREFIX)/share
 BUILD_DIR = build/$(PROFILE)
 TARGET = $(BUILD_DIR)/box2430
-SOURCES = src/main.c src/wm.c src/command.c src/config.c src/x11.c vendor/tomlc17/tomlc17.c
+SOURCES = src/main.c src/wm.c src/monitor.c src/command.c src/config.c src/x11.c \
+	vendor/tomlc17/tomlc17.c
 OBJECTS = $(SOURCES:%.c=$(BUILD_DIR)/%.o)
 DEPS = $(OBJECTS:.o=.d)
 
-.PHONY: all clean release sanitize test-tools install
+.PHONY: all clean release sanitize test test-tools install
 
 all: $(TARGET)
 
@@ -51,7 +52,13 @@ install: release
 
 test-tools: $(BUILD_DIR)/x11-test-client $(BUILD_DIR)/x11-set-urgency \
 	$(BUILD_DIR)/x11-focus-client $(BUILD_DIR)/x11-set-numlock-modifier \
-	$(BUILD_DIR)/x11-size-hints-client $(BUILD_DIR)/x11-sigchld-client
+	$(BUILD_DIR)/x11-size-hints-client $(BUILD_DIR)/x11-sigchld-client \
+	$(BUILD_DIR)/x11-lifecycle-client $(BUILD_DIR)/x11-focus-compat-client \
+	$(BUILD_DIR)/monitor-geometry-test
+
+test: all test-tools
+	$(BUILD_DIR)/monitor-geometry-test
+	tests/run_xvfb.sh
 
 $(BUILD_DIR)/x11-test-client: tests/x11_test_client.c
 	@mkdir -p $(dir $@)
@@ -76,5 +83,19 @@ $(BUILD_DIR)/x11-size-hints-client: tests/x11_size_hints_client.c
 $(BUILD_DIR)/x11-sigchld-client: tests/x11_sigchld_client.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CPPFLAGS) $(CFLAGS_COMMON) $(CFLAGS) -o $@ $< $(LDLIBS)
+
+$(BUILD_DIR)/x11-lifecycle-client: tests/x11_lifecycle_client.c
+	@mkdir -p $(dir $@)
+	$(CC) $(CPPFLAGS) $(CFLAGS_COMMON) $(CFLAGS) -o $@ $< $(LDLIBS)
+
+$(BUILD_DIR)/x11-focus-compat-client: tests/x11_focus_compat_client.c
+	@mkdir -p $(dir $@)
+	$(CC) $(CPPFLAGS) $(CFLAGS_COMMON) $(CFLAGS) -o $@ $< $(LDLIBS)
+
+$(BUILD_DIR)/monitor-geometry-test: tests/monitor_geometry_test.c src/monitor.c \
+	src/box2430.h
+	@mkdir -p $(dir $@)
+	$(CC) $(CPPFLAGS) $(CFLAGS_COMMON) $(CFLAGS) -o $@ \
+		tests/monitor_geometry_test.c src/monitor.c $(LDLIBS)
 
 -include $(DEPS)

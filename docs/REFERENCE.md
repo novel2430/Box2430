@@ -47,7 +47,7 @@ The configuration file is TOML. Unknown keys, invalid values, invalid rules, or 
 | Section | Options and defaults |
 | --- | --- |
 | `[workspaces]` | `count = 9` (`1..32`) |
-| `[focus]` | `mode = "click"` (`click`/`sloppy`), `raise_on_focus = false`, `focus_on_map = true`, `raise_on_map = true` |
+| `[focus]` | `mode = "click"` (`click`/`sloppy`), `active_window = "urgent"` (`urgent`/`focus`), `raise_on_focus = false`, `focus_on_map = true`, `raise_on_map = true` |
 | `[placement]` | `normal = "center"`, `dialog = "center"` (`center`/`client`) |
 | `[fullscreen]` | `client_policy = "fake"` (`allow`/`fake`/`deny`) |
 | `[appearance.border]` | `width = 2`, focused/unfocused/urgent `#RRGGBB` colors |

@@ -3,11 +3,12 @@ set -eu
 
 display=${BOX2430_TEST_DISPLAY:-:138}
 box2430_bin=${BOX2430_BIN:-./build/debug/box2430}
+lifecycle_bin=${BOX2430_LIFECYCLE_BIN:-./build/debug/x11-lifecycle-client}
 tmp_dir=$(mktemp -d)
-xephyr_pid= wm_pid= one_pid= two_pid= drag_pid=
+xephyr_pid= wm_pid= transient_pid= one_pid= two_pid= drag_pid=
 
 cleanup() {
-    for pid in "$drag_pid" "$two_pid" "$one_pid" "$wm_pid" "$xephyr_pid"; do
+    for pid in "$drag_pid" "$two_pid" "$one_pid" "$transient_pid" "$wm_pid" "$xephyr_pid"; do
         if [ -n "$pid" ]; then kill "$pid" 2>/dev/null || true; fi
     done
     rm -rf "$tmp_dir"
@@ -51,9 +52,32 @@ DISPLAY=${DISPLAY:-:0} Xephyr "$display" \
     >"$tmp_dir/xephyr.log" 2>&1 &
 xephyr_pid=$!
 wait_for "DISPLAY=$display xdpyinfo >/dev/null 2>&1" || fail "Xephyr did not start"
+
+# Startup discovery must manage this dialog after its parent, then inherit the
+# parent's rule-selected monitor and workspace.
+DISPLAY=$display "$lifecycle_bin" transient MultimonParent MultimonDialog >"$tmp_dir/transient.ids" 2>"$tmp_dir/transient.log" &
+transient_pid=$!
+wait_for "test -s $tmp_dir/transient.ids" || fail "startup transient fixture did not start"
+read -r transient_parent transient_dialog <"$tmp_dir/transient.ids"
+
 DISPLAY=$display "$box2430_bin" -c tests/fixtures/config-multimon.toml >"$tmp_dir/wm.log" 2>&1 &
 wm_pid=$!
 wait_for "DISPLAY=$display xprop -root _NET_SUPPORTED >/dev/null 2>&1" || fail "WM did not start"
+wait_for "DISPLAY=$display xwininfo -id $transient_parent | grep -q 'Map State: IsUnMapped'" || fail "startup parent was not placed on monitor 2 workspace 2"
+wait_for "DISPLAY=$display xwininfo -id $transient_dialog | grep -q 'Map State: IsUnMapped'" || fail "startup transient did not inherit hidden workspace"
+DISPLAY=$display xdotool key super+ctrl+Right
+wait_pointer_ge 800 || fail "monitor 2 could not be selected for transient test"
+DISPLAY=$display xdotool key super+2
+wait_for "DISPLAY=$display xwininfo -id $transient_parent | grep -q 'Map State: IsViewable'" || fail "startup parent did not appear on monitor 2 workspace 2"
+wait_for "DISPLAY=$display xwininfo -id $transient_dialog | grep -q 'Map State: IsViewable'" || fail "startup transient did not follow parent workspace"
+[ "$(window_x "$transient_dialog")" -ge 800 ] || fail "startup transient did not inherit parent monitor"
+DISPLAY=$display xdotool key super+1
+DISPLAY=$display xdotool key super+ctrl+Left
+wait_pointer_lt 800 || fail "monitor 0 could not be restored after transient test"
+kill "$transient_pid"
+wait "$transient_pid" 2>/dev/null || true
+transient_pid=
+wait_for "! DISPLAY=$display xprop -root _NET_CLIENT_LIST | grep -qi $(printf '0x%x' "$transient_dialog")" || fail "startup transient fixture did not withdraw"
 
 DISPLAY=$display xterm -title MonitorOne >"$tmp_dir/one.log" 2>&1 & one_pid=$!
 wait_for "DISPLAY=$display xdotool search --name MonitorOne >/dev/null 2>&1" || fail "first client missing"

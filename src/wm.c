@@ -13,11 +13,18 @@
 
 static volatile sig_atomic_t stop_requested;
 
+static int ignore_x11_error(Display *display, XErrorEvent *event)
+{
+    (void)display;
+    (void)event;
+    return 0;
+}
+
 static void enforce_stacking(WM *wm);
 static void recompute_workareas(WM *wm);
-static void apply_normal_hints(WM *wm, Window window, int *width, int *height);
+static void apply_normal_hints(WM *wm, Client *client, int *width, int *height);
 static void materialize_client_geometry(WM *wm, Client *client);
-static void grab_client_buttons(WM *wm, Window window);
+static void grab_client_buttons(WM *wm, Client *client, bool focused);
 static void update_tab_bars(WM *wm);
 static bool create_tab_bar(WM *wm, Monitor *monitor);
 static unsigned int monocle_tab_height(const WM *wm, const Monitor *monitor);
@@ -42,29 +49,33 @@ static unsigned long named_color(WM *wm, const char *name, unsigned long fallbac
 static bool query_monitor_rects(WM *wm, Rect rects[BOX2430_MAX_MONITORS],
                                 unsigned int *count_return)
 {
-    int count = 0;
+    Rect fallback = {
+        0, 0,
+        DisplayWidth(wm->display, wm->screen),
+        DisplayHeight(wm->display, wm->screen),
+    };
+    int raw_count = 0;
     XineramaScreenInfo *screens = NULL;
     if (XineramaIsActive(wm->display)) {
-        screens = XineramaQueryScreens(wm->display, &count);
+        screens = XineramaQueryScreens(wm->display, &raw_count);
     }
-    if (count <= 0) {
-        count = 1;
+    Rect *raw_rects = NULL;
+    if (screens && raw_count > 0) {
+        raw_rects = calloc((size_t)raw_count, sizeof(*raw_rects));
+        if (raw_rects) {
+            for (int i = 0; i < raw_count; ++i) {
+                raw_rects[i] = (Rect){
+                    screens[i].x_org, screens[i].y_org,
+                    screens[i].width, screens[i].height,
+                };
+            }
+        }
     }
-    if (count > BOX2430_MAX_MONITORS) {
-        fprintf(stderr, "box2430: Xinerama reports more than %d monitors\n",
-                BOX2430_MAX_MONITORS);
-        XFree(screens);
-        return false;
-    }
-    for (int i = 0; i < count; ++i) {
-        rects[i] = screens
-            ? (Rect){screens[i].x_org, screens[i].y_org,
-                     screens[i].width, screens[i].height}
-            : (Rect){0, 0, DisplayWidth(wm->display, wm->screen),
-                     DisplayHeight(wm->display, wm->screen)};
-    }
-    XFree(screens);
-    *count_return = (unsigned int)count;
+    *count_return = normalize_monitor_rects(
+        raw_rects, raw_rects ? (unsigned int)raw_count : 0, fallback,
+        rects, BOX2430_MAX_MONITORS);
+    free(raw_rects);
+    if (screens) XFree(screens);
     return true;
 }
 
@@ -314,6 +325,13 @@ static void update_tab_bars(WM *wm)
     }
 }
 
+static void discard_enter_events(WM *wm)
+{
+    XEvent event;
+    XSync(wm->display, False);
+    while (XCheckMaskEvent(wm->display, EnterWindowMask, &event)) {}
+}
+
 static void enforce_stacking(WM *wm)
 {
     update_tab_bars(wm);
@@ -334,6 +352,7 @@ static void enforce_stacking(WM *wm)
             XRaiseWindow(wm->display, special->window);
     for (Client *client = wm->clients; client; client = client->next)
         if (client->fullscreen) XRaiseWindow(wm->display, client->window);
+    discard_enter_events(wm);
 }
 
 static void append_workspace_orders(Workspace *workspace, Client *client)
@@ -402,16 +421,22 @@ static bool client_supports_protocol(WM *wm, Client *client, Atom protocol)
 
 static void set_client_urgent(WM *wm, Client *client, bool urgent)
 {
+    bool changed = client->urgent != urgent;
     client->urgent = urgent;
     XWMHints *hints = XGetWMHints(wm->display, client->window);
-    if (!hints) return;
-    bool hinted = (hints->flags & XUrgencyHint) != 0;
-    if (hinted != urgent) {
-        if (urgent) hints->flags |= XUrgencyHint;
-        else hints->flags &= ~XUrgencyHint;
-        XSetWMHints(wm->display, client->window, hints);
+    if (hints) {
+        bool hinted = (hints->flags & XUrgencyHint) != 0;
+        if (hinted != urgent) {
+            if (urgent) hints->flags |= XUrgencyHint;
+            else hints->flags &= ~XUrgencyHint;
+            XSetWMHints(wm->display, client->window, hints);
+        }
+        XFree(hints);
     }
-    XFree(hints);
+    if (wm->focused_client != client)
+        XSetWindowBorder(wm->display, client->window,
+                         urgent ? wm->urgent_border : wm->unfocused_border);
+    if (changed) update_tab_bars(wm);
 }
 
 static void read_focus_hints(WM *wm, Client *client)
@@ -422,9 +447,6 @@ static void read_focus_hints(WM *wm, Client *client)
     if (hints) XFree(hints);
     set_client_urgent(wm, client, urgent && wm->focused_client != client);
     client->takes_focus = client_supports_protocol(wm, client, wm->atoms.wm_take_focus);
-    if (wm->focused_client != client)
-        XSetWindowBorder(wm->display, client->window,
-                         client->urgent ? wm->urgent_border : wm->unfocused_border);
 }
 
 static bool client_can_focus(const Client *client)
@@ -446,6 +468,23 @@ static Client *workspace_focus_fallback(Workspace *workspace, Client *removed)
     return NULL;
 }
 
+static void set_client_input_focus(WM *wm, Client *client, Time time)
+{
+    if (client->accepts_input)
+        XSetInputFocus(wm->display, client->window, RevertToPointerRoot, time);
+    if (client->takes_focus) {
+        XEvent message = {0};
+        message.xclient.type = ClientMessage;
+        message.xclient.window = client->window;
+        message.xclient.message_type = wm->atoms.wm_protocols;
+        message.xclient.format = 32;
+        message.xclient.data.l[0] = (long)wm->atoms.wm_take_focus;
+        message.xclient.data.l[1] = (long)time;
+        XSendEvent(wm->display, client->window, False, NoEventMask, &message);
+    }
+    x11_update_active_window(wm);
+}
+
 static void focus_client(WM *wm, Client *client, Time time)
 {
     if (client && !client_can_focus(client)) return;
@@ -453,6 +492,7 @@ static void focus_client(WM *wm, Client *client, Time time)
     if (wm->focused_client) {
         XSetWindowBorder(wm->display, wm->focused_client->window,
                          wm->unfocused_border);
+        grab_client_buttons(wm, wm->focused_client, false);
     }
     wm->focused_client = client;
     if (!client) {
@@ -467,20 +507,8 @@ static void focus_client(WM *wm, Client *client, Time time)
     client->workspace->last_focused_client = client;
     set_client_urgent(wm, client, false);
     XSetWindowBorder(wm->display, client->window, wm->focused_border);
-    if (client->accepts_input) {
-        XSetInputFocus(wm->display, client->window, RevertToPointerRoot, time);
-    }
-    if (client->takes_focus) {
-        XEvent message = {0};
-        message.xclient.type = ClientMessage;
-        message.xclient.window = client->window;
-        message.xclient.message_type = wm->atoms.wm_protocols;
-        message.xclient.format = 32;
-        message.xclient.data.l[0] = (long)wm->atoms.wm_take_focus;
-        message.xclient.data.l[1] = (long)time;
-        XSendEvent(wm->display, client->window, False, NoEventMask, &message);
-    }
-    x11_update_active_window(wm);
+    grab_client_buttons(wm, client, true);
+    set_client_input_focus(wm, client, time);
     update_tab_bars(wm);
     if (wm->config.raise_on_focus) client_raise(wm, client);
 }
@@ -874,7 +902,7 @@ static void update_drag(WM *wm, int root_x, int root_y)
         geometry.height += dy;
         if (geometry.width < 1) geometry.width = 1;
         if (geometry.height < 1) geometry.height = 1;
-        apply_normal_hints(wm, client->window, &geometry.width, &geometry.height);
+        apply_normal_hints(wm, client, &geometry.width, &geometry.height);
     } else {
         geometry.x += dx;
         geometry.y += dy;
@@ -1187,11 +1215,17 @@ static bool rule_matches(const Rule *rule, const Client *client)
            (!rule->has_window_type || rule->window_type == client->window_type);
 }
 
-static InitialPolicy initial_policy(WM *wm, Client *client)
+static InitialPolicy initial_policy(WM *wm, Client *client,
+                                    const Client *transient_parent)
 {
+    Monitor *default_monitor = transient_parent
+        ? transient_parent->workspace->monitor : wm->selected_monitor;
+    unsigned int default_workspace = transient_parent
+        ? transient_parent->workspace->index
+        : default_monitor->active_workspace->index;
     InitialPolicy policy = {
-        .monitor = wm->selected_monitor,
-        .workspace_index = wm->selected_monitor->active_workspace->index,
+        .monitor = default_monitor,
+        .workspace_index = default_workspace,
         .focus_on_map = wm->config.focus_on_map,
         .raise_on_map = wm->config.raise_on_map,
         .border = true,
@@ -1221,86 +1255,143 @@ static InitialPolicy initial_policy(WM *wm, Client *client)
     return policy;
 }
 
-static void apply_normal_hints(WM *wm, Window window, int *width, int *height)
+static void update_size_hints(WM *wm, Client *client)
 {
-    XSizeHints hints;
+    XSizeHints hints = {0};
     long supplied;
-    if (!XGetWMNormalHints(wm->display, window, &hints, &supplied)) return;
-    int base_width = hints.flags & PBaseSize ? hints.base_width
-        : hints.flags & PMinSize ? hints.min_width : 0;
-    int base_height = hints.flags & PBaseSize ? hints.base_height
-        : hints.flags & PMinSize ? hints.min_height : 0;
-    int min_width = hints.flags & PMinSize ? hints.min_width : base_width;
-    int min_height = hints.flags & PMinSize ? hints.min_height : base_height;
-    bool base_is_min = base_width == min_width && base_height == min_height;
+    if (!XGetWMNormalHints(wm->display, client->window, &hints, &supplied))
+        hints.flags = 0;
+
+    if (hints.flags & PBaseSize) {
+        client->base_width = hints.base_width;
+        client->base_height = hints.base_height;
+    } else if (hints.flags & PMinSize) {
+        client->base_width = hints.min_width;
+        client->base_height = hints.min_height;
+    } else {
+        client->base_width = 0;
+        client->base_height = 0;
+    }
+    if (hints.flags & PMinSize) {
+        client->minimum_width = hints.min_width;
+        client->minimum_height = hints.min_height;
+    } else if (hints.flags & PBaseSize) {
+        client->minimum_width = hints.base_width;
+        client->minimum_height = hints.base_height;
+    } else {
+        client->minimum_width = 0;
+        client->minimum_height = 0;
+    }
+    if (hints.flags & PMaxSize) {
+        client->maximum_width = hints.max_width;
+        client->maximum_height = hints.max_height;
+    } else {
+        client->maximum_width = 0;
+        client->maximum_height = 0;
+    }
+    if (hints.flags & PResizeInc) {
+        client->width_increment = hints.width_inc;
+        client->height_increment = hints.height_inc;
+    } else {
+        client->width_increment = 0;
+        client->height_increment = 0;
+    }
+    if ((hints.flags & PAspect) &&
+        hints.min_aspect.x > 0 && hints.min_aspect.y > 0 &&
+        hints.max_aspect.x > 0 && hints.max_aspect.y > 0) {
+        client->minimum_aspect =
+            (double)hints.min_aspect.y / hints.min_aspect.x;
+        client->maximum_aspect =
+            (double)hints.max_aspect.x / hints.max_aspect.y;
+    } else {
+        client->minimum_aspect = 0.0;
+        client->maximum_aspect = 0.0;
+    }
+    client->size_hints_valid = true;
+}
+
+static void apply_normal_hints(WM *wm, Client *client, int *width, int *height)
+{
+    if (!client->size_hints_valid) update_size_hints(wm, client);
+    bool base_is_min = client->base_width == client->minimum_width &&
+                       client->base_height == client->minimum_height;
 
     if (*width < 1) *width = 1;
     if (*height < 1) *height = 1;
     if (!base_is_min) {
-        *width -= base_width;
-        *height -= base_height;
+        *width -= client->base_width;
+        *height -= client->base_height;
     }
-    if ((hints.flags & PAspect) && *width > 0 && *height > 0 &&
-        hints.min_aspect.x > 0 && hints.min_aspect.y > 0 &&
-        hints.max_aspect.x > 0 && hints.max_aspect.y > 0) {
-        double min_aspect = (double)hints.min_aspect.y / hints.min_aspect.x;
-        double max_aspect = (double)hints.max_aspect.x / hints.max_aspect.y;
-        if (max_aspect < (double)*width / *height)
-            *width = (int)(*height * max_aspect + 0.5);
-        else if (min_aspect < (double)*height / *width)
-            *height = (int)(*width * min_aspect + 0.5);
+    if (client->minimum_aspect > 0.0 && client->maximum_aspect > 0.0 &&
+        *width > 0 && *height > 0) {
+        if (client->maximum_aspect < (double)*width / *height)
+            *width = (int)(*height * client->maximum_aspect + 0.5);
+        else if (client->minimum_aspect < (double)*height / *width)
+            *height = (int)(*width * client->minimum_aspect + 0.5);
     }
     if (base_is_min) {
-        *width -= base_width;
-        *height -= base_height;
+        *width -= client->base_width;
+        *height -= client->base_height;
     }
-    if ((hints.flags & PResizeInc) && hints.width_inc > 0)
-        *width -= *width % hints.width_inc;
-    if ((hints.flags & PResizeInc) && hints.height_inc > 0)
-        *height -= *height % hints.height_inc;
-    *width += base_width;
-    *height += base_height;
-    if (*width < min_width) *width = min_width;
-    if (*height < min_height) *height = min_height;
-    if ((hints.flags & PMaxSize) && hints.max_width > 0 &&
-        *width > hints.max_width) *width = hints.max_width;
-    if ((hints.flags & PMaxSize) && hints.max_height > 0 &&
-        *height > hints.max_height) *height = hints.max_height;
+    if (client->width_increment > 0)
+        *width -= *width % client->width_increment;
+    if (client->height_increment > 0)
+        *height -= *height % client->height_increment;
+    *width += client->base_width;
+    *height += client->base_height;
+    if (*width < client->minimum_width) *width = client->minimum_width;
+    if (*height < client->minimum_height) *height = client->minimum_height;
+    if (client->maximum_width > 0 && *width > client->maximum_width)
+        *width = client->maximum_width;
+    if (client->maximum_height > 0 && *height > client->maximum_height)
+        *height = client->maximum_height;
 }
 
-static Rect initial_geometry(WM *wm, const Monitor *monitor,
-                             const XWindowAttributes *attrs, Window window,
+static Rect initial_geometry(WM *wm, Client *client, const Monitor *monitor,
+                             const XWindowAttributes *attrs,
                              PlacementPolicy placement, unsigned int border_width)
 {
     int width = attrs->width;
     int height = attrs->height;
-    apply_normal_hints(wm, window, &width, &height);
-    int border = (int)border_width;
-    if (width > monitor->workarea.width - 2 * border) {
-        width = monitor->workarea.width - 2 * border;
-    }
-    if (height > monitor->workarea.height - 2 * border) {
-        height = monitor->workarea.height - 2 * border;
-    }
+    apply_normal_hints(wm, client, &width, &height);
     if (width < 1) width = 1;
     if (height < 1) height = 1;
+    Rect geometry;
     if (placement == PLACEMENT_CLIENT) {
-        return (Rect){attrs->x, attrs->y, width, height};
+        geometry = (Rect){attrs->x, attrs->y, width, height};
+    } else {
+        geometry = (Rect){
+            monitor->workarea.x + (monitor->workarea.width - width) / 2,
+            monitor->workarea.y + (monitor->workarea.height - height) / 2,
+            width,
+            height,
+        };
     }
-    return (Rect){
-        monitor->workarea.x + (monitor->workarea.width - width) / 2,
-        monitor->workarea.y + (monitor->workarea.height - height) / 2,
-        width,
-        height,
-    };
+
+    Rect area = monitor->workarea;
+    int outer_width = geometry.width + 2 * (int)border_width;
+    int outer_height = geometry.height + 2 * (int)border_width;
+    if ((long)geometry.x + outer_width <= area.x) {
+        geometry.x = area.x;
+    } else if (geometry.x >= area.x + area.width) {
+        geometry.x = outer_width >= area.width
+            ? area.x : area.x + area.width - outer_width;
+    }
+    if ((long)geometry.y + outer_height <= area.y) {
+        geometry.y = area.y;
+    } else if (geometry.y >= area.y + area.height) {
+        geometry.y = outer_height >= area.height
+            ? area.y : area.y + area.height - outer_height;
+    }
+    return geometry;
 }
 
-static void grab_client_buttons(WM *wm, Window window)
+static void grab_client_buttons(WM *wm, Client *client, bool focused)
 {
     unsigned int event_mask = ButtonPressMask | ButtonReleaseMask | PointerMotionMask;
-    XUngrabButton(wm->display, AnyButton, AnyModifier, window);
-    if (wm->config.focus_mode == FOCUS_CLICK) {
-        XGrabButton(wm->display, AnyButton, AnyModifier, window, False,
+    XUngrabButton(wm->display, AnyButton, AnyModifier, client->window);
+    if (wm->config.focus_mode == FOCUS_CLICK && !focused) {
+        XGrabButton(wm->display, AnyButton, AnyModifier, client->window, False,
                     event_mask, GrabModeSync, GrabModeAsync, None, None);
         return;
     }
@@ -1311,7 +1402,7 @@ static void grab_client_buttons(WM *wm, Window window)
         MouseBinding *mouse = &wm->config.mouse_bindings[binding];
         for (size_t i = 0; i < sizeof(ignored) / sizeof(ignored[0]); ++i)
             XGrabButton(wm->display, mouse->button,
-                        mouse->modifiers | ignored[i], window, False,
+                        mouse->modifiers | ignored[i], client->window, False,
                         event_mask, GrabModeSync, GrabModeAsync, None, None);
     }
 }
@@ -1396,11 +1487,13 @@ static void manage_window(WM *wm, Window window, bool map_window)
         wm->running = false;
         return;
     }
-    InitialPolicy policy = initial_policy(wm, client);
+    Client *transient_parent = find_client(wm, client->transient_for);
+    InitialPolicy policy = initial_policy(wm, client, transient_parent);
     client->workspace = &policy.monitor->workspaces[policy.workspace_index];
     client->border_width = policy.border ? wm->config.border_width : 0;
+    client->original_border_width = (unsigned int)attrs.border_width;
     client->fullscreen_policy = policy.fullscreen_policy;
-    client->geometry = initial_geometry(wm, policy.monitor, &attrs, window,
+    client->geometry = initial_geometry(wm, client, policy.monitor, &attrs,
                                         policy.placement, client->border_width);
     client->normal_geometry = client->geometry;
     client->next = wm->clients;
@@ -1409,7 +1502,7 @@ static void manage_window(WM *wm, Window window, bool map_window)
 
     XSelectInput(wm->display, window,
                  EnterWindowMask | FocusChangeMask | PropertyChangeMask);
-    grab_client_buttons(wm, window);
+    grab_client_buttons(wm, client, false);
     XSetWindowBorderWidth(wm->display, window, client->border_width);
     XSetWindowBorder(wm->display, window, wm->unfocused_border);
     materialize_client_geometry(wm, client);
@@ -1452,8 +1545,18 @@ static void unmanage_client(WM *wm, Client *client, bool withdrawn)
         *link = client->next;
     }
     if (withdrawn) {
+        XWindowChanges changes = {
+            .border_width = (int)client->original_border_width,
+        };
+        XGrabServer(wm->display);
+        XErrorHandler previous_handler = XSetErrorHandler(ignore_x11_error);
+        XSelectInput(wm->display, client->window, NoEventMask);
+        XConfigureWindow(wm->display, client->window, CWBorderWidth, &changes);
+        XUngrabButton(wm->display, AnyButton, AnyModifier, client->window);
         x11_set_wm_state(wm, client->window, WithdrawnState);
-        XSetWindowBorderWidth(wm->display, client->window, 0);
+        XSync(wm->display, False);
+        XSetErrorHandler(previous_handler);
+        XUngrabServer(wm->display);
     }
     free(client->title);
     free(client->class_name);
@@ -1549,7 +1652,7 @@ static void handle_configure_request(WM *wm, XConfigureRequestEvent *event)
         if (event->value_mask & CWY) geometry.y = event->y;
         if (event->value_mask & CWWidth) geometry.width = event->width;
         if (event->value_mask & CWHeight) geometry.height = event->height;
-        apply_normal_hints(wm, client->window, &geometry.width, &geometry.height);
+        apply_normal_hints(wm, client, &geometry.width, &geometry.height);
         if (geometry.width < 1) geometry.width = 1;
         if (geometry.height < 1) geometry.height = 1;
         client->normal_geometry = geometry;
@@ -1616,7 +1719,7 @@ static void handle_event(WM *wm, XEvent *event)
         if (event->xmapping.request != MappingPointer) {
             grab_default_keys(wm);
             for (Client *mapped = wm->clients; mapped; mapped = mapped->next)
-                grab_client_buttons(wm, mapped->window);
+                grab_client_buttons(wm, mapped, mapped == wm->focused_client);
         }
         break;
     case ButtonPress:
@@ -1685,12 +1788,26 @@ static void handle_event(WM *wm, XEvent *event)
     case EnterNotify:
         client = find_client(wm, event->xcrossing.window);
         if (client && wm->config.focus_mode == FOCUS_SLOPPY &&
-            event->xcrossing.mode == NotifyNormal)
+            client != wm->focused_client &&
+            event->xcrossing.mode == NotifyNormal &&
+            event->xcrossing.detail != NotifyInferior)
             focus_client(wm, client, event->xcrossing.time);
+        break;
+    case FocusIn:
+        if (wm->focused_client &&
+            event->xfocus.window != wm->focused_client->window &&
+            event->xfocus.mode == NotifyNormal &&
+            event->xfocus.detail != NotifyPointer &&
+            event->xfocus.detail != NotifyPointerRoot &&
+            event->xfocus.detail != NotifyDetailNone) {
+            set_client_input_focus(wm, wm->focused_client, CurrentTime);
+        }
         break;
     case PropertyNotify:
         client = find_client(wm, event->xproperty.window);
-        if (client && event->xproperty.atom == XA_WM_HINTS) {
+        if (client && event->xproperty.atom == XA_WM_NORMAL_HINTS) {
+            client->size_hints_valid = false;
+        } else if (client && event->xproperty.atom == XA_WM_HINTS) {
             read_focus_hints(wm, client);
             update_tab_bars(wm);
         } else if (client && (event->xproperty.atom == wm->atoms.net_wm_name ||
@@ -1729,8 +1846,13 @@ static void handle_event(WM *wm, XEvent *event)
     case ClientMessage:
         client = find_client(wm, event->xclient.window);
         if (event->xclient.message_type == wm->atoms.net_active_window && client &&
-            client->workspace == client->workspace->monitor->active_workspace) {
-            focus_client(wm, client, CurrentTime);
+            client != wm->focused_client) {
+            if (wm->config.active_window_policy == ACTIVE_WINDOW_URGENT) {
+                set_client_urgent(wm, client, true);
+            } else if (client->workspace ==
+                       client->workspace->monitor->active_workspace) {
+                focus_client(wm, client, CurrentTime);
+            }
         } else if (event->xclient.message_type == wm->atoms.net_close_window && client) {
             client_close(wm, client);
         } else if (event->xclient.message_type == wm->atoms.net_wm_state && client &&
@@ -1762,11 +1884,27 @@ static void discover_existing_windows(WM *wm)
                     &children, &count)) {
         return;
     }
-    for (unsigned int i = 0; i < count; ++i) {
-        XWindowAttributes attrs;
-        if (XGetWindowAttributes(wm->display, children[i], &attrs) &&
-            attrs.map_state == IsViewable) {
-            manage_window(wm, children[i], false);
+    enum { SCAN_SPECIAL, SCAN_ORDINARY, SCAN_TRANSIENT };
+    for (int pass = SCAN_SPECIAL; pass <= SCAN_TRANSIENT; ++pass) {
+        for (unsigned int i = 0; i < count; ++i) {
+            XWindowAttributes attrs;
+            if (!XGetWindowAttributes(wm->display, children[i], &attrs) ||
+                attrs.override_redirect || attrs.class == InputOnly ||
+                attrs.map_state != IsViewable) {
+                continue;
+            }
+            WindowType type = x11_read_window_type(wm, children[i]);
+            bool special = type == WINDOW_TYPE_DOCK ||
+                type == WINDOW_TYPE_DESKTOP ||
+                type == WINDOW_TYPE_NOTIFICATION;
+            Window transient_for;
+            bool transient = XGetTransientForHint(wm->display, children[i],
+                                                   &transient_for);
+            bool matches = pass == SCAN_SPECIAL ? special
+                : pass == SCAN_ORDINARY ? !special && !transient &&
+                    type != WINDOW_TYPE_DIALOG
+                : !special && (transient || type == WINDOW_TYPE_DIALOG);
+            if (matches) manage_window(wm, children[i], false);
         }
     }
     XFree(children);
@@ -1939,6 +2077,11 @@ void wm_destroy(WM *wm)
         if (event.type == DestroyNotify || event.type == UnmapNotify)
             handle_event(wm, &event);
     }
+    /* Once the WM relinquishes ownership there is no inactive workspace to
+       keep clients hidden.  Remap them so a successor WM can discover every
+       live client without Box2430-specific persistent state. */
+    for (Client *client = wm->clients; client; client = client->next)
+        XMapWindow(wm->display, client->window);
     while (wm->clients) {
         unmanage_client(wm, wm->clients, true);
     }

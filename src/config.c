@@ -83,6 +83,7 @@ void config_set_defaults(Config *config)
     *config = (Config){
         .workspace_count = BOX2430_DEFAULT_WORKSPACE_COUNT,
         .focus_mode = FOCUS_CLICK,
+        .active_window_policy = ACTIVE_WINDOW_URGENT,
         .raise_on_focus = false,
         .focus_on_map = true,
         .raise_on_map = true,
@@ -638,13 +639,18 @@ static bool parse_supported_config(Config *candidate, toml_datum_t root)
 
     toml_datum_t focus = toml_get(root, "focus");
     static const char *focus_keys[] = {
-        "mode", "raise_on_focus", "focus_on_map", "raise_on_map",
+        "mode", "active_window", "raise_on_focus", "focus_on_map", "raise_on_map",
     };
     unsigned int choice = (unsigned int)candidate->focus_mode;
     static const char *focus_modes[] = {"click", "sloppy"};
-    if (!validate_keys(focus, "focus", focus_keys, 4) ||
+    if (!validate_keys(focus, "focus", focus_keys, 5) ||
         !read_enum(focus, "focus", "mode", focus_modes, 2, &choice)) return false;
     candidate->focus_mode = (FocusMode)choice;
+    choice = (unsigned int)candidate->active_window_policy;
+    static const char *active_window_policies[] = {"urgent", "focus"};
+    if (!read_enum(focus, "focus", "active_window", active_window_policies, 2,
+                   &choice)) return false;
+    candidate->active_window_policy = (ActiveWindowPolicy)choice;
     if (!read_bool(focus, "focus", "raise_on_focus", &candidate->raise_on_focus) ||
         !read_bool(focus, "focus", "focus_on_map", &candidate->focus_on_map) ||
         !read_bool(focus, "focus", "raise_on_map", &candidate->raise_on_map)) return false;

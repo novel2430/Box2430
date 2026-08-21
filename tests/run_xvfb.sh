@@ -13,10 +13,12 @@ for scenario in \
     xvfb_normal_hints.sh \
     xvfb_focus_cycle.sh \
     xvfb_tabbar.sh \
+    xvfb_lifecycle.sh \
     xvfb_restart.sh \
     xvfb_focus_urgency.sh \
     xvfb_focus_history.sh \
     xvfb_focus_protocol.sh \
+    xvfb_focus_compat.sh \
     xvfb_spawn.sh
 do
     "$(dirname "$0")/$scenario"

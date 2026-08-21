@@ -184,6 +184,17 @@ On focus, Box2430 may:
 
 Click focus uses passive button grabs so Box2430 can focus the window and then replay an unmatched click to the client. Sloppy focus uses `EnterNotify`.
 
+In click mode only unfocused clients carry the catch-all first-click grab;
+focused clients and sloppy-focus clients retain only explicit WM mouse-binding
+grabs. `FocusIn` conflicts from clients that acquire X input focus directly are
+corrected back to Box2430's semantic focused client. Sloppy crossing events are
+filtered, and stacking synchronization discards stale `EnterNotify` events
+created by internal restacking.
+
+Client `_NET_ACTIVE_WINDOW` requests default to marking an unfocused client
+urgent instead of allowing focus stealing. The `[focus].active_window` policy
+can be set to `"focus"` to retain direct focusing for visible, focusable clients.
+
 When a focused client disappears or leaves a workspace, focus falls back in stable client order: first to the next focusable client after the removed client, then to a previous focusable client if necessary. Workspace restoration still uses `last_focused_client`; if that client cannot be focused, Box2430 falls back from the head of the stable client order.
 
 ## FREE and MONOCLE
@@ -250,6 +261,20 @@ Entering snap or maximize preserves `normal_geometry` when needed. Clearing the 
 
 Interactive movement or resizing first leaves snap/maximize and returns the client to normal geometry.
 
+### ICCCM size constraints
+
+For ordinary FREE geometry, Box2430 applies the client's `WM_NORMAL_HINTS`
+base size, minimum/maximum size, resize increments, and aspect constraints.
+Parsed hints are cached on `Client`; a `WM_NORMAL_HINTS` `PropertyNotify`
+invalidates that cache, and the next initial/configure/interactive resize
+calculation refreshes it lazily.
+
+Client-requested initial placement uses the final monitor's workarea for a
+minimal operability check. A window whose outer frame is entirely outside an
+edge is moved back to that edge, while a window that still intersects the
+workarea is left at its requested position. This deliberately allows ordinary
+FREE windows to remain partially off-screen or overlap screen-edge UI.
+
 ### Fullscreen
 
 Box2430 distinguishes three concepts:
@@ -288,6 +313,12 @@ Within ordinary clients, workspace stack order is preserved.
 
 ## Window Management Lifecycle
 
+Startup discovery first adopts special windows, then ordinary clients, and
+finally dialogs/transients. This establishes dock workareas before initial
+client placement and makes an already-managed transient parent available as
+the child's default monitor/workspace affinity. Explicit rules still override
+that default.
+
 When a new window is managed, Box2430:
 
 1. ignores override-redirect and InputOnly windows;
@@ -305,11 +336,27 @@ When a new window is managed, Box2430:
 
 Rules are evaluated when the window is first managed. Later title/class property changes update stored metadata but do not rerun the initial rule-placement process.
 
-Unmanaging reverses workspace/global membership, chooses a focus fallback when necessary, restores withdrawn-state details when appropriate, and updates stacking/EWMH lists.
+Unmanaging reverses workspace/global membership, chooses a focus fallback when
+necessary, and, for a still-existing window, stops client event selection,
+restores the application's original border, removes passive button grabs, and
+sets `WM_STATE` to `WithdrawnState` while the X server is grabbed. Destroyed
+windows skip those X11 requests.
+
+On shutdown or restart Box2430 remaps all remaining clients before relinquishing
+them. At that boundary there is no longer an active/inactive workspace owner;
+mapping the windows lets a successor WM discover them normally without
+persisting Box2430-private workspace state. During normal operation, inactive
+workspaces continue to use genuine unmapping.
 
 ## Multi-Monitor Behavior
 
-Monitor discovery uses Xinerama. If Xinerama is unavailable, the root screen is treated as one monitor.
+Monitor discovery uses Xinerama. Raw screen records are normalized before they
+reach Box2430 monitor state: geometries with identical x, y, width, and height
+are collapsed to their first occurrence, while partially overlapping monitors
+remain distinct. If Xinerama is unavailable or inactive, its query returns no
+records, temporary normalization storage cannot be allocated, or the unique
+topology exceeds Box2430's monitor capacity, the root screen is treated as one
+monitor.
 
 Root `ConfigureNotify` events trigger topology reconciliation.
 
@@ -380,7 +427,7 @@ Important event families include:
 * `DestroyNotify` / `UnmapNotify`: unmanage clients;
 * key/button/motion events: bindings, focus, and drag;
 * `EnterNotify`: sloppy focus;
-* `PropertyNotify`: urgency, title/class/transient updates, and dock struts;
+* `PropertyNotify`: size-hint invalidation, urgency, title/class/transient updates, and dock struts;
 * `ClientMessage`: EWMH activation, close, and fullscreen requests;
 * root `ConfigureNotify`: monitor reconciliation;
 * `Expose`: tab-bar redraw.

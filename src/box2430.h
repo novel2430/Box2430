@@ -35,6 +35,10 @@ enum {
 };
 
 typedef enum FocusMode { FOCUS_CLICK, FOCUS_SLOPPY } FocusMode;
+typedef enum ActiveWindowPolicy {
+    ACTIVE_WINDOW_URGENT,
+    ACTIVE_WINDOW_FOCUS,
+} ActiveWindowPolicy;
 typedef enum PlacementPolicy { PLACEMENT_CENTER, PLACEMENT_CLIENT } PlacementPolicy;
 typedef enum ClientFullscreenPolicy {
     CLIENT_FULLSCREEN_ALLOW,
@@ -78,6 +82,7 @@ typedef struct Rule {
 typedef struct Config {
     unsigned int workspace_count;
     FocusMode focus_mode;
+    ActiveWindowPolicy active_window_policy;
     bool raise_on_focus;
     bool focus_on_map;
     bool raise_on_map;
@@ -127,6 +132,10 @@ typedef struct Rect {
     int width;
     int height;
 } Rect;
+
+unsigned int normalize_monitor_rects(const Rect *raw_rects,
+                                     unsigned int raw_count, Rect fallback,
+                                     Rect *normalized, unsigned int capacity);
 
 typedef enum WorkspaceMode {
     WORKSPACE_FREE,
@@ -182,6 +191,18 @@ struct Client {
     WindowType window_type;
     Window transient_for;
     unsigned int border_width;
+    unsigned int original_border_width;
+    bool size_hints_valid;
+    int base_width;
+    int base_height;
+    int minimum_width;
+    int minimum_height;
+    int maximum_width;
+    int maximum_height;
+    int width_increment;
+    int height_increment;
+    double minimum_aspect;
+    double maximum_aspect;
     ClientFullscreenPolicy fullscreen_policy;
 };
 

@@ -3,6 +3,7 @@ count = 9
 
 [focus]
 mode = "click"
+active_window = "urgent"
 raise_on_focus = false
 focus_on_map = true
 raise_on_map = true
