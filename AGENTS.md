@@ -1,416 +1,138 @@
-# Box2430 — AGENTS.md
+# Box2430 Agent Instructions
 
-> This file defines how Coding Agents should work inside the Box2430 repository.
->
-> Keep this file operational and short.
-> Product behavior, state semantics, architecture, interaction details, public commands/config, implementation style, and final acceptance are defined elsewhere.
->
-> The primary delivery contract is:
->
-> ```text
-> GOAL.md
-> ```
->
-> The frozen V1 design contracts are under:
->
-> ```text
-> docs/V1/
-> ```
+This file defines how coding agents should work inside the Box2430 repository.
+Keep it operational and version-independent. Product behavior and implementation details belong in the documentation referenced below.
 
----
+## Read order
 
-# 1. Read Order
+Before substantial work, read only what is relevant to the task:
 
-Before substantial implementation work, read:
+1. `README.md` — project overview and user-facing entry point
+2. `docs/REFERENCE.md` — commands, configuration, bindings, and rules
+3. `docs/ARCHITECTURE.md` — runtime model, state relationships, and architectural invariants
+4. `docs/IMPLEMENTATION_STYLE.md` — long-lived engineering principles
+5. `DEVELOPMENT.md` — build, test, debugging, and verification procedures
 
-```text
-1. GOAL.md
-2. AGENTS.md
-3. relevant files under docs/V1/
-```
+For a small local task, do not reread every document unnecessarily. Read the affected code and the relevant documentation first.
 
-For first-time repository work, the main V1 contracts are:
+## Source of truth
 
-```text
-docs/V1/box2430_step1_product_definition.md
-docs/V1/box2430_step2_semantic_state_contract.md
-docs/V1/box2430_step3_technical_architecture_contract.md
-docs/V1/box2430_step4_interaction_contract.md
-docs/V1/box2430_v1_command_vocabulary_and_default_config.md
-docs/V1/box2430_v1_implementation_style_and_economy_contract.md
-```
+The current implementation and regression tests define what Box2430 actually does.
 
-`box2430_post_v1_future_directions.md` is background only.
+Documentation explains that behavior and should remain consistent with it, but historical design notes are not frozen contracts.
 
-Do not treat Post-V1 ideas as V1 work.
+When code, tests, and documentation disagree:
 
----
+1. inspect the current implementation and relevant tests;
+2. determine whether the task intends to change behavior or fix stale documentation;
+3. do not silently invent a third behavior;
+4. do not change working current behavior solely to satisfy obsolete text.
 
-# 2. Authority Boundary
+An explicit user/task requirement overrides the current behavior when the task is intentionally changing the product.
 
-The macro design is frozen.
+## Scope discipline
 
-The Agent has implementation freedom inside that boundary.
-
-## Agent may decide
-
-The Agent may choose:
-
-```text
-final .c file split / merge
-helper names
-local struct layout details
-exact thin-X11 wrapper boundaries
-test script organization
-implementation order
-small local defensive handling
-small local refactors required by the current slice
-```
-
-These decisions must remain consistent with the frozen contracts.
-
-## Agent may not decide
-
-Do not independently:
-
-```text
-change frozen user-visible semantics
-remove required V1 behavior
-add new public commands
-add new public config fields
-rename frozen public command spelling
-replace Xlib as the V1 X11 API
-replace the Xinerama-first monitor model
-replace the single-threaded fd-driven architecture
-replace the frozen ownership model
-replace the Command Registry architecture
-introduce framework-scale dependencies
-pull Post-V1 features into V1
-```
-
-Do not redesign a frozen behavior merely because another implementation would be easier.
-
----
-
-# 3. Contract Conflicts
-
-If two frozen contracts appear genuinely incompatible:
-
-```text
-do not invent a third semantic
-do not silently choose a new product behavior
-```
-
-First verify that the conflict is real and not an implementation misunderstanding.
-
-If it is real, surface it explicitly with:
-
-```text
-the conflicting files/sections
-the exact incompatible requirements
-the implementation point being blocked
-```
-
-Local implementation details that are not specified by the contracts are yours to decide.
-
----
-
-# 4. Default Work Loop
-
-Prefer vertical slices over architecture scaffolding.
-
-Default loop:
-
-```text
-read only the relevant contracts
-↓
-choose the smallest complete runnable slice
-↓
-implement it
-↓
-build
-↓
-run the cheapest relevant verification
-↓
-use Xvfb / Xephyr when X11 behavior is involved
-↓
-fix failures
-↓
-continue
-```
-
-Prefer working increments over large batches of placeholders.
-
-Do not create the whole architecture as empty modules before the first runnable WM.
-
-Do not wait until the end of V1 to first run Box2430 under a real X server.
-
----
-
-# 5. Keep the Repository Runnable
-
-During development, prefer to keep the repository:
-
-```text
-buildable
-runnable
-testable
-```
-
-as often as practical.
-
-Do not knowingly stack unrelated new work on top of an existing regression.
-
-If the current slice breaks an existing test or behavior:
-
-```text
-fix the regression
-or explicitly establish that the old test is invalid under the frozen contract
-```
-
-before continuing unrelated feature work.
-
----
-
-# 6. Testing Discipline
-
-Use the cheapest test that can genuinely verify the behavior.
-
-```text
-pure logic
-→ plain C tests
-
-headless X11 behavior
-→ Xvfb
-
-visual / interaction behavior
-→ Xephyr
-
-real X.Org / XLibre session
-→ user handoff
-```
-
-Do not build fake X11 backends or dependency-injection infrastructure for tests.
-
-If the behavior depends on real X11 semantics, test against a real X server.
-
-Use Xephyr early when implementing visual interaction.
-
-Screenshots are valid evidence when visual state matters.
-
----
-
-# 7. Real Session Safety
-
-Do not take over the user's real graphical session.
-
-Unless explicitly authorized for that exact operation, never:
-
-```text
-run startx
-run xinit
-switch virtual terminals
-replace the active window manager
-take ownership of the user's active display
-terminate or replace the user's desktop session
-```
-
-Real X.Org / XLibre session smoke testing is intentionally a user handoff task.
-
-Prepare instructions; do not perform the takeover yourself.
-
----
-
-# 8. Scope Discipline
-
-Make changes that are:
-
-```text
-required by GOAL.md
-or
-directly necessary to make the current V1 slice correct
-```
-
-Avoid opportunistic expansion.
+Prefer the smallest complete change that solves the requested problem.
 
 Do not:
 
-```text
-implement Post-V1 features "while here"
-perform broad unrelated rewrites
-modernize working architecture without need
-replace a dependency because another one looks nicer
-add generic infrastructure for hypothetical future use
-```
+* perform unrelated rewrites;
+* add speculative features while fixing another issue;
+* introduce framework-scale abstractions for a local problem;
+* add dependencies without a concrete need;
+* rename or alter public commands/configuration unless the task requires it;
+* change architectural semantics as an incidental refactor.
 
-A nearby cleanup is acceptable when it directly lowers risk or complexity of the current change.
+If a local fix exposes a larger architectural problem, surface it separately rather than expanding the task automatically.
 
-Keep it local.
+## Implementation expectations
 
----
-
-# 9. Dependencies and Vendors
-
-Use the frozen dependency policy.
-
-Prefer:
-
-```text
-libc / POSIX / Xlib / Xft / Xinerama
-↓
-small local helper
-↓
-approved small vendor
-```
-
-The TOML parser is already selected:
-
-```text
-tomlc17
-```
-
-Use the vendored copy.
-
-Do not re-evaluate or replace it unless explicitly instructed.
-
-Any additional vendor or linked runtime dependency must satisfy the Vendor Admission Rule in:
-
-```text
-docs/V1/box2430_v1_implementation_style_and_economy_contract.md
-```
-
-Do not let vendor-specific types spread into Box2430 core state or public internal boundaries.
-
----
-
-# 10. Implementation Style
-
-Follow the frozen Implementation Style & Economy Contract.
+Follow `docs/IMPLEMENTATION_STYLE.md`.
 
 In particular:
 
-```text
-Readable Small-C
-flat/moderate modularity
-transparent core state
-explicit WM * root
-single clear owner / borrow by default
-thin X11 boundary
-canonical state mutation operations
-small error-handling surface
-standard facilities first
-no framework inflation
-```
+* keep the implementation direct and readable;
+* prefer explicit C state transitions over generic frameworks;
+* preserve semantic distinctions such as focus vs. stacking, geometry vs. workarea, and tab/MRU/stack order;
+* keep Xlib boundaries thin;
+* follow established mature X11 WM practice before adding defensive machinery;
+* treat ordinary client-lifetime `BadWindow` races as expected X11 behavior when appropriate;
+* use invariants and regression tests to catch Box2430 bookkeeping bugs.
 
-Do not optimize for `wc -l` at the cost of readability.
+Do not redesign code merely to make it more theoretically defensive.
 
-Do not hide major state mutation behind clever macros.
+## Work loop
 
-Do not introduce generic abstractions solely to reduce repetition.
-
----
-
-# 11. Errors
-
-Keep error handling small.
-
-Distinguish:
+For code changes, use a short vertical loop:
 
 ```text
-internal invariant bug
-user/config/command error
-expected X11 race
-fatal WM/infrastructure failure
+inspect the relevant path
+    -> make the smallest coherent change
+    -> build
+    -> run the cheapest meaningful verification
+    -> exercise real X11 behavior when relevant
+    -> fix regressions
 ```
 
-Do not turn ordinary external failure into a process crash.
+Keep the repository buildable and testable as often as practical.
 
-Do not turn error handling into a subsystem.
+Do not stack unrelated new work on top of a known regression.
 
-Use `assert` only for programmer invariants.
+## Testing
 
----
+Follow `DEVELOPMENT.md` for commands and environment details.
 
-# 12. Evidence per Slice
-
-After a meaningful implementation slice, leave the smallest useful evidence that it works.
-
-Examples:
+Use the cheapest test that genuinely verifies the behavior:
 
 ```text
-successful build
-specific unit test
-Xvfb scenario
-Xephyr scenario
-screenshot
-sanitizer result
-property/state inspection
+pure/local logic         -> focused test or build check
+headless X11 behavior    -> Xvfb
+visual/topology behavior -> Xephyr
+real-session behavior    -> user-controlled X session
 ```
 
-Do not claim something was tested if it was only reviewed.
+When a bug depends on X events, bindings, focus, stacking, mapping, process inheritance, geometry, or ICCCM/EWMH interaction, prefer a regression test that exercises the real path instead of only calling an internal helper.
 
-If the environment genuinely prevents verification, report it as `UNVERIFIED` according to `GOAL.md`.
+A bug fix should normally leave a regression test when the failure is reproducible and practical to automate.
 
----
+Never report a test as passing unless it was actually executed successfully. Distinguish environment limitations from product failures.
 
-# 13. No Fake Completion
+## Real session safety
 
-Never use these to claim required V1 work is done:
+Do not take over the user's active graphical session unless explicitly authorized for that exact operation.
 
-```text
-stub handlers
-TODO implementations
-accepted-but-ignored config
-placeholder success
-hard-coded fake behavior
-skipped required verification
-```
+Do not automatically:
 
-Required V1 behavior must be real.
+* run `startx` or `xinit` against the user's session;
+* replace the active window manager;
+* switch virtual terminals;
+* terminate or replace the desktop session;
+* claim ownership of the user's active X display.
 
----
+Prepare real-session smoke-test instructions when needed and leave execution to the user.
 
-# 14. Final Delivery
+## Documentation changes
 
-Completion is governed by:
+Keep documentation synchronized with intentional behavior changes.
 
-```text
-GOAL.md
-```
+Update the relevant document when changing:
 
-Before declaring V1 complete:
+* user-facing capabilities or startup basics -> `README.md`;
+* commands, configuration, bindings, or rules -> `docs/REFERENCE.md`;
+* runtime model, state relationships, or architectural invariants -> `docs/ARCHITECTURE.md`;
+* stable engineering principles -> `docs/IMPLEMENTATION_STYLE.md`;
+* build, test, debugging, or verification workflow -> `DEVELOPMENT.md`.
 
-```text
-run the required builds
-run all available required verification
-resolve all known FAIL items
-complete the acceptance matrix
-record Implementation Economy baseline
-list genuine UNVERIFIED items
-prepare the user real-session smoke-test handoff
-```
+Do not duplicate detailed documentation inside this file. `AGENTS.md` should remain a short operational guide for future agents.
 
-Do not declare completion merely because the codebase is large or most features appear implemented.
+## Task completion
 
----
+Before finishing a code task:
 
-# 15. Working Principle
+1. review the diff for unrelated changes;
+2. build the affected profile when possible;
+3. run the relevant regression/integration tests;
+4. update affected documentation if public or architectural behavior changed;
+5. report what was actually verified and what remains unverified.
 
-When uncertain between two valid implementations, prefer the one with:
-
-```text
-less owned code
-less hidden state
-shorter call paths
-clearer lifetime
-smaller dependency surface
-easier real-world verification
-```
-
-provided it preserves the frozen semantics.
-
-The goal is not to build the cleverest WM.
-
-The goal is to build the frozen Box2430 V1:
-
-> small, readable, predictable, runnable, and demonstrably correct.
+For documentation-only tasks, do not modify code or tests unless explicitly requested.
