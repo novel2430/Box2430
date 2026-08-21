@@ -351,7 +351,9 @@ static void enforce_stacking(WM *wm)
         if (special->type != WINDOW_TYPE_DESKTOP)
             XRaiseWindow(wm->display, special->window);
     for (Client *client = wm->clients; client; client = client->next)
-        if (client->fullscreen) XRaiseWindow(wm->display, client->window);
+        if (client->fullscreen &&
+            client->workspace == client->workspace->monitor->active_workspace)
+            XRaiseWindow(wm->display, client->window);
     discard_enter_events(wm);
 }
 
@@ -1074,21 +1076,20 @@ void workspace_activate(WM *wm, Monitor *monitor, Workspace *workspace)
     }
 
     Workspace *old = monitor->active_workspace;
-    if (wm->focused_client && wm->focused_client->workspace == old) {
-        focus_client(wm, NULL, CurrentTime);
+    Client *target = workspace_focus_target(workspace);
+    for (Client *client = workspace->clients; client; client = client->workspace_next)
+        materialize_client_geometry(wm, client);
+
+    monitor->active_workspace = workspace;
+    for (Client *client = workspace->stack_head; client; client = client->stack_next) {
+        XMapWindow(wm->display, client->window);
+        XRaiseWindow(wm->display, client->window);
     }
+    focus_client(wm, target, CurrentTime);
     for (Client *client = old->clients; client; client = client->workspace_next) {
         ++client->ignored_unmaps;
         XUnmapWindow(wm->display, client->window);
     }
-
-    monitor->active_workspace = workspace;
-    for (Client *client = workspace->stack_head; client; client = client->stack_next) {
-        materialize_client_geometry(wm, client);
-        XMapWindow(wm->display, client->window);
-        XRaiseWindow(wm->display, client->window);
-    }
-    focus_client(wm, workspace_focus_target(workspace), CurrentTime);
     enforce_stacking(wm);
 }
 
@@ -1138,7 +1139,9 @@ void client_move_to_workspace(WM *wm, Client *client, Workspace *workspace,
     if (was_focused)
         focus_client(wm, workspace_focus_fallback(old, client), CurrentTime);
 
-    if (old == old->monitor->active_workspace) {
+    bool keep_mapped_for_follow = follow && old_monitor == new_monitor &&
+        workspace != new_monitor->active_workspace;
+    if (old == old->monitor->active_workspace && !keep_mapped_for_follow) {
         ++client->ignored_unmaps;
         XUnmapWindow(wm->display, client->window);
     }

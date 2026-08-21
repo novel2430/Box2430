@@ -1,0 +1,5 @@
+[focus]
+raise_on_focus = true
+
+[bindings]
+inherit_defaults = true

@@ -4,6 +4,7 @@ set -eu
 for scenario in \
     xvfb_bootstrap.sh \
     xvfb_core_commands.sh \
+    xvfb_workspace_transition.sh \
     xvfb_config.sh \
     xvfb_rules.sh \
     xvfb_special_windows.sh \

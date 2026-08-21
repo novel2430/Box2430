@@ -114,6 +114,14 @@ Switching a workspace only changes the active workspace of that monitor. Other m
 
 `selected_monitor` is the monitor targeted by workspace, mode, and focus commands when no client-specific destination is involved. Focusing a client also selects that client's monitor.
 
+At steady state, clients on inactive workspaces are genuinely unmapped. During
+activation, Box2430 first prepares all incoming geometry while it is hidden,
+then makes the incoming workspace active, maps and focuses it, and only then
+unmaps the outgoing clients. Both workspaces may therefore be mapped during a
+short controlled overlap. Active-workspace stacking rules ignore outgoing
+clients during that overlap so they cannot be raised back above the incoming
+workspace.
+
 ### Clients
 
 A normal or dialog window is represented by `Client`.
