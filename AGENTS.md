@@ -1,7 +1,7 @@
 # Box2430 Agent Instructions
 
 This file defines how coding agents should work inside the Box2430 repository.
-Keep it operational and version-independent. Product behavior and implementation details belong in the documentation referenced below.
+Keep it operational and compact. Product behavior and implementation details belong in the documentation referenced below.
 
 ## Read order
 
@@ -29,6 +29,20 @@ When code, tests, and documentation disagree:
 4. do not change working current behavior solely to satisfy obsolete text.
 
 An explicit user/task requirement overrides the current behavior when the task is intentionally changing the product.
+
+## V1.5 maintenance baseline
+
+V1.5 is feature-frozen and serves as the stable baseline for later development.
+Maintenance work should preserve its public behavior and architectural invariants
+unless a concrete bug or compatibility problem requires a change.
+
+For V1.5 maintenance:
+
+* prefer bug and compatibility fixes backed by a concrete reproduction;
+* keep fixes narrow and add a regression test when the failure is practical to automate;
+* do not add minimize semantics, a global EWMH desktop model, RandR output identity,
+  or other compatibility machinery merely for theoretical completeness;
+* keep new product features and architectural expansion outside the V1.5 baseline.
 
 ## Scope discipline
 

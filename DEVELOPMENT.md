@@ -163,7 +163,8 @@ changes, latent FREE geometry, MONOCLE, snap, and fullscreen rematerialization.
 The suite currently covers areas including:
 
 * WM ownership and startup discovery;
-* manage/unmanage and workspace visibility;
+* manage/unmanage, WM-hidden workspace clients versus genuine client withdrawal,
+  and workspace transition mapping/focus ordering;
 * commands and FREE/MONOCLE transitions;
 * strict configuration parsing and binding validation;
 * rules and fullscreen policies;
@@ -173,7 +174,7 @@ The suite currently covers areas including:
 * interactive mouse move/resize and snap preview;
 * NumLock-insensitive bindings;
 * duplicate-KeySym/all-KeyCode grabs and runtime keyboard-map rebuilds;
-* ICCCM size hints and focus protocol;
+* ICCCM size hints, focus protocol, and `FocusIn` compatibility;
 * runtime ICCCM/EWMH property-cache refresh without reactive focus/layout side effects;
 * stable client-order focus cycling, focus-stack restoration, and urgency;
 * MONOCLE tab-bar behavior;
@@ -220,7 +221,8 @@ They cover behavior such as:
 * per-monitor workspaces and monitor movement;
 * cross-monitor drag;
 * Xinerama monitor selection;
-* topology reconciliation;
+* topology reconciliation, including semantic focus preservation and geometry
+  rematerialization across resolution changes;
 * MONOCLE tab rendering, including non-ASCII titles.
 
 Some Xephyr scenarios capture evidence under:
@@ -268,22 +270,18 @@ LeakSanitizer-clean process teardown is not treated as a universal requirement b
 
 ## Valgrind and the Xft/fontconfig baseline
 
-A minimal Xft-only program, without Box2430 code, has been observed to reproduce the same process-exit Valgrind allocation seen when starting Box2430:
-
-```text
-320 bytes total
-256 bytes direct + 64 bytes indirect
-allocation path: libfontconfig -> libexpat
-```
-
-Treat this specific matching result as external library/process-teardown behavior. Do not add Box2430 cleanup workarounds or change product behavior merely to suppress it.
+Xft/fontconfig may retain process-lifetime allocations at exit. When a Valgrind
+finding appears to originate entirely in those libraries, compare it with a
+minimal Xft-only reproducer in the same environment before treating it as a
+Box2430 leak. Do not add Box2430 cleanup workarounds or change product behavior
+merely to suppress matching external-library teardown behavior.
 
 This does **not** make arbitrary Valgrind findings acceptable. Investigate any:
 
 * invalid read or write;
 * use of uninitialized data;
 * allocation whose stack includes Box2430 code;
-* leak with a different size or allocation path;
+* leak whose allocation path differs from the external-library baseline;
 * leak that grows repeatedly during normal WM operations.
 
 When uncertain, compare the finding with a minimal Xft program in the same environment.

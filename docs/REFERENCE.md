@@ -2,6 +2,29 @@
 
 This document describes the user-facing command and configuration surface implemented by the current Box2430 codebase.
 
+## Invocation
+
+```text
+box2430 [-d display] [-c config.toml] [-a path|--autostart path]
+box2430 -h|--help
+```
+
+`-d` selects an X display, `-c` selects an explicit TOML configuration file, and
+`-a` / `--autostart` selects the fresh-session autostart executable described
+below. Without `-c`, Box2430 looks for:
+
+```text
+$XDG_CONFIG_HOME/box2430/config.toml
+```
+
+or, when `XDG_CONFIG_HOME` is unset:
+
+```text
+~/.config/box2430/config.toml
+```
+
+If the default configuration file is absent, built-in defaults are used.
+
 ## Commands
 
 Commands are used by keyboard, mouse, and tab-bar bindings.

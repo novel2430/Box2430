@@ -3,6 +3,12 @@
 Box2430 is a small, non-reparenting X11 stacking window manager written in C with Xlib.
 It aims to keep the direct, mouse-friendly feel of a traditional stacking WM while adding a compact set of keyboard-driven features.
 
+## Status
+
+Box2430 V1.5 is the frozen stable baseline. V1.5 is in maintenance mode: bug
+fixes and concrete compatibility fixes are in scope, while new features and
+architectural expansion belong to later development.
+
 ## Features
 
 * Per-monitor workspaces
@@ -105,6 +111,7 @@ See `config.example.toml` for a configuration example.
 
 * `docs/REFERENCE.md` — commands, configuration, bindings, and rules
 * `docs/ARCHITECTURE.md` — internal state model and implementation structure
+* `docs/IMPLEMENTATION_STYLE.md` — long-lived engineering principles
 * `DEVELOPMENT.md` — build, testing, debugging, and verification
 * `AGENTS.md` — repository instructions for coding agents
 

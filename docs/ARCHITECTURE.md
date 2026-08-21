@@ -38,6 +38,11 @@ previous window manager is also eligible for discovery. `IconicState` is only
 a discovery signal: after adoption the window enters the ordinary Box2430
 client and workspace model.
 
+Workspace hiding is not minimization. Box2430 does not expose a minimize state.
+Hiding an inactive workspace unmaps its clients while they remain managed and
+keeps their adopted `WM_STATE` as `NormalState`; `IconicState` is not used as a
+workspace-visibility state.
+
 This gives three useful questions:
 
 ```text
@@ -313,6 +318,14 @@ width is WM-owned: `CWBorderWidth` does not change Box2430's border policy.
 When snap, maximize, MONOCLE, or real fullscreen owns the presentation, client
 geometry requests are acknowledged with the actual presented geometry without
 changing the underlying semantic/restore state.
+
+This managed-client policy applies only to ordinary `Client` objects. If a
+`ConfigureRequest` does not belong to an ordinary client — including requests
+from `SpecialWindow` dock/desktop/notification windows and otherwise unmanaged
+windows — Box2430 passes the request's original `value_mask` through to
+`XConfigureWindow`, including sibling and stacking fields. This is an intentional
+compatibility boundary; do not generalize ordinary-client geometry/stacking
+ownership to special windows without a concrete reason.
 
 ### Fullscreen
 
