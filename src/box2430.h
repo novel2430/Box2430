@@ -137,6 +137,10 @@ typedef struct Rect {
 unsigned int normalize_monitor_rects(const Rect *raw_rects,
                                      unsigned int raw_count, Rect fallback,
                                      Rect *normalized, unsigned int capacity);
+void match_monitor_rects(const Rect *old_rects, unsigned int old_count,
+                         const Rect *new_rects, unsigned int new_count,
+                         int old_for_new[BOX2430_MAX_MONITORS],
+                         int new_for_old[BOX2430_MAX_MONITORS]);
 
 typedef enum WorkspaceMode {
     WORKSPACE_FREE,

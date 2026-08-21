@@ -424,9 +424,51 @@ monitor.
 
 Root `ConfigureNotify` events trigger topology reconciliation.
 
-For monitors that remain at the same index, workspace state is retained while geometry is updated. New monitors receive fresh workspace state.
+Xinerama enumeration position is not treated as durable monitor identity.
+Before changing monitor state, Box2430 matches the old logical monitors to the
+new normalized rectangles. Exact rectangle matches are preferred; remaining
+rectangles are paired by strongest geometric continuity (overlap first, then
+nearest centers) with deterministic index tie-breaking. The resulting logical
+monitor state is then placed in the new Xinerama ordering. This means a pure
+enumeration reorder does not exchange monitor-local active workspaces, client
+membership, or focus history merely because the array order changed.
 
-If monitors disappear, their clients are moved to monitor 0 using the same workspace index. Their stored geometry is translated toward the destination monitor and clamped to its workarea.
+This is deliberately **logical geometry continuity**, not physical display
+identity. Xinerama does not provide connector names, CRTC identity, or EDID.
+For an ambiguous sequence such as unplugging the old left display while the old
+right display moves into exactly the left display's rectangle, Box2430 cannot
+prove which physical display survived. It applies the same deterministic
+geometry matching rule instead of pretending to know physical identity.
+
+Topology reconciliation is local plan-then-commit work. The plan determines
+continued/added/removed monitors, client migration targets, latent geometry
+adjustments, selected-monitor continuity, and preferred focus. Commit first
+establishes the new logical monitor/workspace ownership, then computes final
+Dock workareas, clamps affected latent client geometry, rematerializes normal,
+snap, maximize, MONOCLE, and fullscreen presentation, reconciles workspace
+mapping, and finally restores focus/stacking/EWMH state. Helpers that assume a
+steady topology are therefore not called while monitor ownership is obviously
+half-updated.
+
+New monitors receive fresh workspace state. If monitors disappear, their
+clients are moved deterministically to new monitor 0 using the same workspace
+index. Box2430 transfers clients rather than an entire removed Workspace object;
+the surviving destination monitor keeps its own active workspace and workspace
+mode.
+
+When a client keeps the same logical monitor but that monitor's origin/size
+changes, or when a client migrates from a removed monitor, both `geometry` and
+`normal_geometry` are translated by the old/new monitor-origin delta and then
+clamped against the final destination workarea. Signed monitor coordinates are
+used directly; no `x >= 0` / `y >= 0` assumption is made. WM-owned presentation
+geometry is not translated blindly: fullscreen uses the new monitor rectangle,
+snap/maximize use the final workarea, and MONOCLE uses the final MONOCLE content
+rectangle.
+
+If the previously focused client survives topology reconciliation, remains on
+an active workspace, and is still focusable, Box2430 keeps semantic focus on
+that same client. Otherwise it falls back through the selected monitor's normal
+workspace focus rules.
 
 Moving a client between monitors can either:
 

@@ -774,7 +774,7 @@ static bool ranges_overlap(int start, int end, unsigned long other_start,
     return end > (int)other_start && start <= (int)other_end;
 }
 
-static void recompute_workareas(WM *wm)
+static void calculate_workareas(WM *wm)
 {
     int root_width = DisplayWidth(wm->display, wm->screen);
     int root_height = DisplayHeight(wm->display, wm->screen);
@@ -802,12 +802,24 @@ static void recompute_workareas(WM *wm)
         if (area.width < 1) area.width = 1;
         if (area.height < 1) area.height = 1;
         monitor->workarea = area;
+    }
+}
 
+static void rematerialize_all_clients(WM *wm)
+{
+    for (unsigned int i = 0; i < wm->monitor_count; ++i) {
+        Monitor *monitor = &wm->monitors[i];
         for (unsigned int j = 0; j < wm->config.workspace_count; ++j)
             for (Client *client = monitor->workspaces[j].clients; client;
                  client = client->workspace_next)
                 materialize_client_geometry(wm, client);
     }
+}
+
+static void recompute_workareas(WM *wm)
+{
+    calculate_workareas(wm);
+    rematerialize_all_clients(wm);
     x11_update_workarea(wm);
     update_tab_bars(wm);
 }
@@ -1643,58 +1655,308 @@ static bool rect_equal(Rect left, Rect right)
            left.width == right.width && left.height == right.height;
 }
 
+typedef struct TopologyClientPlan {
+    Client *client;
+    unsigned int old_monitor_index;
+    unsigned int new_monitor_index;
+    unsigned int workspace_index;
+    bool migrate;
+    bool adjust_geometry;
+} TopologyClientPlan;
+
+typedef struct MonitorTopologyPlan {
+    unsigned int old_count;
+    unsigned int new_count;
+    Rect old_rects[BOX2430_MAX_MONITORS];
+    Rect new_rects[BOX2430_MAX_MONITORS];
+    int old_for_new[BOX2430_MAX_MONITORS];
+    int new_for_old[BOX2430_MAX_MONITORS];
+    unsigned int fallback_new_index;
+    unsigned int selected_new_index;
+    int preview_new_index;
+    Client *preferred_focus;
+    TopologyClientPlan *clients;
+    unsigned int client_count;
+} MonitorTopologyPlan;
+
+static void free_topology_plan(MonitorTopologyPlan *plan)
+{
+    free(plan->clients);
+    plan->clients = NULL;
+    plan->client_count = 0;
+}
+
+static bool plan_monitor_topology(WM *wm, const Rect *new_rects,
+                                  unsigned int new_count,
+                                  MonitorTopologyPlan *plan)
+{
+    memset(plan, 0, sizeof(*plan));
+    plan->old_count = wm->monitor_count;
+    plan->new_count = new_count;
+    for (unsigned int i = 0; i < plan->old_count; ++i)
+        plan->old_rects[i] = wm->monitors[i].geometry;
+    for (unsigned int i = 0; i < new_count; ++i)
+        plan->new_rects[i] = new_rects[i];
+
+    match_monitor_rects(plan->old_rects, plan->old_count,
+                        plan->new_rects, plan->new_count,
+                        plan->old_for_new, plan->new_for_old);
+
+    bool changed = plan->old_count != plan->new_count;
+    for (unsigned int new_index = 0; new_index < plan->new_count; ++new_index) {
+        int old_index = plan->old_for_new[new_index];
+        if (old_index < 0 || old_index != (int)new_index ||
+            !rect_equal(plan->old_rects[old_index], plan->new_rects[new_index])) {
+            changed = true;
+        }
+    }
+    if (!changed) return false;
+
+    plan->fallback_new_index = 0;
+    unsigned int selected_old_index = wm->selected_monitor
+        ? wm->selected_monitor->index : 0;
+    int selected_new_index = selected_old_index < plan->old_count
+        ? plan->new_for_old[selected_old_index] : -1;
+    plan->selected_new_index = selected_new_index >= 0
+        ? (unsigned int)selected_new_index : plan->fallback_new_index;
+
+    plan->preview_new_index = -1;
+    if (wm->drag.preview_monitor) {
+        unsigned int preview_old_index = wm->drag.preview_monitor->index;
+        if (preview_old_index < plan->old_count)
+            plan->preview_new_index = plan->new_for_old[preview_old_index];
+    }
+    plan->preferred_focus = wm->focused_client;
+
+    unsigned int client_count = 0;
+    for (Client *client = wm->clients; client; client = client->next)
+        ++client_count;
+    if (!client_count) return true;
+
+    plan->clients = calloc(client_count, sizeof(*plan->clients));
+    if (!plan->clients) {
+        fprintf(stderr, "box2430: out of memory planning monitor topology\n");
+        wm->running = false;
+        return false;
+    }
+    plan->client_count = client_count;
+
+    unsigned int i = 0;
+    for (Client *client = wm->clients; client; client = client->next, ++i) {
+        TopologyClientPlan *client_plan = &plan->clients[i];
+        unsigned int old_index = client->workspace->monitor->index;
+        int continued_new = old_index < plan->old_count
+            ? plan->new_for_old[old_index] : -1;
+        unsigned int new_index = continued_new >= 0
+            ? (unsigned int)continued_new : plan->fallback_new_index;
+        client_plan->client = client;
+        client_plan->old_monitor_index = old_index;
+        client_plan->new_monitor_index = new_index;
+        client_plan->workspace_index = client->workspace->index;
+        client_plan->migrate = continued_new < 0;
+        client_plan->adjust_geometry = client_plan->migrate ||
+            !rect_equal(plan->old_rects[old_index], plan->new_rects[new_index]);
+    }
+    return true;
+}
+
+static void topology_reassign_client(Client *client, Workspace *workspace)
+{
+    Workspace *old = client->workspace;
+    if (old == workspace) return;
+    unlink_workspace_orders(old, client);
+    client->workspace = workspace;
+    client->workspace_next = NULL;
+    client->tab_prev = client->tab_next = NULL;
+    client->stack_prev = client->stack_next = NULL;
+    client->focus_prev = client->focus_next = NULL;
+    append_workspace_orders(workspace, client);
+}
+
+static void translate_client_latent_geometry(Client *client, Rect old_monitor,
+                                             Rect new_monitor)
+{
+    int dx = new_monitor.x - old_monitor.x;
+    int dy = new_monitor.y - old_monitor.y;
+    client->geometry.x += dx;
+    client->geometry.y += dy;
+    client->normal_geometry.x += dx;
+    client->normal_geometry.y += dy;
+}
+
+static void clamp_client_latent_geometry(Client *client, Rect workarea)
+{
+    client->geometry = clamp_to_workarea(client->geometry, workarea,
+                                          client->border_width);
+    client->normal_geometry = clamp_to_workarea(client->normal_geometry, workarea,
+                                                 client->border_width);
+}
+
+static void retarget_monitor_workspaces(WM *wm, Monitor *monitor)
+{
+    for (unsigned int i = 0; i < wm->config.workspace_count; ++i)
+        monitor->workspaces[i].monitor = monitor;
+}
+
+static void name_tab_bar(WM *wm, Monitor *monitor)
+{
+    if (!monitor->tab_bar) return;
+    char name[64];
+    snprintf(name, sizeof(name), "box2430-tabbar-%u", monitor->index);
+    XStoreName(wm->display, monitor->tab_bar, name);
+}
+
+static bool client_is_visible(const Client *client)
+{
+    return client->workspace == client->workspace->monitor->active_workspace;
+}
+
+static void reconcile_client_mapping(WM *wm, Client *client)
+{
+    XWindowAttributes attrs;
+    if (!XGetWindowAttributes(wm->display, client->window, &attrs)) return;
+    bool visible = client_is_visible(client);
+    if (visible && attrs.map_state == IsUnmapped) {
+        XMapWindow(wm->display, client->window);
+    } else if (!visible && attrs.map_state != IsUnmapped) {
+        ++client->ignored_unmaps;
+        XUnmapWindow(wm->display, client->window);
+    }
+}
+
+static void destroy_removed_monitor_resources(WM *wm, const Monitor *old_monitors,
+                                              const MonitorTopologyPlan *plan)
+{
+    for (unsigned int old_index = 0; old_index < plan->old_count; ++old_index) {
+        if (plan->new_for_old[old_index] >= 0) continue;
+        const Monitor *removed = &old_monitors[old_index];
+        if (removed->tab_draw) XftDrawDestroy(removed->tab_draw);
+        if (removed->tab_bar) XDestroyWindow(wm->display, removed->tab_bar);
+        free(removed->workspaces);
+    }
+}
+
 static void reconcile_monitors(WM *wm)
 {
     Rect rects[BOX2430_MAX_MONITORS];
     unsigned int new_count;
     if (!query_monitor_rects(wm, rects, &new_count)) return;
-    bool changed = new_count != wm->monitor_count;
-    unsigned int common = new_count < wm->monitor_count ? new_count : wm->monitor_count;
-    for (unsigned int i = 0; i < common; ++i)
-        changed |= !rect_equal(wm->monitors[i].geometry, rects[i]);
-    if (!changed) return;
 
-    unsigned int old_count = wm->monitor_count;
-    if (wm->selected_monitor && wm->selected_monitor->index >= new_count)
-        wm->selected_monitor = &wm->monitors[0];
-    if (wm->focused_client &&
-        wm->focused_client->workspace->monitor->index >= new_count) {
-        wm->focused_client = NULL;
-        XSetInputFocus(wm->display, wm->root, RevertToPointerRoot, CurrentTime);
+    MonitorTopologyPlan plan;
+    if (!plan_monitor_topology(wm, rects, new_count, &plan)) return;
+    if (!wm->running) {
+        free_topology_plan(&plan);
+        return;
+    }
+
+    Monitor old_monitors[BOX2430_MAX_MONITORS] = {0};
+    Monitor staged[BOX2430_MAX_MONITORS] = {0};
+    bool added[BOX2430_MAX_MONITORS] = {false};
+    for (unsigned int i = 0; i < plan.old_count; ++i)
+        old_monitors[i] = wm->monitors[i];
+
+    /* Stage the complete future monitor array before mutating ownership. */
+    for (unsigned int new_index = 0; new_index < plan.new_count; ++new_index) {
+        int old_index = plan.old_for_new[new_index];
+        if (old_index >= 0) {
+            staged[new_index] = old_monitors[old_index];
+            staged[new_index].index = new_index;
+            staged[new_index].geometry = plan.new_rects[new_index];
+            staged[new_index].workarea = plan.new_rects[new_index];
+        } else {
+            if (!init_monitor_state(wm, &staged[new_index], new_index,
+                                    plan.new_rects[new_index])) {
+                fprintf(stderr, "box2430: cannot create state for added monitor\n");
+                for (unsigned int j = 0; j < new_index; ++j)
+                    if (added[j]) free(staged[j].workspaces);
+                free_topology_plan(&plan);
+                wm->running = false;
+                return;
+            }
+            added[new_index] = true;
+        }
+    }
+
+    /* Semantic client ownership and latent geometry are updated without
+     * invoking focus, mapping, stacking, or presentation helpers. */
+    for (unsigned int i = 0; i < plan.client_count; ++i) {
+        TopologyClientPlan *client_plan = &plan.clients[i];
+        Client *client = client_plan->client;
+        if (client_plan->adjust_geometry) {
+            translate_client_latent_geometry(
+                client, plan.old_rects[client_plan->old_monitor_index],
+                plan.new_rects[client_plan->new_monitor_index]);
+        }
+        if (client_plan->migrate) {
+            Workspace *destination =
+                &staged[client_plan->new_monitor_index]
+                     .workspaces[client_plan->workspace_index];
+            topology_reassign_client(client, destination);
+        }
+    }
+
+    for (unsigned int i = 0; i < plan.new_count; ++i)
+        wm->monitors[i] = staged[i];
+    for (unsigned int i = plan.new_count; i < BOX2430_MAX_MONITORS; ++i)
+        memset(&wm->monitors[i], 0, sizeof(wm->monitors[i]));
+    wm->monitor_count = plan.new_count;
+    for (unsigned int i = 0; i < wm->monitor_count; ++i) {
+        wm->monitors[i].index = i;
+        retarget_monitor_workspaces(wm, &wm->monitors[i]);
+    }
+    wm->selected_monitor = &wm->monitors[plan.selected_new_index];
+
+    hide_snap_preview(wm);
+    wm->drag.preview_monitor = plan.preview_new_index >= 0
+        ? &wm->monitors[plan.preview_new_index] : NULL;
+    wm->drag.preview_snap = SNAP_NONE;
+    wm->drag.preview_maximized = false;
+
+    destroy_removed_monitor_resources(wm, old_monitors, &plan);
+
+    /* Workareas are computed only after the logical monitor/workspace world is
+     * coherent. Added tab bars are then created against final monitor state. */
+    calculate_workareas(wm);
+    if (wm->tab_resources_ready) {
+        for (unsigned int i = 0; i < wm->monitor_count; ++i) {
+            if (added[i] && !create_tab_bar(wm, &wm->monitors[i])) {
+                fprintf(stderr, "box2430: cannot create state for added monitor\n");
+                free_topology_plan(&plan);
+                wm->running = false;
+                return;
+            }
+            name_tab_bar(wm, &wm->monitors[i]);
+        }
+    }
+
+    for (unsigned int i = 0; i < plan.client_count; ++i) {
+        TopologyClientPlan *client_plan = &plan.clients[i];
+        if (!client_plan->adjust_geometry) continue;
+        clamp_client_latent_geometry(
+            client_plan->client,
+            wm->monitors[client_plan->new_monitor_index].workarea);
+    }
+    rematerialize_all_clients(wm);
+    for (Client *client = wm->clients; client; client = client->next)
+        reconcile_client_mapping(wm, client);
+
+    Client *preferred_focus = plan.preferred_focus;
+    if (preferred_focus && client_is_visible(preferred_focus) &&
+        client_can_focus(preferred_focus)) {
+        wm->selected_monitor = preferred_focus->workspace->monitor;
+        promote_workspace_focus(preferred_focus->workspace, preferred_focus);
         x11_update_active_window(wm);
-    }
-    wm->monitor_count = new_count;
-    for (unsigned int i = 0; i < common; ++i)
-        wm->monitors[i].geometry = rects[i];
-    for (unsigned int i = old_count; i < new_count; ++i) {
-        if (!init_monitor_state(wm, &wm->monitors[i], i, rects[i]) ||
-            (wm->tab_resources_ready && !create_tab_bar(wm, &wm->monitors[i]))) {
-            fprintf(stderr, "box2430: cannot create state for added monitor\n");
-            wm->running = false;
-            return;
-        }
-    }
-    for (unsigned int i = new_count; i < old_count; ++i) {
-        Monitor *removed = &wm->monitors[i];
-        for (unsigned int workspace_index = 0;
-             workspace_index < wm->config.workspace_count; ++workspace_index) {
-            Workspace *source = &removed->workspaces[workspace_index];
-            Workspace *destination = &wm->monitors[0].workspaces[workspace_index];
-            while (source->clients)
-                client_move_to_workspace(wm, source->clients, destination, false, true);
-        }
-        if (removed->tab_draw) XftDrawDestroy(removed->tab_draw);
-        if (removed->tab_bar) XDestroyWindow(wm->display, removed->tab_bar);
-        free(removed->workspaces);
-        memset(removed, 0, sizeof(*removed));
-    }
-    recompute_workareas(wm);
-    if (!wm->focused_client) {
+    } else {
+        focus_client(wm, NULL, CurrentTime);
         Workspace *workspace = wm->selected_monitor->active_workspace;
         focus_client(wm, workspace_focus_target(workspace), CurrentTime);
     }
+
+    x11_update_workarea(wm);
+    update_tab_bars(wm);
     enforce_stacking(wm);
     x11_update_client_lists(wm);
+    free_topology_plan(&plan);
 }
 
 static void handle_configure_request(WM *wm, XConfigureRequestEvent *event)

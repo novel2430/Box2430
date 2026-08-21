@@ -154,6 +154,12 @@ make test
 Xvfb integration scenarios. `tests/run_xvfb.sh` runs only those Xvfb scenarios
 directly after the binaries and test tools have been built.
 
+The pure monitor test also covers logical Xinerama matching, including
+enumeration reorder, monitor insertion/removal, geometry changes, ambiguous
+geometry-only identity, and negative coordinates. `tests/xephyr_topology.sh`
+adds the real-X11 side of the contract for same-logical-monitor resolution
+changes, latent FREE geometry, MONOCLE, snap, and fullscreen rematerialization.
+
 The suite currently covers areas including:
 
 * WM ownership and startup discovery;
