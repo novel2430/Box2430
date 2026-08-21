@@ -369,12 +369,22 @@ When a new window is managed, Box2430:
 6. computes initial geometry and border policy;
 7. inserts the client into workspace membership, stable client/tab order, and stack order;
 8. selects X11 events and installs mouse grabs;
-9. reads focus hints;
+9. reads focus hints and focus-related WM protocols;
 10. maps the window if its workspace is visible;
 11. applies raise/focus-on-map policy;
 12. applies any initial client fullscreen request.
 
-Rules are evaluated when the window is first managed. Later title/class property changes update stored metadata but do not rerun the initial rule-placement process.
+Rules are evaluated when the window is first managed. Later property changes
+refresh the cached facts Box2430 actually keeps, but cache invalidation is not
+a reactive policy engine. In particular, runtime `WM_TRANSIENT_FOR` and
+`_NET_WM_WINDOW_TYPE` changes update relationship/type metadata without by
+themselves changing focus, workspace/monitor ownership, geometry, or stacking.
+Later title/class changes likewise update metadata without rerunning the initial
+rule-placement process. `WM_HINTS`, `WM_PROTOCOLS`, and `WM_NORMAL_HINTS` have
+their own invalidation paths so focusability and size constraints do not remain
+stuck at manage-time values. Refreshing focus capability does not itself move
+semantic focus; the refreshed capability is used the next time Box2430 makes
+an explicit focus decision.
 
 Unmanaging reverses workspace/global membership, chooses a focus fallback when
 necessary, and, for a still-existing window, stops client event selection,
@@ -467,7 +477,8 @@ Important event families include:
 * `DestroyNotify` / `UnmapNotify`: unmanage clients;
 * key/button/motion events: bindings, focus, and drag;
 * `EnterNotify`: sloppy focus;
-* `PropertyNotify`: size-hint invalidation, urgency, title/class/transient updates, and dock struts;
+* `PropertyNotify`: size-hint invalidation, focus/protocol capability refresh,
+  title/class/transient/type metadata updates, and dock struts;
 * `ClientMessage`: EWMH activation, close, and fullscreen requests;
 * root `ConfigureNotify`: monitor reconciliation;
 * `Expose`: tab-bar redraw.

@@ -463,14 +463,27 @@ static void set_client_urgent(WM *wm, Client *client, bool urgent)
     if (changed) update_tab_bars(wm);
 }
 
-static void read_focus_hints(WM *wm, Client *client)
+static void read_wm_hints(WM *wm, Client *client)
 {
     XWMHints *hints = XGetWMHints(wm->display, client->window);
     client->accepts_input = !hints || !(hints->flags & InputHint) || hints->input;
     bool urgent = hints && (hints->flags & XUrgencyHint);
     if (hints) XFree(hints);
     set_client_urgent(wm, client, urgent && wm->focused_client != client);
+}
+
+static void read_wm_protocols(WM *wm, Client *client)
+{
     client->takes_focus = client_supports_protocol(wm, client, wm->atoms.wm_take_focus);
+}
+
+static void read_transient_for(WM *wm, Client *client)
+{
+    Window transient = None;
+    if (XGetTransientForHint(wm->display, client->window, &transient))
+        client->transient_for = transient;
+    else
+        client->transient_for = None;
 }
 
 static bool client_can_focus(const Client *client)
@@ -1193,17 +1206,32 @@ static void grab_default_keys(WM *wm)
     unsigned int modifiers[] = {
         0, LockMask, wm->numlock_mask, LockMask | wm->numlock_mask,
     };
+
+    int first_keycode = 0;
+    int last_keycode = 0;
+    int keysyms_per_keycode = 0;
+    XDisplayKeycodes(wm->display, &first_keycode, &last_keycode);
+    KeySym *keysyms = XGetKeyboardMapping(
+        wm->display, (KeyCode)first_keycode,
+        last_keycode - first_keycode + 1, &keysyms_per_keycode);
+    if (!keysyms) return;
+
     XUngrabKey(wm->display, AnyKey, AnyModifier, wm->root);
-    for (unsigned int binding_index = 0;
-         binding_index < wm->config.key_binding_count; ++binding_index) {
-        KeyBinding *binding = &wm->config.key_bindings[binding_index];
-        KeyCode code = XKeysymToKeycode(wm->display, binding->symbol);
-        for (size_t i = 0; i < sizeof(modifiers) / sizeof(modifiers[0]); ++i) {
-            XGrabKey(wm->display, (int)code,
-                     binding->modifiers | modifiers[i], wm->root,
-                     True, GrabModeAsync, GrabModeAsync);
+    for (int keycode = first_keycode; keycode <= last_keycode; ++keycode) {
+        /* KeyPress dispatch canonicalizes the unshifted/base keysym too. */
+        KeySym symbol = keysyms[(keycode - first_keycode) * keysyms_per_keycode];
+        for (unsigned int binding_index = 0;
+             binding_index < wm->config.key_binding_count; ++binding_index) {
+            KeyBinding *binding = &wm->config.key_bindings[binding_index];
+            if (binding->symbol != symbol) continue;
+            for (size_t i = 0; i < sizeof(modifiers) / sizeof(modifiers[0]); ++i) {
+                XGrabKey(wm->display, keycode,
+                         binding->modifiers | modifiers[i], wm->root,
+                         True, GrabModeAsync, GrabModeAsync);
+            }
         }
     }
+    XFree(keysyms);
 }
 
 static void handle_key_press(WM *wm, XKeyEvent *event)
@@ -1506,7 +1534,7 @@ static void manage_window(WM *wm, Window window, bool map_window)
     client->title = x11_read_window_title(wm, window);
     x11_read_window_class(wm, window, &client->instance, &client->class_name);
     client->window_type = type;
-    XGetTransientForHint(wm->display, window, &client->transient_for);
+    read_transient_for(wm, client);
     if (!client->title || !client->instance || !client->class_name) {
         fprintf(stderr, "box2430: out of memory reading window metadata\n");
         free(client->title);
@@ -1536,7 +1564,8 @@ static void manage_window(WM *wm, Window window, bool map_window)
     XSetWindowBorder(wm->display, window, wm->unfocused_border);
     materialize_client_geometry(wm, client);
     x11_set_wm_state(wm, window, NormalState);
-    read_focus_hints(wm, client);
+    read_wm_hints(wm, client);
+    read_wm_protocols(wm, client);
     bool visible = client->workspace == client->workspace->monitor->active_workspace;
     if (map_window && visible) {
         XMapWindow(wm->display, window);
@@ -1831,8 +1860,10 @@ static void handle_event(WM *wm, XEvent *event)
         if (client && event->xproperty.atom == XA_WM_NORMAL_HINTS) {
             client->size_hints_valid = false;
         } else if (client && event->xproperty.atom == XA_WM_HINTS) {
-            read_focus_hints(wm, client);
+            read_wm_hints(wm, client);
             update_tab_bars(wm);
+        } else if (client && event->xproperty.atom == wm->atoms.wm_protocols) {
+            read_wm_protocols(wm, client);
         } else if (client && (event->xproperty.atom == wm->atoms.net_wm_name ||
                               event->xproperty.atom == XA_WM_NAME)) {
             char *title = x11_read_window_title(wm, client->window);
@@ -1855,7 +1886,10 @@ static void handle_event(WM *wm, XEvent *event)
                 free(class_name);
             }
         } else if (client && event->xproperty.atom == XA_WM_TRANSIENT_FOR) {
-            XGetTransientForHint(wm->display, client->window, &client->transient_for);
+            read_transient_for(wm, client);
+            client->window_type = x11_read_window_type(wm, client->window);
+        } else if (client && event->xproperty.atom == wm->atoms.net_wm_window_type) {
+            client->window_type = x11_read_window_type(wm, client->window);
         } else if (!client && (event->xproperty.atom == wm->atoms.net_wm_strut ||
                                event->xproperty.atom == wm->atoms.net_wm_strut_partial)) {
             special = find_special_window(wm, event->xproperty.window);

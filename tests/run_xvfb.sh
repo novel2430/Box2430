@@ -11,6 +11,7 @@ for scenario in \
     xvfb_semantic_geometry.sh \
     xvfb_mouse.sh \
     xvfb_numlock.sh \
+    xvfb_keymap.sh \
     xvfb_normal_hints.sh \
     xvfb_focus_cycle.sh \
     xvfb_tabbar.sh \
@@ -19,6 +20,7 @@ for scenario in \
     xvfb_focus_urgency.sh \
     xvfb_focus_history.sh \
     xvfb_focus_protocol.sh \
+    xvfb_property_cache.sh \
     xvfb_focus_compat.sh \
     xvfb_spawn.sh
 do

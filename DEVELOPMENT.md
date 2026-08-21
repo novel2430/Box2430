@@ -165,7 +165,9 @@ The suite currently covers areas including:
 * semantic geometry, snap, maximize, and fullscreen;
 * interactive mouse move/resize and snap preview;
 * NumLock-insensitive bindings;
+* duplicate-KeySym/all-KeyCode grabs and runtime keyboard-map rebuilds;
 * ICCCM size hints and focus protocol;
+* runtime ICCCM/EWMH property-cache refresh without reactive focus/layout side effects;
 * stable client-order focus cycling, focus-stack restoration, and urgency;
 * MONOCLE tab-bar behavior;
 * restart behavior, including cold-start-only background/autostart semantics;

@@ -52,6 +52,7 @@ install: release
 
 test-tools: $(BUILD_DIR)/x11-test-client $(BUILD_DIR)/x11-set-urgency \
 	$(BUILD_DIR)/x11-focus-client $(BUILD_DIR)/x11-set-numlock-modifier \
+	$(BUILD_DIR)/x11-keymap-probe $(BUILD_DIR)/x11-property-mutator \
 	$(BUILD_DIR)/x11-size-hints-client $(BUILD_DIR)/x11-sigchld-client \
 	$(BUILD_DIR)/x11-lifecycle-client $(BUILD_DIR)/x11-focus-compat-client \
 	$(BUILD_DIR)/x11-root-color $(BUILD_DIR)/x11-workspace-transition-observer \
@@ -74,6 +75,14 @@ $(BUILD_DIR)/x11-focus-client: tests/x11_focus_client.c
 	$(CC) $(CPPFLAGS) $(CFLAGS_COMMON) $(CFLAGS) -o $@ $< $(LDLIBS)
 
 $(BUILD_DIR)/x11-set-numlock-modifier: tests/x11_set_numlock_modifier.c
+	@mkdir -p $(dir $@)
+	$(CC) $(CPPFLAGS) $(CFLAGS_COMMON) $(CFLAGS) -o $@ $< $(LDLIBS)
+
+$(BUILD_DIR)/x11-keymap-probe: tests/x11_keymap_probe.c
+	@mkdir -p $(dir $@)
+	$(CC) $(CPPFLAGS) $(CFLAGS_COMMON) $(CFLAGS) -o $@ $< $(LDLIBS)
+
+$(BUILD_DIR)/x11-property-mutator: tests/x11_property_mutator.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CPPFLAGS) $(CFLAGS_COMMON) $(CFLAGS) -o $@ $< $(LDLIBS)
 
