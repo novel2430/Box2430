@@ -286,7 +286,10 @@ static void set_client_urgent(WM *wm, Client *client, bool urgent)
     if (wm->focused_client != client)
         XSetWindowBorder(wm->display, client->window,
                          urgent ? wm->urgent_border : wm->unfocused_border);
-    if (changed) ui_tab_update(wm);
+    if (changed) {
+        ui_bar_update(wm);
+        ui_tab_update(wm);
+    }
 }
 
 static void read_wm_hints(WM *wm, Client *client)
@@ -373,6 +376,7 @@ static void focus_client(WM *wm, Client *client, Time time)
     if (!client) {
         XSetInputFocus(wm->display, wm->root, RevertToPointerRoot, time);
         x11_update_active_window(wm);
+        ui_bar_update(wm);
         ui_tab_update(wm);
         return;
     }
@@ -384,6 +388,7 @@ static void focus_client(WM *wm, Client *client, Time time)
     XSetWindowBorder(wm->display, client->window, wm->focused_border);
     grab_client_buttons(wm, client, true);
     set_client_input_focus(wm, client, time);
+    ui_bar_update(wm);
     ui_tab_update(wm);
     if (wm->config.raise_on_focus) client_raise(wm, client);
 }
@@ -518,6 +523,7 @@ void workspace_set_mode(WM *wm, Workspace *workspace, WorkspaceMode mode)
     if (!workspace || workspace->mode == mode) return;
     workspace->mode = mode;
     if (workspace != workspace->monitor->active_workspace) return;
+    ui_bar_update(wm);
     for (Client *client = workspace->clients; client; client = client->workspace_next)
         materialize_client_geometry(wm, client);
     if (mode == WORKSPACE_MONOCLE) {
@@ -969,6 +975,7 @@ void workspace_activate(WM *wm, Monitor *monitor, Workspace *workspace)
         ++client->ignored_unmaps;
         XUnmapWindow(wm->display, client->window);
     }
+    ui_bar_update(wm);
     enforce_stacking(wm);
 }
 
@@ -1055,6 +1062,7 @@ void client_move_to_workspace(WM *wm, Client *client, Workspace *workspace,
     } else if (workspace == workspace->monitor->active_workspace) {
         XMapWindow(wm->display, client->window);
     }
+    ui_bar_update(wm);
 }
 
 static void grab_default_keys(WM *wm)
@@ -1446,6 +1454,7 @@ static void manage_window(WM *wm, Window window, bool map_window)
     if (policy.focus_on_map && visible) focus_client(wm, client, CurrentTime);
     if (x11_window_requests_fullscreen(wm, window))
         client_set_requested_fullscreen(wm, client, true);
+    ui_bar_update(wm);
     x11_update_client_lists(wm);
 }
 
@@ -1484,6 +1493,7 @@ static void unmanage_client(WM *wm, Client *client, bool withdrawn)
     free(client->class_name);
     free(client->instance);
     free(client);
+    ui_bar_update(wm);
     enforce_stacking(wm);
     x11_update_client_lists(wm);
 }
@@ -1897,6 +1907,15 @@ static void handle_event(WM *wm, XEvent *event)
         break;
     case ButtonPress:
         {
+        Monitor *bar_monitor = ui_bar_monitor_for_window(wm, event->xbutton.window);
+        if (bar_monitor) {
+            if (event->xbutton.button == Button1) {
+                Workspace *workspace = ui_bar_workspace_hit_test(
+                    wm, bar_monitor, event->xbutton.x);
+                if (workspace) workspace_activate(wm, bar_monitor, workspace);
+            }
+            break;
+        }
         Monitor *tab_monitor = ui_tab_monitor_for_window(wm, event->xbutton.window);
         if (tab_monitor) {
             MouseBinding *matched = NULL;
@@ -1982,6 +2001,7 @@ static void handle_event(WM *wm, XEvent *event)
             client->size_hints_valid = false;
         } else if (client && event->xproperty.atom == XA_WM_HINTS) {
             read_wm_hints(wm, client);
+            ui_bar_update(wm);
             ui_tab_update(wm);
         } else if (client && event->xproperty.atom == wm->atoms.wm_protocols) {
             read_wm_protocols(wm, client);
@@ -1991,6 +2011,7 @@ static void handle_event(WM *wm, XEvent *event)
             if (title) {
                 free(client->title);
                 client->title = title;
+                ui_bar_update(wm);
                 ui_tab_update(wm);
             }
         } else if (client && event->xproperty.atom == XA_WM_CLASS) {
@@ -2002,6 +2023,7 @@ static void handle_event(WM *wm, XEvent *event)
                 free(client->class_name);
                 client->instance = instance;
                 client->class_name = class_name;
+                ui_bar_update(wm);
                 ui_tab_update(wm);
             } else {
                 free(instance);
@@ -2044,6 +2066,11 @@ static void handle_event(WM *wm, XEvent *event)
         break;
     case Expose:
         {
+        Monitor *bar_monitor = ui_bar_monitor_for_window(wm, event->xexpose.window);
+        if (bar_monitor && event->xexpose.count == 0) {
+            ui_bar_draw(wm, bar_monitor);
+            break;
+        }
         Monitor *tab_monitor = ui_tab_monitor_for_window(wm, event->xexpose.window);
         if (tab_monitor && event->xexpose.count == 0) ui_tab_draw(wm, tab_monitor);
         break;

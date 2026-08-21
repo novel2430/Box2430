@@ -309,27 +309,516 @@ static void tab_bounds(WM *wm, Monitor *monitor, Client *wanted,
     *width_return = 0;
 }
 
+static XftFont *const *bar_fonts(const WM *wm, UIFontStyle style,
+                                 unsigned int *count_return)
+{
+    if (style == UI_FONT_BOLD) {
+        *count_return = wm->bar_font_bold_count;
+        return wm->bar_fonts_bold;
+    }
+    *count_return = wm->bar_font_count;
+    return wm->bar_fonts;
+}
+
+static const UIStyleOverride *workspace_state_override(
+    const WM *wm, UIWorkspaceVisualState state)
+{
+    switch (state) {
+    case UI_WORKSPACE_EMPTY: return &wm->config.bar.workspaces.empty;
+    case UI_WORKSPACE_OCCUPIED: return &wm->config.bar.workspaces.occupied;
+    case UI_WORKSPACE_ACTIVE: return &wm->config.bar.workspaces.active;
+    case UI_WORKSPACE_URGENT: return &wm->config.bar.workspaces.urgent;
+    case UI_WORKSPACE_ACTIVE_URGENT:
+        return &wm->config.bar.workspaces.active_urgent;
+    case UI_WORKSPACE_STATE_COUNT: break;
+    }
+    return NULL;
+}
+
+UIWorkspaceVisualState ui_workspace_visual_state(const Monitor *monitor,
+                                                 const Workspace *workspace)
+{
+    bool urgent = false;
+    bool occupied = workspace && workspace->clients;
+    if (workspace) {
+        for (const Client *client = workspace->clients; client;
+             client = client->workspace_next) {
+            if (client->urgent) {
+                urgent = true;
+                break;
+            }
+        }
+    }
+    bool active = monitor && workspace && monitor->active_workspace == workspace;
+    if (active && urgent) return UI_WORKSPACE_ACTIVE_URGENT;
+    if (active) return UI_WORKSPACE_ACTIVE;
+    if (urgent) return UI_WORKSPACE_URGENT;
+    if (occupied) return UI_WORKSPACE_OCCUPIED;
+    return UI_WORKSPACE_EMPTY;
+}
+
+static UIStyle workspace_style_for_state(const WM *wm,
+                                          UIWorkspaceVisualState state)
+{
+    UIStyle style = ui_resolve_style(wm->config.bar.style,
+                                     &wm->config.bar.workspaces.style);
+    return ui_resolve_style(style, workspace_state_override(wm, state));
+}
+
+static UIModeVisualState mode_visual_state(const Workspace *workspace)
+{
+    return workspace && workspace->mode == WORKSPACE_MONOCLE
+        ? UI_MODE_MONOCLE : UI_MODE_FREE;
+}
+
+static UIStyle mode_style_for_state(const WM *wm, UIModeVisualState state)
+{
+    UIStyle style = ui_resolve_style(wm->config.bar.style,
+                                     &wm->config.bar.mode.style);
+    const UIStyleOverride *override = state == UI_MODE_MONOCLE
+        ? &wm->config.bar.mode.monocle.style : &wm->config.bar.mode.free.style;
+    return ui_resolve_style(style, override);
+}
+
+static UIStyle title_style(const WM *wm)
+{
+    return ui_resolve_style(wm->config.bar.style, &wm->config.bar.title.style);
+}
+
+static char *workspace_label(const WM *wm, const Monitor *monitor,
+                             const Workspace *workspace)
+{
+    UIWorkspaceVisualState state = ui_workspace_visual_state(monitor, workspace);
+    UIStyle style = workspace_style_for_state(wm, state);
+    char value[32];
+    snprintf(value, sizeof(value), "%u", workspace->index + 1U);
+    return ui_format_label(&style.format, value);
+}
+
+static char *mode_label(const WM *wm, const Monitor *monitor)
+{
+    UIModeVisualState state = mode_visual_state(monitor->active_workspace);
+    UIStyle style = mode_style_for_state(wm, state);
+    const char *value = state == UI_MODE_MONOCLE
+        ? wm->config.bar.mode.monocle.label : wm->config.bar.mode.free.label;
+    return ui_format_label(&style.format, value);
+}
+
+static char *title_label(const WM *wm, const Monitor *monitor)
+{
+    UIStyle style = title_style(wm);
+    Client *target = workspace_focus_target(monitor->active_workspace);
+    const char *value = ui_client_label(target, wm->config.bar.title.source);
+    return ui_format_label(&style.format, value);
+}
+
+static unsigned int label_width(WM *wm, const UIStyle *style, const char *label)
+{
+    unsigned int font_count;
+    XftFont *const *fonts = bar_fonts(wm, style->font_style, &font_count);
+    return ui_text_width(wm->display, fonts, font_count, label);
+}
+
+static unsigned int workspace_item_width(WM *wm, Monitor *monitor,
+                                         Workspace *workspace)
+{
+    UIWorkspaceVisualState state = ui_workspace_visual_state(monitor, workspace);
+    UIStyle style = workspace_style_for_state(wm, state);
+    char *label = workspace_label(wm, monitor, workspace);
+    if (!label) return UINT_MAX;
+    unsigned int width = label_width(wm, &style, label);
+    free(label);
+    return width;
+}
+
+static unsigned int widget_natural_width(WM *wm, Monitor *monitor,
+                                         UIBarWidget widget)
+{
+    if (widget == UI_WIDGET_WORKSPACES) {
+        unsigned int width = 0;
+        for (unsigned int i = 0; i < wm->config.workspace_count; ++i) {
+            unsigned int item = workspace_item_width(wm, monitor,
+                                                     &monitor->workspaces[i]);
+            if (UINT_MAX - width < item) return UINT_MAX;
+            width += item;
+        }
+        return width;
+    }
+    if (widget == UI_WIDGET_MODE) {
+        UIModeVisualState state = mode_visual_state(monitor->active_workspace);
+        UIStyle style = mode_style_for_state(wm, state);
+        char *label = mode_label(wm, monitor);
+        if (!label) return UINT_MAX;
+        unsigned int width = label_width(wm, &style, label);
+        free(label);
+        return width;
+    }
+    if (widget == UI_WIDGET_TITLE) {
+        UIStyle style = title_style(wm);
+        char *label = title_label(wm, monitor);
+        if (!label) return UINT_MAX;
+        unsigned int width = label_width(wm, &style, label);
+        free(label);
+        return width;
+    }
+    /* status/clock/tray deliberately enter the layout in later phases. */
+    return 0;
+}
+
+static unsigned int saturating_add(unsigned int left, unsigned int right)
+{
+    return UINT_MAX - left < right ? UINT_MAX : left + right;
+}
+
+static unsigned int group_width(const UIBarWidget *widgets, unsigned int count,
+                                const unsigned int widths[UI_WIDGET_COUNT],
+                                unsigned int gap)
+{
+    unsigned int total = 0;
+    bool any = false;
+    for (unsigned int i = 0; i < count; ++i) {
+        unsigned int width = widths[widgets[i]];
+        if (!width) continue;
+        if (any) total = saturating_add(total, gap);
+        total = saturating_add(total, width);
+        any = true;
+    }
+    return total;
+}
+
+static bool group_contains(const UIBarWidget *widgets, unsigned int count,
+                           UIBarWidget wanted)
+{
+    for (unsigned int i = 0; i < count; ++i)
+        if (widgets[i] == wanted) return true;
+    return false;
+}
+
+static void shrink_widget(unsigned int widths[UI_WIDGET_COUNT],
+                          UIBarWidget widget, unsigned int amount)
+{
+    if (amount >= widths[widget]) widths[widget] = 0;
+    else widths[widget] -= amount;
+}
+
+static unsigned int shrink_group_widget(const UIBarWidget *widgets,
+                                        unsigned int count,
+                                        unsigned int widths[UI_WIDGET_COUNT],
+                                        unsigned int gap, UIBarWidget widget,
+                                        unsigned int excess)
+{
+    if (!excess || !group_contains(widgets, count, widget) || !widths[widget])
+        return excess;
+    unsigned int before = group_width(widgets, count, widths, gap);
+    shrink_widget(widths, widget, excess);
+    unsigned int after = group_width(widgets, count, widths, gap);
+    return before > after && excess > before - after
+        ? excess - (before - after) : 0;
+}
+
+static unsigned int proportional_left_width(unsigned int available,
+                                            unsigned int left,
+                                            unsigned int right)
+{
+    uint64_t total = (uint64_t)left + (uint64_t)right;
+    if (!total) return 0;
+    return (unsigned int)(((uint64_t)available * left) / total);
+}
+
+static void layout_group_left(Monitor *monitor, const UIBarWidget *widgets,
+                              unsigned int count,
+                              const unsigned int widths[UI_WIDGET_COUNT],
+                              unsigned int gap, Rect bounds)
+{
+    int cursor = bounds.x;
+    int end = bounds.x + bounds.width;
+    bool any = false;
+    for (unsigned int i = 0; i < count; ++i) {
+        UIBarWidget widget = widgets[i];
+        unsigned int natural = widths[widget];
+        if (!natural) continue;
+        if (any) {
+            int remaining = end - cursor;
+            int step = remaining > 0 && gap < (unsigned int)remaining
+                ? (int)gap : remaining > 0 ? remaining : 0;
+            cursor += step;
+        }
+        int remaining = end - cursor;
+        int width = remaining > 0 && natural < (unsigned int)remaining
+            ? (int)natural : remaining > 0 ? remaining : 0;
+        monitor->bar_widget_rects[widget] = (Rect){cursor, 0, width,
+                                                   monitor->bar_geometry.height};
+        cursor += width;
+        any = true;
+    }
+}
+
+static void layout_group_right(Monitor *monitor, const UIBarWidget *widgets,
+                               unsigned int count,
+                               const unsigned int widths[UI_WIDGET_COUNT],
+                               unsigned int gap, Rect bounds)
+{
+    int cursor = bounds.x + bounds.width;
+    bool any = false;
+    for (unsigned int i = count; i > 0; --i) {
+        UIBarWidget widget = widgets[i - 1U];
+        unsigned int natural = widths[widget];
+        if (!natural) continue;
+        if (any) {
+            int remaining = cursor - bounds.x;
+            int step = remaining > 0 && gap < (unsigned int)remaining
+                ? (int)gap : remaining > 0 ? remaining : 0;
+            cursor -= step;
+        }
+        int remaining = cursor - bounds.x;
+        int width = remaining > 0 && natural < (unsigned int)remaining
+            ? (int)natural : remaining > 0 ? remaining : 0;
+        cursor -= width;
+        monitor->bar_widget_rects[widget] = (Rect){cursor, 0, width,
+                                                   monitor->bar_geometry.height};
+        any = true;
+    }
+}
+
+static void layout_bar(WM *wm, Monitor *monitor)
+{
+    memset(monitor->bar_widget_rects, 0, sizeof(monitor->bar_widget_rects));
+    memset(monitor->bar_workspace_rects, 0, sizeof(monitor->bar_workspace_rects));
+    int bar_width = monitor->bar_geometry.width;
+    if (bar_width <= 0) return;
+
+    unsigned int widths[UI_WIDGET_COUNT] = {0};
+    for (unsigned int i = 0; i < UI_WIDGET_COUNT; ++i)
+        widths[i] = widget_natural_width(wm, monitor, (UIBarWidget)i);
+
+    unsigned int padding = wm->config.bar.padding;
+    if (padding > (unsigned int)bar_width / 2U)
+        padding = (unsigned int)bar_width / 2U;
+    Rect content = {(int)padding, 0, bar_width - 2 * (int)padding,
+                    monitor->bar_geometry.height};
+    if (content.width <= 0) return;
+
+    unsigned int left_width = group_width(wm->config.bar.left,
+                                          wm->config.bar.left_count,
+                                          widths, wm->config.bar.gap);
+    unsigned int right_width = group_width(wm->config.bar.right,
+                                           wm->config.bar.right_count,
+                                           widths, wm->config.bar.gap);
+    uint64_t edge_total = (uint64_t)left_width + (uint64_t)right_width;
+    if (edge_total > (unsigned int)content.width) {
+        unsigned int excess = edge_total - (unsigned int)content.width > UINT_MAX
+            ? UINT_MAX : (unsigned int)(edge_total - (unsigned int)content.width);
+        excess = shrink_group_widget(wm->config.bar.left,
+                                     wm->config.bar.left_count, widths,
+                                     wm->config.bar.gap, UI_WIDGET_STATUS, excess);
+        excess = shrink_group_widget(wm->config.bar.right,
+                                     wm->config.bar.right_count, widths,
+                                     wm->config.bar.gap, UI_WIDGET_STATUS, excess);
+        (void)excess;
+        left_width = group_width(wm->config.bar.left, wm->config.bar.left_count,
+                                 widths, wm->config.bar.gap);
+        right_width = group_width(wm->config.bar.right, wm->config.bar.right_count,
+                                  widths, wm->config.bar.gap);
+    }
+
+    unsigned int left_alloc = left_width;
+    unsigned int right_alloc = right_width;
+    if ((uint64_t)left_alloc + (uint64_t)right_alloc >
+        (unsigned int)content.width) {
+        left_alloc = proportional_left_width((unsigned int)content.width,
+                                             left_alloc, right_alloc);
+        right_alloc = (unsigned int)content.width - left_alloc;
+    }
+    if (left_alloc > (unsigned int)content.width)
+        left_alloc = (unsigned int)content.width;
+    if (right_alloc > (unsigned int)content.width - left_alloc)
+        right_alloc = (unsigned int)content.width - left_alloc;
+
+    Rect left_bounds = {content.x, 0, (int)left_alloc, content.height};
+    Rect right_bounds = {content.x + content.width - (int)right_alloc, 0,
+                         (int)right_alloc, content.height};
+    layout_group_left(monitor, wm->config.bar.left, wm->config.bar.left_count,
+                      widths, wm->config.bar.gap, left_bounds);
+    layout_group_right(monitor, wm->config.bar.right, wm->config.bar.right_count,
+                       widths, wm->config.bar.gap, right_bounds);
+
+    unsigned int center_width = group_width(wm->config.bar.center,
+                                            wm->config.bar.center_count,
+                                            widths, wm->config.bar.gap);
+    int center = bar_width / 2;
+    int left_limit = left_bounds.x + left_bounds.width;
+    if (left_limit < content.x) left_limit = content.x;
+    int right_limit = right_bounds.x;
+    int content_right = content.x + content.width;
+    if (right_limit > content_right) right_limit = content_right;
+    int left_space = center - left_limit;
+    int right_space = right_limit - center;
+    int half = left_space < right_space ? left_space : right_space;
+    if (half < 0) half = 0;
+    unsigned int max_center = (unsigned int)half * 2U;
+    if (center_width > max_center) {
+        unsigned int excess = center_width - max_center;
+        excess = shrink_group_widget(wm->config.bar.center,
+                                     wm->config.bar.center_count, widths,
+                                     wm->config.bar.gap, UI_WIDGET_TITLE, excess);
+        (void)excess;
+        center_width = group_width(wm->config.bar.center,
+                                   wm->config.bar.center_count,
+                                   widths, wm->config.bar.gap);
+        if (center_width > max_center) center_width = max_center;
+    }
+    Rect center_bounds = {(bar_width - (int)center_width) / 2, 0,
+                          (int)center_width, content.height};
+    layout_group_left(monitor, wm->config.bar.center,
+                      wm->config.bar.center_count, widths, wm->config.bar.gap,
+                      center_bounds);
+}
+
+static void fill_bar_rect(WM *wm, Monitor *monitor, Rect rect,
+                          const XftColor *color)
+{
+    if (!monitor->bar || rect.width <= 0 || rect.height <= 0) return;
+    XSetForeground(wm->display, DefaultGC(wm->display, wm->screen), color->pixel);
+    XFillRectangle(wm->display, monitor->bar,
+                   DefaultGC(wm->display, wm->screen), rect.x, rect.y,
+                   (unsigned int)rect.width, (unsigned int)rect.height);
+}
+
+static void draw_bar_label(WM *wm, Monitor *monitor, Rect rect,
+                           const UIStyle *style, const XftColor *fg,
+                           const XftColor *bg, const char *label)
+{
+    if (rect.width <= 0 || rect.height <= 0 || !label || !label[0]) return;
+    fill_bar_rect(wm, monitor, rect, bg);
+    unsigned int font_count;
+    XftFont *const *fonts = bar_fonts(wm, style->font_style, &font_count);
+    ui_draw_text(wm->display, monitor->bar_draw, fg, fonts, font_count,
+                 rect.x, rect.y, (unsigned int)rect.width,
+                 (unsigned int)rect.height, 0, label);
+}
+
+static void draw_workspaces(WM *wm, Monitor *monitor, Rect rect)
+{
+    int cursor = rect.x;
+    int end = rect.x + rect.width;
+    for (unsigned int i = 0; i < wm->config.workspace_count; ++i) {
+        Workspace *workspace = &monitor->workspaces[i];
+        unsigned int natural = workspace_item_width(wm, monitor, workspace);
+        int remaining = end - cursor;
+        int width = remaining > 0 && natural < (unsigned int)remaining
+            ? (int)natural : remaining > 0 ? remaining : 0;
+        Rect item = {cursor, 0, width, monitor->bar_geometry.height};
+        monitor->bar_workspace_rects[i] = item;
+        if (width > 0) {
+            UIWorkspaceVisualState state = ui_workspace_visual_state(monitor,
+                                                                      workspace);
+            UIStyle style = workspace_style_for_state(wm, state);
+            char *label = workspace_label(wm, monitor, workspace);
+            if (label) {
+                draw_bar_label(wm, monitor, item, &style,
+                               &wm->bar_workspace_fg[state],
+                               &wm->bar_workspace_bg[state], label);
+                free(label);
+            }
+        }
+        cursor += width;
+    }
+}
+
+static void draw_mode(WM *wm, Monitor *monitor, Rect rect)
+{
+    UIModeVisualState state = mode_visual_state(monitor->active_workspace);
+    UIStyle style = mode_style_for_state(wm, state);
+    char *label = mode_label(wm, monitor);
+    if (!label) return;
+    draw_bar_label(wm, monitor, rect, &style, &wm->bar_mode_fg[state],
+                   &wm->bar_mode_bg[state], label);
+    free(label);
+}
+
+static void draw_title(WM *wm, Monitor *monitor, Rect rect)
+{
+    UIStyle style = title_style(wm);
+    char *label = title_label(wm, monitor);
+    if (!label) return;
+    draw_bar_label(wm, monitor, rect, &style, &wm->bar_title_fg,
+                   &wm->bar_title_bg, label);
+    free(label);
+}
+
+void ui_bar_draw(WM *wm, Monitor *monitor)
+{
+    if (!wm->bar_resources_ready || !monitor || !monitor->bar_draw) return;
+    XClearWindow(wm->display, monitor->bar);
+    layout_bar(wm, monitor);
+    for (unsigned int widget = 0; widget < UI_WIDGET_COUNT; ++widget) {
+        Rect rect = monitor->bar_widget_rects[widget];
+        switch ((UIBarWidget)widget) {
+        case UI_WIDGET_WORKSPACES: draw_workspaces(wm, monitor, rect); break;
+        case UI_WIDGET_MODE: draw_mode(wm, monitor, rect); break;
+        case UI_WIDGET_TITLE: draw_title(wm, monitor, rect); break;
+        case UI_WIDGET_STATUS:
+        case UI_WIDGET_CLOCK:
+        case UI_WIDGET_TRAY:
+        case UI_WIDGET_COUNT:
+            break;
+        }
+    }
+}
+
+Monitor *ui_bar_monitor_for_window(WM *wm, Window window)
+{
+    for (unsigned int i = 0; i < wm->monitor_count; ++i)
+        if (wm->monitors[i].bar == window) return &wm->monitors[i];
+    return NULL;
+}
+
+Workspace *ui_bar_workspace_hit_test(WM *wm, Monitor *monitor, int x)
+{
+    if (!wm || !monitor) return NULL;
+    for (unsigned int i = 0; i < wm->config.workspace_count; ++i) {
+        Rect rect = monitor->bar_workspace_rects[i];
+        if (rect.width > 0 && x >= rect.x && x < rect.x + rect.width)
+            return &monitor->workspaces[i];
+    }
+    return NULL;
+}
+
 bool ui_bar_create_monitor(WM *wm, Monitor *monitor)
 {
     if (!wm->config.bar.enabled) return true;
     Rect geometry = monitor->bar_geometry;
     unsigned int width = geometry.width > 0 ? (unsigned int)geometry.width : 1U;
     unsigned int height = geometry.height > 0 ? (unsigned int)geometry.height : 1U;
+    Visual *visual = DefaultVisual(wm->display, wm->screen);
     XSetWindowAttributes attributes = {
         .override_redirect = True,
         .background_pixel = wm->bar_bg.pixel,
+        .event_mask = ExposureMask | ButtonPressMask,
     };
     monitor->bar = XCreateWindow(
         wm->display, wm->root, geometry.x, geometry.y, width, height, 0,
-        DefaultDepth(wm->display, wm->screen), InputOutput,
-        DefaultVisual(wm->display, wm->screen),
-        CWOverrideRedirect | CWBackPixel, &attributes);
+        DefaultDepth(wm->display, wm->screen), InputOutput, visual,
+        CWOverrideRedirect | CWBackPixel | CWEventMask, &attributes);
+    if (!monitor->bar) return false;
     ui_bar_name_monitor(wm, monitor);
-    return monitor->bar != None;
+    monitor->bar_draw = XftDrawCreate(
+        wm->display, monitor->bar, visual,
+        DefaultColormap(wm->display, wm->screen));
+    if (!monitor->bar_draw) {
+        XDestroyWindow(wm->display, monitor->bar);
+        monitor->bar = None;
+        return false;
+    }
+    return true;
 }
 
 void ui_bar_destroy_monitor(WM *wm, Monitor *monitor)
 {
+    if (monitor->bar_draw) {
+        XftDrawDestroy(monitor->bar_draw);
+        monitor->bar_draw = NULL;
+    }
     if (monitor->bar) {
         XDestroyWindow(wm->display, monitor->bar);
         monitor->bar = None;
@@ -358,6 +847,7 @@ void ui_bar_update(WM *wm)
                           geometry.x, geometry.y, width, height);
         if (visible) {
             XMapWindow(wm->display, monitor->bar);
+            ui_bar_draw(wm, monitor);
         } else {
             XUnmapWindow(wm->display, monitor->bar);
         }
@@ -526,7 +1016,7 @@ static unsigned int load_fonts(WM *wm, const char *name, bool bold,
     return count;
 }
 
-static void close_fonts(WM *wm)
+static void close_tab_fonts(WM *wm)
 {
     for (unsigned int i = 0; i < wm->tab_font_count; ++i)
         XftFontClose(wm->display, wm->tab_fonts[i]);
@@ -536,7 +1026,17 @@ static void close_fonts(WM *wm)
     wm->tab_font_bold_count = 0;
 }
 
-static void free_colors(WM *wm)
+static void close_bar_fonts(WM *wm)
+{
+    for (unsigned int i = 0; i < wm->bar_font_count; ++i)
+        XftFontClose(wm->display, wm->bar_fonts[i]);
+    for (unsigned int i = 0; i < wm->bar_font_bold_count; ++i)
+        XftFontClose(wm->display, wm->bar_fonts_bold[i]);
+    wm->bar_font_count = 0;
+    wm->bar_font_bold_count = 0;
+}
+
+static void free_tab_colors(WM *wm)
 {
     Visual *visual = DefaultVisual(wm->display, wm->screen);
     Colormap colormap = DefaultColormap(wm->display, wm->screen);
@@ -549,7 +1049,40 @@ static void free_colors(WM *wm)
         XftColorFree(wm->display, visual, colormap, colors[i]);
 }
 
-bool ui_init(WM *wm)
+static size_t bar_color_pointers(WM *wm, XftColor **colors)
+{
+    size_t count = 0;
+    colors[count++] = &wm->bar_bg;
+    for (unsigned int i = 0; i < UI_WORKSPACE_STATE_COUNT; ++i) {
+        colors[count++] = &wm->bar_workspace_fg[i];
+        colors[count++] = &wm->bar_workspace_bg[i];
+    }
+    for (unsigned int i = 0; i < UI_MODE_STATE_COUNT; ++i) {
+        colors[count++] = &wm->bar_mode_fg[i];
+        colors[count++] = &wm->bar_mode_bg[i];
+    }
+    colors[count++] = &wm->bar_title_fg;
+    colors[count++] = &wm->bar_title_bg;
+    return count;
+}
+
+static void free_color_prefix(WM *wm, XftColor **colors, size_t count)
+{
+    Visual *visual = DefaultVisual(wm->display, wm->screen);
+    Colormap colormap = DefaultColormap(wm->display, wm->screen);
+    for (size_t i = 0; i < count; ++i)
+        XftColorFree(wm->display, visual, colormap, colors[i]);
+}
+
+static void free_bar_colors(WM *wm)
+{
+    XftColor *colors[1 + UI_WORKSPACE_STATE_COUNT * 2 +
+                     UI_MODE_STATE_COUNT * 2 + 2];
+    size_t count = bar_color_pointers(wm, colors);
+    free_color_prefix(wm, colors, count);
+}
+
+static bool init_tab_resources(WM *wm)
 {
     Visual *visual = DefaultVisual(wm->display, wm->screen);
     Colormap colormap = DefaultColormap(wm->display, wm->screen);
@@ -559,7 +1092,7 @@ bool ui_init(WM *wm)
                                          wm->tab_fonts_bold);
     if (!wm->tab_font_count || !wm->tab_font_bold_count) {
         fprintf(stderr, "box2430: cannot open configured tab bar fonts\n");
-        close_fonts(wm);
+        close_tab_fonts(wm);
         return false;
     }
 
@@ -576,40 +1109,101 @@ bool ui_init(WM *wm)
         inactive.fg, inactive.bg,
         urgent.fg, urgent.bg,
     };
-    size_t color_count = sizeof(colors) / sizeof(colors[0]);
     size_t allocated = 0;
+    size_t color_count = sizeof(colors) / sizeof(colors[0]);
     for (; allocated < color_count; ++allocated) {
         if (!XftColorAllocName(wm->display, visual, colormap,
                                names[allocated], colors[allocated])) {
             fprintf(stderr, "box2430: cannot allocate tab bar color %s\n",
                     names[allocated]);
-            for (size_t j = 0; j < allocated; ++j)
-                XftColorFree(wm->display, visual, colormap, colors[j]);
-            close_fonts(wm);
+            free_color_prefix(wm, colors, allocated);
+            close_tab_fonts(wm);
             return false;
         }
     }
+    return true;
+}
 
-    bool bar_color_allocated = false;
-    if (wm->config.bar.enabled) {
+static bool init_bar_resources(WM *wm)
+{
+    if (!wm->config.bar.enabled) return true;
+    Visual *visual = DefaultVisual(wm->display, wm->screen);
+    Colormap colormap = DefaultColormap(wm->display, wm->screen);
+    wm->bar_font_count = load_fonts(wm, wm->config.bar.font, false,
+                                    wm->bar_fonts);
+    wm->bar_font_bold_count = load_fonts(wm, wm->config.bar.font_bold, true,
+                                         wm->bar_fonts_bold);
+    if (!wm->bar_font_count || !wm->bar_font_bold_count) {
+        fprintf(stderr, "box2430: cannot open configured native bar fonts\n");
+        close_bar_fonts(wm);
+        return false;
+    }
+
+    UIStyle workspace_styles[UI_WORKSPACE_STATE_COUNT];
+    for (unsigned int i = 0; i < UI_WORKSPACE_STATE_COUNT; ++i)
+        workspace_styles[i] = workspace_style_for_state(
+            wm, (UIWorkspaceVisualState)i);
+    UIStyle mode_styles[UI_MODE_STATE_COUNT];
+    for (unsigned int i = 0; i < UI_MODE_STATE_COUNT; ++i)
+        mode_styles[i] = mode_style_for_state(wm, (UIModeVisualState)i);
+    UIStyle title = title_style(wm);
+
+    XftColor *colors[1 + UI_WORKSPACE_STATE_COUNT * 2 +
+                     UI_MODE_STATE_COUNT * 2 + 2];
+    const char *names[1 + UI_WORKSPACE_STATE_COUNT * 2 +
+                      UI_MODE_STATE_COUNT * 2 + 2];
+    size_t count = bar_color_pointers(wm, colors);
+    size_t n = 0;
+    names[n++] = wm->config.bar.style.bg;
+    for (unsigned int i = 0; i < UI_WORKSPACE_STATE_COUNT; ++i) {
+        names[n++] = workspace_styles[i].fg;
+        names[n++] = workspace_styles[i].bg;
+    }
+    for (unsigned int i = 0; i < UI_MODE_STATE_COUNT; ++i) {
+        names[n++] = mode_styles[i].fg;
+        names[n++] = mode_styles[i].bg;
+    }
+    names[n++] = title.fg;
+    names[n++] = title.bg;
+    if (n != count) {
+        close_bar_fonts(wm);
+        return false;
+    }
+
+    size_t allocated = 0;
+    for (; allocated < count; ++allocated) {
         if (!XftColorAllocName(wm->display, visual, colormap,
-                               wm->config.bar.style.bg, &wm->bar_bg)) {
+                               names[allocated], colors[allocated])) {
             fprintf(stderr, "box2430: cannot allocate native bar color %s\n",
-                    wm->config.bar.style.bg);
-            free_colors(wm);
-            close_fonts(wm);
+                    names[allocated]);
+            free_color_prefix(wm, colors, allocated);
+            close_bar_fonts(wm);
             return false;
         }
-        bar_color_allocated = true;
+    }
+    return true;
+}
+
+bool ui_init(WM *wm)
+{
+    if (!init_tab_resources(wm)) return false;
+    if (!init_bar_resources(wm)) {
+        free_tab_colors(wm);
+        close_tab_fonts(wm);
+        return false;
+    }
+
+    if (wm->config.bar.enabled) {
         unsigned int created = 0;
         for (; created < wm->monitor_count; ++created) {
             if (!ui_bar_create_monitor(wm, &wm->monitors[created])) {
                 fprintf(stderr, "box2430: cannot create native bar window\n");
                 for (unsigned int i = 0; i < created; ++i)
                     ui_bar_destroy_monitor(wm, &wm->monitors[i]);
-                XftColorFree(wm->display, visual, colormap, &wm->bar_bg);
-                free_colors(wm);
-                close_fonts(wm);
+                free_bar_colors(wm);
+                close_bar_fonts(wm);
+                free_tab_colors(wm);
+                close_tab_fonts(wm);
                 return false;
             }
         }
@@ -626,11 +1220,11 @@ bool ui_init(WM *wm)
                 for (unsigned int i = 0; i < wm->monitor_count; ++i)
                     ui_bar_destroy_monitor(wm, &wm->monitors[i]);
                 wm->bar_resources_ready = false;
+                free_bar_colors(wm);
+                close_bar_fonts(wm);
             }
-            if (bar_color_allocated)
-                XftColorFree(wm->display, visual, colormap, &wm->bar_bg);
-            free_colors(wm);
-            close_fonts(wm);
+            free_tab_colors(wm);
+            close_tab_fonts(wm);
             return false;
         }
     }
@@ -648,13 +1242,13 @@ void ui_destroy(WM *wm)
         ui_tab_destroy_monitor(wm, &wm->monitors[i]);
     }
     if (wm->bar_resources_ready) {
-        XftColorFree(wm->display, DefaultVisual(wm->display, wm->screen),
-                     DefaultColormap(wm->display, wm->screen), &wm->bar_bg);
+        free_bar_colors(wm);
+        close_bar_fonts(wm);
         wm->bar_resources_ready = false;
     }
     if (wm->tab_resources_ready) {
-        free_colors(wm);
+        free_tab_colors(wm);
         wm->tab_resources_ready = false;
     }
-    close_fonts(wm);
+    close_tab_fonts(wm);
 }

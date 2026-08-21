@@ -1,0 +1,92 @@
+[workspaces]
+count = 4
+
+[appearance.bar]
+enabled = true
+position = "top"
+height = 24
+padding = 8
+gap = 8
+font = "monospace:size=10"
+font_bold = "monospace:style=Bold:size=10"
+fg = "#ffffff"
+bg = "#000000"
+left = ["workspaces"]
+center = ["title"]
+right = ["mode"]
+
+[appearance.bar.widgets.workspaces]
+format = " %s "
+font_style = "normal"
+
+[appearance.bar.widgets.workspaces.empty]
+fg = "#ffffff"
+bg = "#111111"
+font_style = "normal"
+format = " %s "
+
+[appearance.bar.widgets.workspaces.occupied]
+fg = "#ffffff"
+bg = "#222222"
+font_style = "normal"
+format = " %s "
+
+[appearance.bar.widgets.workspaces.active]
+fg = "#ffffff"
+bg = "#003300"
+font_style = "normal"
+format = " %s "
+
+[appearance.bar.widgets.workspaces.urgent]
+fg = "#ffffff"
+bg = "#440000"
+font_style = "normal"
+format = " %s "
+
+[appearance.bar.widgets.workspaces.active_urgent]
+fg = "#ffffff"
+bg = "#550000"
+font_style = "normal"
+format = " %s "
+
+[appearance.bar.widgets.mode]
+fg = "#ffffff"
+bg = "#000000"
+font_style = "normal"
+format = "%s"
+
+[appearance.bar.widgets.mode.free]
+label = "F"
+fg = "#ffffff"
+bg = "#006600"
+font_style = "normal"
+format = " %s "
+
+[appearance.bar.widgets.mode.monocle]
+label = "M"
+fg = "#ffffff"
+bg = "#660066"
+font_style = "normal"
+format = " %s "
+
+[appearance.bar.widgets.title]
+source = "title"
+fg = "#ffffff"
+bg = "#000055"
+font_style = "normal"
+format = "%s"
+
+[appearance.tabs]
+enabled = true
+height = 24
+
+[bindings]
+inherit_defaults = true
+
+[[rules]]
+title = "Phase4Occupied"
+workspace = 2
+
+[[rules]]
+title = "Phase4Urgent"
+workspace = 3

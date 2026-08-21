@@ -13,6 +13,7 @@ enum {
     BOX2430_MAX_RULES = 64,
     BOX2430_MAX_RULE_PATTERN = 256,
     BOX2430_MAX_MONITORS = 32,
+    BOX2430_MAX_WORKSPACES = 32,
     BOX2430_MAX_TAB_FONTS = 16,
     BOX2430_MAX_UI_FORMAT = 128,
     BOX2430_MAX_UI_LABEL = 128,
@@ -74,6 +75,21 @@ typedef enum UIBarWidget {
     UI_WIDGET_TRAY,
     UI_WIDGET_COUNT,
 } UIBarWidget;
+
+typedef enum UIWorkspaceVisualState {
+    UI_WORKSPACE_EMPTY,
+    UI_WORKSPACE_OCCUPIED,
+    UI_WORKSPACE_ACTIVE,
+    UI_WORKSPACE_URGENT,
+    UI_WORKSPACE_ACTIVE_URGENT,
+    UI_WORKSPACE_STATE_COUNT,
+} UIWorkspaceVisualState;
+
+typedef enum UIModeVisualState {
+    UI_MODE_FREE,
+    UI_MODE_MONOCLE,
+    UI_MODE_STATE_COUNT,
+} UIModeVisualState;
 
 typedef struct UILabelFormat {
     char prefix[BOX2430_MAX_UI_FORMAT];
@@ -343,6 +359,9 @@ struct Monitor {
     Workspace *workspaces;
     Workspace *active_workspace;
     Window bar;
+    XftDraw *bar_draw;
+    Rect bar_widget_rects[UI_WIDGET_COUNT];
+    Rect bar_workspace_rects[BOX2430_MAX_WORKSPACES];
     Window tab_bar;
     XftDraw *tab_draw;
 };
@@ -414,7 +433,17 @@ typedef struct WM {
     XftColor tab_inactive_bg;
     XftColor tab_urgent_fg;
     XftColor tab_urgent_bg;
+    XftFont *bar_fonts[BOX2430_MAX_TAB_FONTS];
+    unsigned int bar_font_count;
+    XftFont *bar_fonts_bold[BOX2430_MAX_TAB_FONTS];
+    unsigned int bar_font_bold_count;
     XftColor bar_bg;
+    XftColor bar_workspace_fg[UI_WORKSPACE_STATE_COUNT];
+    XftColor bar_workspace_bg[UI_WORKSPACE_STATE_COUNT];
+    XftColor bar_mode_fg[UI_MODE_STATE_COUNT];
+    XftColor bar_mode_bg[UI_MODE_STATE_COUNT];
+    XftColor bar_title_fg;
+    XftColor bar_title_bg;
     bool tab_resources_ready;
     bool bar_resources_ready;
 } WM;

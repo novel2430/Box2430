@@ -63,6 +63,29 @@ int main(void)
         resolved.font_style != UI_FONT_BOLD)
         return fail("explicit style inheritance mismatch");
 
-    puts("PASS: UI client label/format/style helpers");
+    Monitor monitor = {0};
+    Workspace empty = {.monitor = &monitor, .index = 0};
+    Workspace occupied = {.monitor = &monitor, .index = 1};
+    Workspace urgent = {.monitor = &monitor, .index = 2};
+    Workspace active = {.monitor = &monitor, .index = 3};
+    Client occupied_client = {.workspace = &occupied};
+    Client urgent_client = {.workspace = &urgent, .urgent = true};
+    Client active_urgent_client = {.workspace = &active, .urgent = true};
+    occupied.clients = &occupied_client;
+    urgent.clients = &urgent_client;
+    monitor.active_workspace = &active;
+    if (ui_workspace_visual_state(&monitor, &empty) != UI_WORKSPACE_EMPTY)
+        return fail("empty workspace state mismatch");
+    if (ui_workspace_visual_state(&monitor, &occupied) != UI_WORKSPACE_OCCUPIED)
+        return fail("occupied workspace state mismatch");
+    if (ui_workspace_visual_state(&monitor, &urgent) != UI_WORKSPACE_URGENT)
+        return fail("urgent workspace state mismatch");
+    if (ui_workspace_visual_state(&monitor, &active) != UI_WORKSPACE_ACTIVE)
+        return fail("active workspace state mismatch");
+    active.clients = &active_urgent_client;
+    if (ui_workspace_visual_state(&monitor, &active) != UI_WORKSPACE_ACTIVE_URGENT)
+        return fail("active+urgent workspace state mismatch");
+
+    puts("PASS: UI client label/format/style/workspace-state helpers");
     return 0;
 }

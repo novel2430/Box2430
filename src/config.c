@@ -1026,7 +1026,7 @@ static bool parse_supported_config(Config *candidate, toml_datum_t root)
     toml_datum_t workspaces = toml_get(root, "workspaces");
     static const char *workspace_keys[] = {"count"};
     if (!validate_keys(workspaces, "workspaces", workspace_keys, 1) ||
-        !read_uint(workspaces, "workspaces", "count", 1, 32,
+        !read_uint(workspaces, "workspaces", "count", 1, BOX2430_MAX_WORKSPACES,
                    &candidate->workspace_count)) return false;
 
     toml_datum_t focus = toml_get(root, "focus");
