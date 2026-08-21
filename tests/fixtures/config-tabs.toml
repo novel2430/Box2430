@@ -37,3 +37,6 @@ inherit_defaults = true
 "Button3" = "none"
 "WheelUp" = "focus prev"
 "WheelDown" = "focus next"
+
+[appearance.bar]
+enabled = false

@@ -3,3 +3,6 @@ focus_on_map = false
 
 [bindings]
 inherit_defaults = true
+
+[appearance.bar]
+enabled = false

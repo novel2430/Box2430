@@ -1,2 +1,5 @@
 [placement]
 normal = "client"
+
+[appearance.bar]
+enabled = false

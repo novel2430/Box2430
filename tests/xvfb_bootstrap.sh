@@ -45,12 +45,12 @@ client_pid=$!
 wait_for "DISPLAY=$display xdotool search --class XTerm >/dev/null 2>&1" || fail "xterm did not map"
 window=$(DISPLAY=$display xdotool search --class XTerm | head -n 1)
 
-DISPLAY=$display "$box2430_bin" >"$tmp_dir/wm.log" 2>&1 &
+DISPLAY=$display "$box2430_bin" -c tests/fixtures/config-default-no-bar.toml >"$tmp_dir/wm.log" 2>&1 &
 wm_pid=$!
 wait_for "DISPLAY=$display xprop -root _NET_CLIENT_LIST | grep -q 0x" || fail "client was not managed"
 
 # A second WM must fail rather than stealing ownership.
-if DISPLAY=$display "$box2430_bin" >"$tmp_dir/second.log" 2>&1; then
+if DISPLAY=$display "$box2430_bin" -c tests/fixtures/config-default-no-bar.toml >"$tmp_dir/second.log" 2>&1; then
     fail "second WM acquired ownership"
 fi
 grep -q "another window manager owns" "$tmp_dir/second.log" || fail "ownership diagnostic missing"

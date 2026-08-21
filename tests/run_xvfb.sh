@@ -9,6 +9,7 @@ for scenario in \
     xvfb_v2_config.sh \
     xvfb_rules.sh \
     xvfb_special_windows.sh \
+    xvfb_native_bar.sh \
     xvfb_semantic_geometry.sh \
     xvfb_configure_request.sh \
     xvfb_fullscreen_transitions.sh \

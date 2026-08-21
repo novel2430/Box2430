@@ -56,8 +56,8 @@ test-tools: $(BUILD_DIR)/x11-test-client $(BUILD_DIR)/x11-set-urgency \
 	$(BUILD_DIR)/x11-size-hints-client $(BUILD_DIR)/x11-sigchld-client \
 	$(BUILD_DIR)/x11-lifecycle-client $(BUILD_DIR)/x11-focus-compat-client \
 	$(BUILD_DIR)/x11-root-color $(BUILD_DIR)/x11-workspace-transition-observer \
-	$(BUILD_DIR)/x11-configure-request $(BUILD_DIR)/monitor-geometry-test \
-	$(BUILD_DIR)/ui-label-test
+	$(BUILD_DIR)/x11-configure-request $(BUILD_DIR)/x11-stacking-order \
+	$(BUILD_DIR)/monitor-geometry-test $(BUILD_DIR)/ui-label-test
 
 test: all test-tools
 	$(BUILD_DIR)/monitor-geometry-test
@@ -114,6 +114,10 @@ $(BUILD_DIR)/x11-workspace-transition-observer: \
 	$(CC) $(CPPFLAGS) $(CFLAGS_COMMON) $(CFLAGS) -o $@ $< $(LDLIBS)
 
 $(BUILD_DIR)/x11-configure-request: tests/x11_configure_request.c
+	@mkdir -p $(dir $@)
+	$(CC) $(CPPFLAGS) $(CFLAGS_COMMON) $(CFLAGS) -o $@ $< $(LDLIBS)
+
+$(BUILD_DIR)/x11-stacking-order: tests/x11_stacking_order.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CPPFLAGS) $(CFLAGS_COMMON) $(CFLAGS) -o $@ $< $(LDLIBS)
 

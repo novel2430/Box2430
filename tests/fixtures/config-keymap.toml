@@ -3,3 +3,6 @@ inherit_defaults = false
 
 [bindings.keys]
 "Super+Left" = "snap left"
+
+[appearance.bar]
+enabled = false

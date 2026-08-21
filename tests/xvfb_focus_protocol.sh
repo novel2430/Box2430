@@ -27,7 +27,7 @@ wait_for() {
 Xvfb "$display" -screen 0 800x600x24 -nolisten tcp >"$tmp_dir/xvfb.log" 2>&1 &
 xvfb_pid=$!
 wait_for "DISPLAY=$display xdpyinfo >/dev/null 2>&1" || fail "Xvfb did not start"
-DISPLAY=$display "$box2430_bin" >"$tmp_dir/wm.log" 2>&1 & wm_pid=$!
+DISPLAY=$display "$box2430_bin" -c tests/fixtures/config-default-no-bar.toml >"$tmp_dir/wm.log" 2>&1 & wm_pid=$!
 wait_for "DISPLAY=$display xprop -root _NET_SUPPORTED >/dev/null 2>&1" || fail "WM did not start"
 
 DISPLAY=$display "$focus_bin" take TakeFocusClient "$tmp_dir/take.marker" \

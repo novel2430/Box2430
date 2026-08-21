@@ -17,6 +17,11 @@ void ui_draw_text(Display *display, XftDraw *draw, const XftColor *color,
                   int x, int y, unsigned int width, unsigned int height,
                   unsigned int padding, const char *text);
 
+bool ui_bar_create_monitor(WM *wm, Monitor *monitor);
+void ui_bar_destroy_monitor(WM *wm, Monitor *monitor);
+void ui_bar_name_monitor(WM *wm, Monitor *monitor);
+void ui_bar_update(WM *wm);
+
 unsigned int ui_tab_height(const WM *wm, const Monitor *monitor);
 bool ui_tab_create_monitor(WM *wm, Monitor *monitor);
 void ui_tab_destroy_monitor(WM *wm, Monitor *monitor);

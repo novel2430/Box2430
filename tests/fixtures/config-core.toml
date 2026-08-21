@@ -13,3 +13,6 @@ inherit_defaults = true
 "Super+Ctrl+Right" = "monitor next"
 "Super+q" = "none"
 "Super+x" = "window close"
+
+[appearance.bar]
+enabled = false

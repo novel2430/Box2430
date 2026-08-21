@@ -7,3 +7,6 @@ inherit_defaults = false
 "Super+t" = "spawn xterm -title SpawnedXterm"
 "Super+h" = "spawn-shell 'printf shell-ok > \"$BOX2430_SPAWN_SHELL_TEST_FILE\"'"
 "Super+x" = "window close"
+
+[appearance.bar]
+enabled = false

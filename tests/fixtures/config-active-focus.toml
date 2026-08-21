@@ -3,3 +3,6 @@ active_window = "focus"
 
 [placement]
 normal = "client"
+
+[appearance.bar]
+enabled = false

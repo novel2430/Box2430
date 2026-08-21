@@ -21,3 +21,6 @@ fullscreen_policy = "allow"
 [[rules]]
 title = "GeometryDeny"
 fullscreen_policy = "deny"
+
+[appearance.bar]
+enabled = false

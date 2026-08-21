@@ -1,0 +1,10 @@
+[appearance.bar]
+enabled = false
+position = "bottom"
+
+[appearance.tabs]
+enabled = true
+height = 31
+
+[bindings]
+inherit_defaults = true

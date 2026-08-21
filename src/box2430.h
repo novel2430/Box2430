@@ -339,8 +339,10 @@ struct Monitor {
     unsigned int index;
     Rect geometry;
     Rect workarea;
+    Rect bar_geometry;
     Workspace *workspaces;
     Workspace *active_workspace;
+    Window bar;
     Window tab_bar;
     XftDraw *tab_draw;
 };
@@ -412,7 +414,9 @@ typedef struct WM {
     XftColor tab_inactive_bg;
     XftColor tab_urgent_fg;
     XftColor tab_urgent_bg;
+    XftColor bar_bg;
     bool tab_resources_ready;
+    bool bar_resources_ready;
 } WM;
 
 bool wm_init(WM *wm, const char *display_name, const char *config_path,

@@ -28,3 +28,6 @@ placement = "center"
 [[rules]]
 class = "AllowApp"
 fullscreen_policy = "allow"
+
+[appearance.bar]
+enabled = false

@@ -7,3 +7,6 @@ raise_on_map = true
 [placement]
 normal = "client"
 dialog = "client"
+
+[appearance.bar]
+enabled = false

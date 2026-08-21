@@ -148,6 +148,7 @@ static void discard_enter_events(WM *wm)
 
 static void enforce_stacking(WM *wm)
 {
+    ui_bar_update(wm);
     ui_tab_update(wm);
     for (SpecialWindow *special = wm->special_windows; special; special = special->next)
         if (special->type == WINDOW_TYPE_DESKTOP)
@@ -158,7 +159,10 @@ static void enforce_stacking(WM *wm)
             if (!client->fullscreen) XRaiseWindow(wm->display, client->window);
     }
     for (unsigned int i = 0; i < wm->monitor_count; ++i)
-        if (wm->config.tabs.enabled &&
+        if (wm->config.bar.enabled && wm->monitors[i].bar)
+            XRaiseWindow(wm->display, wm->monitors[i].bar);
+    for (unsigned int i = 0; i < wm->monitor_count; ++i)
+        if (wm->config.tabs.enabled && wm->monitors[i].tab_bar &&
             wm->monitors[i].active_workspace->mode == WORKSPACE_MONOCLE)
             XRaiseWindow(wm->display, wm->monitors[i].tab_bar);
     for (SpecialWindow *special = wm->special_windows; special; special = special->next)
@@ -416,7 +420,8 @@ static Rect monocle_content_area(const WM *wm, const Monitor *monitor)
 {
     Rect area = monitor->workarea;
     int tab_height = (int)ui_tab_height(wm, monitor);
-    area.y += tab_height;
+    if (wm->config.bar.position == UI_BAR_TOP)
+        area.y += tab_height;
     area.height -= tab_height;
     return area;
 }
@@ -613,6 +618,26 @@ static void calculate_workareas(WM *wm)
         area.height = bottom - area.y;
         if (area.width < 1) area.width = 1;
         if (area.height < 1) area.height = 1;
+
+        monitor->bar_geometry = (Rect){
+            .x = area.x,
+            .y = area.y,
+            .width = area.width,
+            .height = 0,
+        };
+        if (wm->config.bar.enabled && area.height > 1) {
+            unsigned int height = wm->config.bar.height;
+            if (height >= (unsigned int)area.height)
+                height = (unsigned int)area.height - 1;
+            monitor->bar_geometry.height = (int)height;
+            if (wm->config.bar.position == UI_BAR_TOP) {
+                monitor->bar_geometry.y = area.y;
+                area.y += (int)height;
+            } else {
+                monitor->bar_geometry.y = area.y + area.height - (int)height;
+            }
+            area.height -= (int)height;
+        }
         monitor->workarea = area;
     }
 }
@@ -633,6 +658,7 @@ static void recompute_workareas(WM *wm)
     calculate_workareas(wm);
     rematerialize_all_clients(wm);
     x11_update_workarea(wm);
+    ui_bar_update(wm);
     ui_tab_update(wm);
 }
 
@@ -1635,6 +1661,7 @@ static void destroy_removed_monitor_resources(WM *wm, Monitor *old_monitors,
     for (unsigned int old_index = 0; old_index < plan->old_count; ++old_index) {
         if (plan->new_for_old[old_index] >= 0) continue;
         Monitor *removed = &old_monitors[old_index];
+        ui_bar_destroy_monitor(wm, removed);
         ui_tab_destroy_monitor(wm, removed);
         free(removed->workspaces);
     }
@@ -1719,18 +1746,25 @@ static void reconcile_monitors(WM *wm)
     destroy_removed_monitor_resources(wm, old_monitors, &plan);
 
     /* Workareas are computed only after the logical monitor/workspace world is
-     * coherent. Added tab bars are then created against final monitor state. */
+     * coherent. Added UI windows are then created against final monitor state. */
     calculate_workareas(wm);
-    if (wm->tab_resources_ready) {
-        for (unsigned int i = 0; i < wm->monitor_count; ++i) {
-            if (added[i] && !ui_tab_create_monitor(wm, &wm->monitors[i])) {
-                fprintf(stderr, "box2430: cannot create state for added monitor\n");
-                free_topology_plan(&plan);
-                wm->running = false;
-                return;
-            }
-            ui_tab_name_monitor(wm, &wm->monitors[i]);
+    for (unsigned int i = 0; i < wm->monitor_count; ++i) {
+        if (wm->bar_resources_ready && added[i] &&
+            !ui_bar_create_monitor(wm, &wm->monitors[i])) {
+            fprintf(stderr, "box2430: cannot create bar for added monitor\n");
+            free_topology_plan(&plan);
+            wm->running = false;
+            return;
         }
+        if (wm->tab_resources_ready && added[i] &&
+            !ui_tab_create_monitor(wm, &wm->monitors[i])) {
+            fprintf(stderr, "box2430: cannot create tab bar for added monitor\n");
+            free_topology_plan(&plan);
+            wm->running = false;
+            return;
+        }
+        if (wm->bar_resources_ready) ui_bar_name_monitor(wm, &wm->monitors[i]);
+        if (wm->tab_resources_ready) ui_tab_name_monitor(wm, &wm->monitors[i]);
     }
 
     for (unsigned int i = 0; i < plan.client_count; ++i) {
@@ -1757,6 +1791,7 @@ static void reconcile_monitors(WM *wm)
     }
 
     x11_update_workarea(wm);
+    ui_bar_update(wm);
     ui_tab_update(wm);
     enforce_stacking(wm);
     x11_update_client_lists(wm);

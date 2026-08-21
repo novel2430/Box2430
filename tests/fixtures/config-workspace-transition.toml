@@ -3,3 +3,6 @@ raise_on_focus = true
 
 [bindings]
 inherit_defaults = true
+
+[appearance.bar]
+enabled = false

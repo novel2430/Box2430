@@ -9,3 +9,6 @@ inherit_defaults = true
 
 [bindings.keys]
 "Super+r" = "wm restart"
+
+[appearance.bar]
+enabled = false

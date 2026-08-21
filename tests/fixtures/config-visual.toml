@@ -4,3 +4,6 @@ dialog = "client"
 
 [bindings]
 inherit_defaults = true
+
+[appearance.bar]
+enabled = false

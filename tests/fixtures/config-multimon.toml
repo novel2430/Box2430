@@ -14,3 +14,6 @@ inherit_defaults = true
 class = "LifecycleParent"
 monitor = 2
 workspace = 2
+
+[appearance.bar]
+enabled = false

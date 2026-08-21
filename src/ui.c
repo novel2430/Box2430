@@ -309,6 +309,61 @@ static void tab_bounds(WM *wm, Monitor *monitor, Client *wanted,
     *width_return = 0;
 }
 
+bool ui_bar_create_monitor(WM *wm, Monitor *monitor)
+{
+    if (!wm->config.bar.enabled) return true;
+    Rect geometry = monitor->bar_geometry;
+    unsigned int width = geometry.width > 0 ? (unsigned int)geometry.width : 1U;
+    unsigned int height = geometry.height > 0 ? (unsigned int)geometry.height : 1U;
+    XSetWindowAttributes attributes = {
+        .override_redirect = True,
+        .background_pixel = wm->bar_bg.pixel,
+    };
+    monitor->bar = XCreateWindow(
+        wm->display, wm->root, geometry.x, geometry.y, width, height, 0,
+        DefaultDepth(wm->display, wm->screen), InputOutput,
+        DefaultVisual(wm->display, wm->screen),
+        CWOverrideRedirect | CWBackPixel, &attributes);
+    ui_bar_name_monitor(wm, monitor);
+    return monitor->bar != None;
+}
+
+void ui_bar_destroy_monitor(WM *wm, Monitor *monitor)
+{
+    if (monitor->bar) {
+        XDestroyWindow(wm->display, monitor->bar);
+        monitor->bar = None;
+    }
+}
+
+void ui_bar_name_monitor(WM *wm, Monitor *monitor)
+{
+    if (!monitor->bar) return;
+    char name[64];
+    snprintf(name, sizeof(name), "box2430-bar-%u", monitor->index);
+    XStoreName(wm->display, monitor->bar, name);
+}
+
+void ui_bar_update(WM *wm)
+{
+    if (!wm->bar_resources_ready || !wm->config.bar.enabled) return;
+    for (unsigned int i = 0; i < wm->monitor_count; ++i) {
+        Monitor *monitor = &wm->monitors[i];
+        if (!monitor->bar) continue;
+        Rect geometry = monitor->bar_geometry;
+        bool visible = geometry.width > 0 && geometry.height > 0;
+        unsigned int width = visible ? (unsigned int)geometry.width : 1U;
+        unsigned int height = visible ? (unsigned int)geometry.height : 1U;
+        XMoveResizeWindow(wm->display, monitor->bar,
+                          geometry.x, geometry.y, width, height);
+        if (visible) {
+            XMapWindow(wm->display, monitor->bar);
+        } else {
+            XUnmapWindow(wm->display, monitor->bar);
+        }
+    }
+}
+
 unsigned int ui_tab_height(const WM *wm, const Monitor *monitor)
 {
     int minimum_content_height = 2 * (int)wm->config.border_width + 1;
@@ -370,6 +425,14 @@ void ui_tab_draw(WM *wm, Monitor *monitor)
     }
 }
 
+static int tab_window_y(const WM *wm, const Monitor *monitor,
+                        unsigned int height)
+{
+    if (wm->config.bar.position == UI_BAR_BOTTOM)
+        return monitor->workarea.y + monitor->workarea.height - (int)height;
+    return monitor->workarea.y;
+}
+
 void ui_tab_update(WM *wm)
 {
     if (!wm->tab_resources_ready) return;
@@ -379,8 +442,9 @@ void ui_tab_update(WM *wm)
         bool visible = wm->config.tabs.enabled &&
             monitor->active_workspace->mode == WORKSPACE_MONOCLE && height;
         unsigned int window_height = height ? height : 1;
+        int y = tab_window_y(wm, monitor, window_height);
         XMoveResizeWindow(wm->display, monitor->tab_bar,
-                          monitor->workarea.x, monitor->workarea.y,
+                          monitor->workarea.x, y,
                           (unsigned int)monitor->workarea.width, window_height);
         if (visible) {
             XMapWindow(wm->display, monitor->tab_bar);
@@ -409,8 +473,9 @@ bool ui_tab_create_monitor(WM *wm, Monitor *monitor)
     };
     unsigned int height = ui_tab_height(wm, monitor);
     if (!height) height = 1;
+    int y = tab_window_y(wm, monitor, height);
     monitor->tab_bar = XCreateWindow(
-        wm->display, wm->root, monitor->workarea.x, monitor->workarea.y,
+        wm->display, wm->root, monitor->workarea.x, y,
         (unsigned int)monitor->workarea.width, height, 0,
         DefaultDepth(wm->display, wm->screen), InputOutput, visual,
         CWOverrideRedirect | CWBackPixel | CWEventMask, &attributes);
@@ -525,26 +590,68 @@ bool ui_init(WM *wm)
         }
     }
 
+    bool bar_color_allocated = false;
+    if (wm->config.bar.enabled) {
+        if (!XftColorAllocName(wm->display, visual, colormap,
+                               wm->config.bar.style.bg, &wm->bar_bg)) {
+            fprintf(stderr, "box2430: cannot allocate native bar color %s\n",
+                    wm->config.bar.style.bg);
+            free_colors(wm);
+            close_fonts(wm);
+            return false;
+        }
+        bar_color_allocated = true;
+        unsigned int created = 0;
+        for (; created < wm->monitor_count; ++created) {
+            if (!ui_bar_create_monitor(wm, &wm->monitors[created])) {
+                fprintf(stderr, "box2430: cannot create native bar window\n");
+                for (unsigned int i = 0; i < created; ++i)
+                    ui_bar_destroy_monitor(wm, &wm->monitors[i]);
+                XftColorFree(wm->display, visual, colormap, &wm->bar_bg);
+                free_colors(wm);
+                close_fonts(wm);
+                return false;
+            }
+        }
+        wm->bar_resources_ready = true;
+    }
+
     unsigned int created = 0;
     for (; created < wm->monitor_count; ++created) {
         if (!ui_tab_create_monitor(wm, &wm->monitors[created])) {
             fprintf(stderr, "box2430: cannot create tab bar drawing context\n");
             for (unsigned int i = 0; i < created; ++i)
                 ui_tab_destroy_monitor(wm, &wm->monitors[i]);
+            if (wm->bar_resources_ready) {
+                for (unsigned int i = 0; i < wm->monitor_count; ++i)
+                    ui_bar_destroy_monitor(wm, &wm->monitors[i]);
+                wm->bar_resources_ready = false;
+            }
+            if (bar_color_allocated)
+                XftColorFree(wm->display, visual, colormap, &wm->bar_bg);
             free_colors(wm);
             close_fonts(wm);
             return false;
         }
     }
     wm->tab_resources_ready = true;
+    ui_bar_update(wm);
+    ui_tab_update(wm);
     return true;
 }
 
 void ui_destroy(WM *wm)
 {
     if (!wm->display) return;
-    for (unsigned int i = 0; i < wm->monitor_count; ++i)
+    for (unsigned int i = 0; i < wm->monitor_count; ++i) {
+        ui_bar_destroy_monitor(wm, &wm->monitors[i]);
         ui_tab_destroy_monitor(wm, &wm->monitors[i]);
+    }
+    if (wm->bar_resources_ready) {
+        XftColorFree(wm->display, DefaultVisual(wm->display, wm->screen),
+                     DefaultColormap(wm->display, wm->screen), &wm->bar_bg);
+        wm->bar_resources_ready = false;
+    }
     if (wm->tab_resources_ready) {
         free_colors(wm);
         wm->tab_resources_ready = false;
