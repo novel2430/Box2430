@@ -76,6 +76,11 @@ static void set_default_bindings(Config *config)
         strcpy(binding->argv[0], tabs[i].first);
         strcpy(binding->argv[1], tabs[i].second);
     }
+    MouseBinding *workspace =
+        &config->workspacebar_bindings[config->workspacebar_binding_count++];
+    *workspace = (MouseBinding){.button = Button1, .argc = 2};
+    strcpy(workspace->argv[0], "workspace");
+    strcpy(workspace->argv[1], "activate");
 }
 
 static void set_label_format(UILabelFormat *format, const char *prefix,
@@ -557,7 +562,7 @@ static bool parse_mouse_spec(const char *spec, unsigned int *modifiers,
     return true;
 }
 
-static bool parse_tab_spec(const char *spec, unsigned int *button)
+static bool parse_ui_button_spec(const char *spec, unsigned int *button)
 {
     unsigned int modifiers = 0;
     if (strcmp(spec, "WheelUp") == 0) { *button = Button4; return true; }
@@ -704,45 +709,63 @@ static bool parse_mouse_bindings(Config *candidate, toml_datum_t mouse)
     return true;
 }
 
-static bool parse_tab_bindings(Config *candidate, toml_datum_t table)
+static bool parse_ui_bindings(Config *candidate, toml_datum_t table,
+                              const char *name, CommandContextType context,
+                              MouseBinding bindings[16], unsigned int *count)
 {
     if (table.type == TOML_UNKNOWN) return true;
     if (table.type != TOML_TABLE) {
-        fprintf(stderr, "box2430: config option bindings.tabbar must be a table\n");
+        fprintf(stderr, "box2430: config option bindings.%s must be a table\n", name);
         return false;
     }
     for (int32_t i = 0; i < table.u.tab.size; ++i) {
         toml_datum_t value = table.u.tab.value[i];
         unsigned int button;
-        if (!parse_tab_spec(table.u.tab.key[i], &button) || value.type != TOML_STRING) {
-            fprintf(stderr, "box2430: invalid tabbar binding %s\n", table.u.tab.key[i]);
+        if (!parse_ui_button_spec(table.u.tab.key[i], &button) ||
+            value.type != TOML_STRING) {
+            fprintf(stderr, "box2430: invalid %s binding %s\n",
+                    name, table.u.tab.key[i]);
             return false;
         }
-        for (unsigned int j = 0; j < candidate->tab_binding_count; ++j) {
-            if (candidate->tab_bindings[j].button == button) {
-                memmove(&candidate->tab_bindings[j], &candidate->tab_bindings[j + 1],
-                        (candidate->tab_binding_count - j - 1) *
-                        sizeof(candidate->tab_bindings[j]));
-                --candidate->tab_binding_count;
+        for (unsigned int j = 0; j < *count; ++j) {
+            if (bindings[j].button == button) {
+                memmove(&bindings[j], &bindings[j + 1],
+                        (*count - j - 1) * sizeof(bindings[j]));
+                --*count;
                 break;
             }
         }
         if (strcmp(value.u.s, "none") == 0) continue;
-        if (candidate->tab_binding_count >= 16) return false;
+        if (*count >= 16) return false;
         KeyBinding parsed = {0};
         if (!parse_command_text(value.u.s, &parsed)) return false;
         const char *argv[BOX2430_MAX_COMMAND_ARGS];
         for (int j = 0; j < parsed.argc; ++j) argv[j] = parsed.argv[j];
-        if (!command_validate(candidate, COMMAND_CONTEXT_TABBAR, parsed.argc, argv)) {
-            fprintf(stderr, "box2430: invalid command for tabbar binding %s\n",
-                    table.u.tab.key[i]);
+        if (!command_validate(candidate, context, parsed.argc, argv)) {
+            fprintf(stderr, "box2430: invalid command for %s binding %s\n",
+                    name, table.u.tab.key[i]);
             return false;
         }
-        MouseBinding *binding = &candidate->tab_bindings[candidate->tab_binding_count++];
+        MouseBinding *binding = &bindings[(*count)++];
         *binding = (MouseBinding){.button = button, .argc = parsed.argc};
         for (int j = 0; j < parsed.argc; ++j) strcpy(binding->argv[j], parsed.argv[j]);
     }
     return true;
+}
+
+static bool parse_tab_bindings(Config *candidate, toml_datum_t table)
+{
+    return parse_ui_bindings(candidate, table, "tabbar", COMMAND_CONTEXT_TABBAR,
+                             candidate->tab_bindings,
+                             &candidate->tab_binding_count);
+}
+
+static bool parse_workspacebar_bindings(Config *candidate, toml_datum_t table)
+{
+    return parse_ui_bindings(candidate, table, "workspacebar",
+                             COMMAND_CONTEXT_WORKSPACEBAR,
+                             candidate->workspacebar_bindings,
+                             &candidate->workspacebar_binding_count);
 }
 
 static void prune_invalid_default_bindings(Config *candidate)
@@ -1142,18 +1165,22 @@ static bool parse_supported_config(Config *candidate, toml_datum_t root)
 
     prune_invalid_default_bindings(candidate);
     toml_datum_t bindings = toml_get(root, "bindings");
-    static const char *binding_keys[] = {"inherit_defaults", "keys", "mouse", "tabbar"};
-    if (!validate_keys(bindings, "bindings", binding_keys, 4) ||
+    static const char *binding_keys[] = {
+        "inherit_defaults", "keys", "mouse", "tabbar", "workspacebar",
+    };
+    if (!validate_keys(bindings, "bindings", binding_keys, 5) ||
         !read_bool(bindings, "bindings", "inherit_defaults",
                    &candidate->inherit_default_bindings)) return false;
     if (!candidate->inherit_default_bindings) {
         candidate->key_binding_count = 0;
         candidate->mouse_binding_count = 0;
         candidate->tab_binding_count = 0;
+        candidate->workspacebar_binding_count = 0;
     }
     return parse_key_bindings(candidate, toml_get(bindings, "keys")) &&
            parse_mouse_bindings(candidate, toml_get(bindings, "mouse")) &&
            parse_tab_bindings(candidate, toml_get(bindings, "tabbar")) &&
+           parse_workspacebar_bindings(candidate, toml_get(bindings, "workspacebar")) &&
            parse_rules(candidate, toml_get(root, "rules"));
 }
 

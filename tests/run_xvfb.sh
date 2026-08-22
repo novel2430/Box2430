@@ -12,6 +12,7 @@ for scenario in \
     xvfb_special_windows.sh \
     xvfb_native_bar.sh \
     xvfb_bar_widgets.sh \
+    xvfb_workspacebar.sh \
     xvfb_bar_pressure.sh \
     xvfb_status_clock.sh \
     xvfb_tray.sh \

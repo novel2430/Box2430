@@ -1878,10 +1878,32 @@ static void handle_event(WM *wm, XEvent *event)
         {
         Monitor *bar_monitor = ui_bar_monitor_for_window(wm, event->xbutton.window);
         if (bar_monitor) {
-            if (event->xbutton.button == Button1) {
-                Workspace *workspace = ui_bar_workspace_hit_test(
-                    wm, bar_monitor, event->xbutton.x);
-                if (workspace) workspace_activate(wm, bar_monitor, workspace);
+            Workspace *workspace = ui_bar_workspace_hit_test(
+                wm, bar_monitor, event->xbutton.x);
+            MouseBinding *matched = NULL;
+            if (workspace) {
+                for (unsigned int i = 0;
+                     i < wm->config.workspacebar_binding_count; ++i) {
+                    if (wm->config.workspacebar_bindings[i].button ==
+                        event->xbutton.button) {
+                        matched = &wm->config.workspacebar_bindings[i];
+                        break;
+                    }
+                }
+            }
+            if (matched) {
+                const char *argv[BOX2430_MAX_COMMAND_ARGS];
+                for (int i = 0; i < matched->argc; ++i)
+                    argv[i] = matched->argv[i];
+                CommandContext context = {
+                    .type = COMMAND_CONTEXT_WORKSPACEBAR,
+                    .monitor = bar_monitor,
+                    .workspace = workspace,
+                    .root_x = event->xbutton.x_root,
+                    .root_y = event->xbutton.y_root,
+                    .time = event->xbutton.time,
+                };
+                command_run(wm, &context, matched->argc, argv);
             }
             break;
         }

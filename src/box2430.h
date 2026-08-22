@@ -259,6 +259,8 @@ typedef struct Config {
     MouseBinding mouse_bindings[16];
     unsigned int tab_binding_count;
     MouseBinding tab_bindings[16];
+    unsigned int workspacebar_binding_count;
+    MouseBinding workspacebar_bindings[16];
     unsigned int rule_count;
     Rule rules[BOX2430_MAX_RULES];
 } Config;
@@ -504,11 +506,14 @@ typedef enum CommandContextType {
     COMMAND_CONTEXT_KEYBOARD,
     COMMAND_CONTEXT_MOUSE,
     COMMAND_CONTEXT_TABBAR,
+    COMMAND_CONTEXT_WORKSPACEBAR,
 } CommandContextType;
 
 typedef struct CommandContext {
     CommandContextType type;
     Client *client;
+    Monitor *monitor;
+    Workspace *workspace;
     int root_x;
     int root_y;
     Time time;

@@ -65,6 +65,8 @@ run_invalid config-v2-invalid-mode-state \
     "unknown config option appearance.bar.widgets.mode.tiled"
 run_invalid config-v2-invalid-tab-position \
     "invalid value for config option appearance.tabs.position"
+run_invalid config-v2-invalid-workspacebar-command \
+    "invalid command for workspacebar binding Button1"
 run_invalid config-v2-invalid-source \
     "invalid value for config option appearance.tabs.source"
 run_invalid config-v2-invalid-font-style \

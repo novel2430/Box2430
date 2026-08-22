@@ -1,0 +1,56 @@
+[workspaces]
+count = 4
+
+[appearance.bar]
+enabled = true
+position = "top"
+height = 24
+padding = 8
+gap = 8
+font = "monospace:size=10"
+font_bold = "monospace:style=Bold:size=10"
+fg = "#ffffff"
+bg = "#000000"
+left = ["workspaces"]
+center = []
+right = []
+
+[appearance.bar.widgets.workspaces]
+format = " %s "
+font_style = "normal"
+
+[appearance.bar.widgets.workspaces.empty]
+fg = "#ffffff"
+bg = "#111111"
+font_style = "normal"
+format = " %s "
+
+[appearance.bar.widgets.workspaces.occupied]
+fg = "#ffffff"
+bg = "#222222"
+font_style = "normal"
+format = " %s "
+
+[appearance.bar.widgets.workspaces.active]
+fg = "#ffffff"
+bg = "#003300"
+font_style = "normal"
+format = " %s "
+
+[appearance.tabs]
+enabled = true
+height = 24
+
+[bindings]
+inherit_defaults = true
+
+[bindings.workspacebar]
+"Button1" = "workspace activate"
+"Button2" = "workspace move-window"
+"Button3" = "workspace move-window --follow"
+"WheelUp" = "workspace prev"
+"WheelDown" = "workspace next"
+
+[[rules]]
+title = "WorkspaceBarTarget"
+workspace = 2

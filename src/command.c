@@ -86,9 +86,42 @@ static CommandStatus command_spawn_shell(WM *wm, const CommandContext *context,
 static CommandStatus command_workspace(WM *wm, const CommandContext *context,
                                        int argc, const char *const *argv)
 {
-    (void)context;
+    if (argc < 1 || argc > 2) return COMMAND_INVALID;
+
+    if (strcmp(argv[0], "activate") == 0) {
+        if (argc != 1 || !context ||
+            context->type != COMMAND_CONTEXT_WORKSPACEBAR ||
+            !context->monitor || !context->workspace ||
+            context->workspace->monitor != context->monitor) {
+            return COMMAND_INVALID;
+        }
+        workspace_activate(wm, context->monitor, context->workspace);
+        return COMMAND_OK;
+    }
+
+    if (strcmp(argv[0], "move-window") == 0) {
+        bool follow = argc == 2 && strcmp(argv[1], "--follow") == 0;
+        if (!context || context->type != COMMAND_CONTEXT_WORKSPACEBAR ||
+            !context->monitor || !context->workspace ||
+            context->workspace->monitor != context->monitor ||
+            !wm->focused_client ||
+            (argc == 2 && !follow)) {
+            return COMMAND_INVALID;
+        }
+        bool translate_monitor_geometry =
+            wm->focused_client->workspace->monitor != context->monitor;
+        client_move_to_workspace(wm, wm->focused_client, context->workspace,
+                                 follow, translate_monitor_geometry);
+        return COMMAND_OK;
+    }
+
     if (argc != 1) return COMMAND_INVALID;
-    unsigned int current = wm->selected_monitor->active_workspace->index;
+    Monitor *monitor = wm->selected_monitor;
+    if (context && context->type == COMMAND_CONTEXT_WORKSPACEBAR &&
+        context->monitor) {
+        monitor = context->monitor;
+    }
+    unsigned int current = monitor->active_workspace->index;
     unsigned int target;
     if (strcmp(argv[0], "next") == 0) {
         target = (current + 1) % wm->config.workspace_count;
@@ -104,8 +137,7 @@ static CommandStatus command_workspace(WM *wm, const CommandContext *context,
         }
         target = (unsigned int)number - 1;
     }
-    workspace_activate(wm, wm->selected_monitor,
-                       &wm->selected_monitor->workspaces[target]);
+    workspace_activate(wm, monitor, &monitor->workspaces[target]);
     return COMMAND_OK;
 }
 
@@ -350,9 +382,15 @@ bool command_validate(const Config *config, CommandContextType context, int argc
                              strcmp(argv[1], "restart") == 0);
     if (strcmp(argv[0], "spawn") == 0) return argc >= 2;
     if (strcmp(argv[0], "spawn-shell") == 0) return argc == 2;
-    if (strcmp(argv[0], "workspace") == 0)
+    if (strcmp(argv[0], "workspace") == 0) {
+        if (argc == 2 && strcmp(argv[1], "activate") == 0)
+            return context == COMMAND_CONTEXT_WORKSPACEBAR;
+        if ((argc == 2 || argc == 3) && strcmp(argv[1], "move-window") == 0)
+            return context == COMMAND_CONTEXT_WORKSPACEBAR &&
+                   (argc == 2 || strcmp(argv[2], "--follow") == 0);
         return argc == 2 && (strcmp(argv[1], "next") == 0 ||
                strcmp(argv[1], "prev") == 0 || valid_workspace_number(config, argv[1]));
+    }
     if (strcmp(argv[0], "monitor") == 0)
         return argc == 2 && (strcmp(argv[1], "next") == 0 || strcmp(argv[1], "prev") == 0);
     if (strcmp(argv[0], "focus") == 0)
