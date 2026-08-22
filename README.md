@@ -141,8 +141,9 @@ See `config.example.toml` for a complete configuration example and
 
 ## Documentation
 
-* `docs/REFERENCE.md` — commands, configuration, bindings, widgets, and rules
-* `docs/ARCHITECTURE.md` — runtime state model, X11 behavior, and architectural invariants
-* `docs/IMPLEMENTATION_STYLE.md` — long-lived engineering principles
-* `DEVELOPMENT.md` — build, testing, debugging, and verification
-* `AGENTS.md` — repository instructions for coding agents
+
+* [`REFERENCE.md`](https://github.com/novel2430/Box2430/blob/main/docs/REFERENCE.md) — commands, configuration, bindings, widgets, and rules
+* [`ARCHITECTURE.md`](https://github.com/novel2430/Box2430/blob/main/docs/ARCHITECTURE.md) — runtime state model, X11 behavior, and architectural invariants
+* [`IMPLEMENTATION_STYLE.md`](https://github.com/novel2430/Box2430/blob/main/docs/IMPLEMENTATION_STYLE.md) — long-lived engineering principles
+* [`DEVELOPMENT.md`](https://github.com/novel2430/Box2430/blob/main/DEVELOPMENT.md) — build, testing, debugging, and verification
+* [`AGENTS.md`](https://github.com/novel2430/Box2430/blob/main/AGENTS.md) — repository instructions for coding agents
