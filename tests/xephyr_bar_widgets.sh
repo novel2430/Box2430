@@ -47,6 +47,10 @@ assert_centered() {
     set -- $(DISPLAY=$display "$color_bin" "$window" '#000055')
     [ $(($1 + $3 + 1)) -eq "$expected" ] || fail "$label"
 }
+workspace_x() {
+    set -- $(DISPLAY=$display "$color_bin" "$1" "$2")
+    echo $((($1 + $3) / 2))
+}
 
 DISPLAY=${DISPLAY:-:0} Xephyr "$display" \
     -screen 800x600+0+0 -screen 640x480+800+0 +xinerama -nolisten tcp \
@@ -93,8 +97,43 @@ DISPLAY=$display xdotool key super+2
 wait_for "! DISPLAY=$display $color_bin $bar0 '#000055' >/dev/null 2>&1" || fail "monitor-0 empty workspace retained stale title"
 wait_for "DISPLAY=$display $color_bin $bar1 '#000055' >/dev/null 2>&1" || fail "monitor-0 workspace change affected monitor-1 title"
 
-kill "$right_pid" "$left_pid" 2>/dev/null || true
-right_pid= left_pid=
+# A workspace-bar click selects its monitor even when the clicked workspace is
+# empty and already active.  Unlike explicit monitor navigation, it must leave
+# the pointer at the clicked label.
+kill "$right_pid" 2>/dev/null || true
+right_pid=
+wait_for "! DISPLAY=$display $color_bin $bar1 '#000055' >/dev/null 2>&1" || fail "empty right workspace retained stale title"
+active_x=$(workspace_x "$bar1" '#003300')
+DISPLAY=$display xdotool mousemove --window "$bar1" "$active_x" 12 click 1
+[ "$(pointer_x)" -lt 900 ] || fail "workspace click warped pointer away from label"
+wait_for "DISPLAY=$display xprop -root _NET_WORKAREA | grep -q '800, 24, 640, 456'" || fail "active empty workspace click did not select monitor 1"
+DISPLAY=$display xdotool key super+m
+wait_for "DISPLAY=$display $color_bin $bar1 '#006600' >/dev/null 2>&1" || fail "command after active workspace click targeted wrong monitor"
+
+# Selecting a different empty workspace through the other monitor's bar must
+# update both that monitor's active workspace and the global monitor selection.
+DISPLAY=$display xdotool key super+ctrl+Left
+wait_pointer_lt 800 || fail "monitor 0 was not restored before empty workspace test"
+wait_for "DISPLAY=$display xprop -root _NET_WORKAREA | grep -q '0, 24, 800, 576'" || fail "monitor 0 workarea was not restored"
+set -- $(DISPLAY=$display "$color_bin" "$bar1" '#003300')
+workspace_width=$(($3 - $1 + 1))
+next_workspace_x=$(($3 + 1 + workspace_width / 2))
+DISPLAY=$display xdotool mousemove --window "$bar1" "$next_workspace_x" 12 click 1
+[ "$(pointer_x)" -lt 900 ] || fail "empty workspace click warped pointer away from label"
+wait_for "DISPLAY=$display xprop -root _NET_WORKAREA | grep -q '800, 24, 640, 456'" || fail "different empty workspace click did not select monitor 1"
+DISPLAY=$display xdotool key super+m
+wait_for "DISPLAY=$display $color_bin $bar1 '#660066' >/dev/null 2>&1" || fail "command after empty workspace switch targeted wrong monitor"
+
+# Clicking exposed root background selects the monitor under the pointer without
+# using the explicit monitor command's center warp.
+DISPLAY=$display xdotool mousemove 100 300 click 1
+[ "$(pointer_x)" = 100 ] || fail "root click warped pointer away from click position"
+wait_for "DISPLAY=$display xprop -root _NET_WORKAREA | grep -q '0, 24, 800, 576'" || fail "root click did not select monitor 0"
+DISPLAY=$display xdotool key super+m
+wait_for "DISPLAY=$display $color_bin $bar0 '#660066' >/dev/null 2>&1" || fail "command after root click targeted wrong monitor"
+
+kill "$left_pid" 2>/dev/null || true
+left_pid=
 kill "$wm_pid"; wait "$wm_pid"; wm_pid=
 if grep -q "box2430: X11 error" "$tmp_dir/wm.log"; then
     sed -n '1,200p' "$tmp_dir/wm.log" >&2

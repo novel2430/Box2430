@@ -33,7 +33,7 @@ bool x11_acquire_wm_ownership(WM *wm)
     XSelectInput(wm->display, wm->root,
                  SubstructureRedirectMask | SubstructureNotifyMask |
                      StructureNotifyMask | PropertyChangeMask |
-                     FocusChangeMask);
+                     FocusChangeMask | ButtonPressMask);
     XSync(wm->display, False);
     XSetErrorHandler(runtime_error_handler);
 

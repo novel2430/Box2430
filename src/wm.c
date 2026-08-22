@@ -1003,8 +1003,14 @@ static void client_set_requested_fullscreen(WM *wm, Client *client, bool request
 
 void workspace_activate(WM *wm, Monitor *monitor, Workspace *workspace)
 {
-    if (!monitor || !workspace || workspace->monitor != monitor ||
-        monitor->active_workspace == workspace) {
+    if (!monitor || !workspace || workspace->monitor != monitor) return;
+
+    bool monitor_changed = wm->selected_monitor != monitor;
+    if (monitor->active_workspace == workspace) {
+        if (!monitor_changed) return;
+        wm->selected_monitor = monitor;
+        x11_update_workarea(wm);
+        focus_client(wm, workspace_focus_target(workspace), CurrentTime);
         return;
     }
 
@@ -1013,6 +1019,8 @@ void workspace_activate(WM *wm, Monitor *monitor, Workspace *workspace)
     for (Client *client = workspace->clients; client; client = client->workspace_next)
         materialize_client_geometry(wm, client);
 
+    wm->selected_monitor = monitor;
+    x11_update_workarea(wm);
     monitor->active_workspace = workspace;
     for (Client *client = workspace->stack_head; client; client = client->stack_next) {
         XMapWindow(wm->display, client->window);
@@ -1959,6 +1967,20 @@ static void handle_event(WM *wm, XEvent *event)
         break;
     case ButtonPress:
         {
+        if (event->xbutton.window == wm->root) {
+            if (event->xbutton.button == Button1 &&
+                event->xbutton.subwindow == None) {
+                Monitor *monitor = monitor_at_point(
+                    wm, event->xbutton.x_root, event->xbutton.y_root);
+                if (monitor != wm->selected_monitor) {
+                    wm->selected_monitor = monitor;
+                    x11_update_workarea(wm);
+                    focus_client(wm, workspace_focus_target(
+                        monitor->active_workspace), event->xbutton.time);
+                }
+            }
+            break;
+        }
         Monitor *bar_monitor = ui_bar_monitor_for_window(wm, event->xbutton.window);
         if (bar_monitor) {
             Workspace *workspace = ui_bar_workspace_hit_test(

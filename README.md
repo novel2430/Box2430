@@ -132,6 +132,7 @@ A few useful built-in bindings:
 | `Super+Ctrl+Left` / `Super+Ctrl+Right` | Select previous / next monitor |
 | `Super+Button1` | Move window |
 | `Super+Button3` | Resize window |
+| Root background `Button1` | Select monitor under pointer |
 | MONOCLE tab `Button1` / `Button2` | Focus / close tab |
 | Workspace label `Button1` | Activate that workspace |
 

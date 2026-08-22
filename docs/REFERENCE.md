@@ -120,7 +120,7 @@ context.
 
 | Command | Meaning |
 | --- | --- |
-| `workspace activate` | Activate the clicked workspace |
+| `workspace activate` | Select the clicked workspace's monitor and activate that workspace |
 | `workspace move-window` | Move the focused client to the clicked workspace |
 | `workspace move-window --follow` | Move the focused client and follow it |
 | `workspace <N>` | Activate workspace `N` on the clicked monitor |
@@ -547,6 +547,12 @@ binding tables.
 | Tab `Button1` / `Button2` | `tab focus` / `tab close` |
 | Tab `WheelUp` / `WheelDown` | `focus prev` / `focus next` |
 | Workspace `Button1` | `workspace activate` |
+
+Clicking `Button1` on exposed root background selects the monitor under the
+pointer without moving the pointer. It then focuses that monitor's active
+workspace fallback client, or the root when that workspace is empty. A
+click over any root child, including a `Desktop` special window, is not treated
+as root background.
 
 When `workspaces.count` is lower than a built-in numbered workspace binding, the
 invalid default binding is pruned during configuration validation.

@@ -106,6 +106,8 @@ ordinary client to be visible.
 * monitor/workspace/mode commands use `selected_monitor` as their target;
 * `monitor next|prev` can select another monitor and then focus that monitor's
   active-workspace fallback client;
+* clicking exposed root background selects the monitor under the pointer without
+  warping it, then applies the same active-workspace focus fallback;
 * the selected monitor also determines which monitor exposes the single XEmbed
   tray.
 
