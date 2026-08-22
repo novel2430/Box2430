@@ -182,6 +182,8 @@ Raise and lower operations modify this list. Focus and stacking are intentionall
 
 Stable client/tab order and stack order are independent: focus cycling does not change stacking, and raise/lower operations do not change focus-cycle order.
 
+At the root-window level, Box2430 keeps its known tiers ordered with sibling-relative stacking: ordinary clients stay below native bar/tray/tab UI, managed special windows stay above native UI, and real fullscreen clients stay above those known tiers. The native UI is not repeatedly raised to the absolute top of the root stack. This lets unrelated override-redirect overlays, such as notification windows, remain above the native UI after they map without Box2430 adopting them as managed clients.
+
 ### Focus order
 
 `focus_head` / `focus_tail` define most-recently-focused to least-recently-focused order for clients that have actually received focus in the workspace. This is a separate interaction stack; it is not X stacking order and it does not affect `focus next` / `focus prev`.

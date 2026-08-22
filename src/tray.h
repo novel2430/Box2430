@@ -15,6 +15,6 @@ TrayEventResult tray_handle_event(WM *wm, XEvent *event);
 void tray_prepare_layout(WM *wm, const Monitor *monitor);
 unsigned int tray_widget_width(const WM *wm, const Monitor *monitor);
 void tray_set_allocation(WM *wm, const Monitor *monitor, Rect rect);
-void tray_raise(WM *wm);
+Window tray_host_window(const WM *wm);
 
 #endif

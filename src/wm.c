@@ -147,33 +147,100 @@ static void discard_enter_events(WM *wm)
     while (XCheckMaskEvent(wm->display, EnterWindowMask, &event)) {}
 }
 
-static void enforce_stacking(WM *wm)
+static void stack_relative(WM *wm, Window window, Window sibling, int mode)
+{
+    if (!window || !sibling || window == sibling) return;
+    XWindowChanges changes = {
+        .sibling = sibling,
+        .stack_mode = mode,
+    };
+    XConfigureWindow(wm->display, window, CWSibling | CWStackMode, &changes);
+}
+
+static void append_native_stack(WM *wm, Window window, Window ceiling,
+                                Window *base, Window *top)
+{
+    if (!window) return;
+    if (!*base) {
+        if (ceiling) stack_relative(wm, window, ceiling, Below);
+        *base = window;
+        *top = window;
+        return;
+    }
+    stack_relative(wm, window, *top, Above);
+    *top = window;
+}
+
+static void enforce_stacking_below(WM *wm, Window ceiling)
 {
     ui_update(wm);
+
+    /* Desktop windows are the only tier that deliberately belongs at the
+     * absolute bottom.  Higher tiers are ordered relative to known siblings
+     * so restacking Box2430 windows does not repeatedly jump over unrelated
+     * override-redirect overlays such as dunst notifications. */
     for (SpecialWindow *special = wm->special_windows; special; special = special->next)
         if (special->type == WINDOW_TYPE_DESKTOP)
             XLowerWindow(wm->display, special->window);
-    for (unsigned int i = 0; i < wm->monitor_count; ++i) {
-        Workspace *workspace = wm->monitors[i].active_workspace;
-        for (Client *client = workspace->stack_head; client; client = client->stack_next)
-            if (!client->fullscreen) XRaiseWindow(wm->display, client->window);
-    }
+
+    Window native_base = None;
+    Window native_top = None;
     for (unsigned int i = 0; i < wm->monitor_count; ++i)
         if (wm->config.bar.enabled && wm->monitors[i].bar)
-            XRaiseWindow(wm->display, wm->monitors[i].bar);
-    tray_raise(wm);
+            append_native_stack(wm, wm->monitors[i].bar, ceiling,
+                                &native_base, &native_top);
+
+    Window tray_host = tray_host_window(wm);
+    if (tray_host)
+        append_native_stack(wm, tray_host, ceiling,
+                            &native_base, &native_top);
+
     for (unsigned int i = 0; i < wm->monitor_count; ++i)
         if (wm->monitors[i].tab_bar && ui_tabs_should_materialize(
                 wm, wm->monitors[i].active_workspace))
-            XRaiseWindow(wm->display, wm->monitors[i].tab_bar);
-    for (SpecialWindow *special = wm->special_windows; special; special = special->next)
-        if (special->type != WINDOW_TYPE_DESKTOP)
-            XRaiseWindow(wm->display, special->window);
-    for (Client *client = wm->clients; client; client = client->next)
-        if (client->fullscreen &&
-            client->workspace == client->workspace->monitor->active_workspace)
-            XRaiseWindow(wm->display, client->window);
+            append_native_stack(wm, wm->monitors[i].tab_bar, ceiling,
+                                &native_base, &native_top);
+
+    /* stack_head -> stack_tail is bottom -> top.  Walk backwards from the
+     * native-UI ceiling so ordinary clients remain below the bar/tab tier
+     * without raising that tier to the top of the root stack. */
+    Window upper = native_base;
+    for (unsigned int i = 0; i < wm->monitor_count; ++i) {
+        Workspace *workspace = wm->monitors[i].active_workspace;
+        for (Client *client = workspace->stack_tail; client; client = client->stack_prev) {
+            if (client->fullscreen) continue;
+            if (upper) {
+                stack_relative(wm, client->window, upper, Below);
+            } else {
+                /* With no native UI there is no stable Box2430 sibling to
+                 * anchor against, so preserve the existing raise semantics. */
+                XRaiseWindow(wm->display, client->window);
+            }
+            upper = client->window;
+        }
+    }
+
+    Window known_top = native_top;
+    for (SpecialWindow *special = wm->special_windows; special; special = special->next) {
+        if (special->type == WINDOW_TYPE_DESKTOP) continue;
+        if (known_top) stack_relative(wm, special->window, known_top, Above);
+        else XRaiseWindow(wm->display, special->window);
+        known_top = special->window;
+    }
+    for (Client *client = wm->clients; client; client = client->next) {
+        if (!client->fullscreen ||
+            client->workspace != client->workspace->monitor->active_workspace)
+            continue;
+        if (known_top) stack_relative(wm, client->window, known_top, Above);
+        else XRaiseWindow(wm->display, client->window);
+        known_top = client->window;
+    }
     discard_enter_events(wm);
+}
+
+static void enforce_stacking(WM *wm)
+{
+    enforce_stacking_below(wm, None);
 }
 
 static unsigned int tab_count(const Workspace *workspace)
@@ -2087,6 +2154,24 @@ static void discover_existing_windows(WM *wm)
                     &children, &count)) {
         return;
     }
+
+    /* A notification daemon may survive a WM restart while a notification is
+     * visible.  Its override-redirect window is intentionally unmanaged, but
+     * a freshly created native bar would otherwise start above it.  Remember
+     * the lowest such notification as a one-shot startup ceiling. */
+    Window override_notification = None;
+    for (unsigned int i = 0; i < count; ++i) {
+        XWindowAttributes attrs;
+        if (!XGetWindowAttributes(wm->display, children[i], &attrs) ||
+            !attrs.override_redirect || attrs.class == InputOnly ||
+            attrs.map_state != IsViewable)
+            continue;
+        if (x11_read_window_type(wm, children[i]) == WINDOW_TYPE_NOTIFICATION) {
+            override_notification = children[i];
+            break;
+        }
+    }
+
     enum { SCAN_SPECIAL, SCAN_ORDINARY, SCAN_TRANSIENT };
     for (int pass = SCAN_SPECIAL; pass <= SCAN_TRANSIENT; ++pass) {
         for (unsigned int i = 0; i < count; ++i) {
@@ -2113,6 +2198,8 @@ static void discover_existing_windows(WM *wm)
             if (matches) manage_window(wm, children[i], false);
         }
     }
+    if (override_notification)
+        enforce_stacking_below(wm, override_notification);
     XFree(children);
 }
 

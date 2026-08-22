@@ -2,6 +2,7 @@
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
 
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -23,9 +24,23 @@ int main(int argc, char **argv)
     int y = atoi(argv[4]);
     unsigned int width = (unsigned int)strtoul(argv[5], NULL, 10);
     unsigned int height = (unsigned int)strtoul(argv[6], NULL, 10);
-    Window window = XCreateSimpleWindow(display, root, x, y, width, height,
-                                         0, BlackPixel(display, screen),
-                                         WhitePixel(display, screen));
+    bool override_notification = strcmp(argv[1], "OR_NOTIFICATION") == 0;
+    Window window;
+    if (override_notification) {
+        XSetWindowAttributes attributes = {
+            .override_redirect = True,
+            .background_pixel = WhitePixel(display, screen),
+        };
+        window = XCreateWindow(
+            display, root, x, y, width, height, 0,
+            DefaultDepth(display, screen), InputOutput,
+            DefaultVisual(display, screen),
+            CWOverrideRedirect | CWBackPixel, &attributes);
+    } else {
+        window = XCreateSimpleWindow(display, root, x, y, width, height,
+                                     0, BlackPixel(display, screen),
+                                     WhitePixel(display, screen));
+    }
     XStoreName(display, window, argv[2]);
     Atom utf8 = XInternAtom(display, "UTF8_STRING", False);
     Atom net_wm_name = XInternAtom(display, "_NET_WM_NAME", False);
@@ -34,12 +49,19 @@ int main(int argc, char **argv)
     XClassHint class_hint = {.res_name = argv[2], .res_class = "Box2430Fixture"};
     XSetClassHint(display, window, &class_hint);
 
+    const char *type_name = override_notification ? "NOTIFICATION" : argv[1];
     char atom_name[128];
-    snprintf(atom_name, sizeof(atom_name), "_NET_WM_WINDOW_TYPE_%s", argv[1]);
+    snprintf(atom_name, sizeof(atom_name), "_NET_WM_WINDOW_TYPE_%s", type_name);
     Atom type_property = XInternAtom(display, "_NET_WM_WINDOW_TYPE", False);
     Atom type = XInternAtom(display, atom_name, False);
     XChangeProperty(display, window, type_property, XA_ATOM, 32,
                     PropModeReplace, (unsigned char *)&type, 1);
+    if (override_notification) {
+        Atom state_property = XInternAtom(display, "_NET_WM_STATE", False);
+        Atom above = XInternAtom(display, "_NET_WM_STATE_ABOVE", False);
+        XChangeProperty(display, window, state_property, XA_ATOM, 32,
+                        PropModeReplace, (unsigned char *)&above, 1);
+    }
     if (argc == 8) {
         unsigned long strut[12] = {0};
         strut[2] = strtoul(argv[7], NULL, 10);
@@ -53,7 +75,8 @@ int main(int argc, char **argv)
     Atom delete_window = XInternAtom(display, "WM_DELETE_WINDOW", False);
     XSetWMProtocols(display, window, &delete_window, 1);
     XSelectInput(display, window, StructureNotifyMask);
-    XMapWindow(display, window);
+    if (override_notification) XMapRaised(display, window);
+    else XMapWindow(display, window);
     XFlush(display);
 
     for (;;) {

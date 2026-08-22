@@ -268,7 +268,7 @@ special windows / notifications / external docks
 real fullscreen client
 ```
 
-Tray host/icon windows are visually part of the native bar and must be raised/positioned with the bar without entering ordinary client stacking structures.
+Tray host/icon windows are visually part of the native bar and must be stacked/positioned with the bar without entering ordinary client stacking structures.
 
 The exact X calls may differ, but UI code must not create an independent competing stacking policy.
 

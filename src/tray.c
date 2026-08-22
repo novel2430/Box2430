@@ -651,11 +651,11 @@ void tray_set_allocation(WM *wm, const Monitor *monitor, Rect rect)
     tray->host_mapped = true;
 }
 
-void tray_raise(WM *wm)
+Window tray_host_window(const WM *wm)
 {
-    Tray *tray = wm ? wm->tray : NULL;
-    if (tray && tray->active && tray->host && tray->host_mapped)
-        XRaiseWindow(wm->display, tray->host);
+    const Tray *tray = wm ? wm->tray : NULL;
+    if (!tray || !tray->active || !tray->host || !tray->host_mapped) return None;
+    return tray->host;
 }
 
 TrayEventResult tray_handle_event(WM *wm, XEvent *event)
