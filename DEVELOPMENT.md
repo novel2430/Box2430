@@ -155,6 +155,20 @@ real hardware/session    -> user-controlled X session
 When fixing a reproducible bug, prefer the smallest regression scenario that
 fails on the buggy behavior and passes for the intended reason.
 
+### Debug semantic invariant checks
+
+The debug profile checks Box2430's in-memory semantic invariants after startup
+and completed X event handling. The checker validates monitor/workspace/client
+ownership, workspace-local order coherence, selected-monitor/focused-client
+coherence, and snap/maximize exclusion without querying X.
+
+The full Xvfb suite therefore exercises these checks through real management,
+focus, workspace, movement, lifecycle, and protocol paths. A failure reported as
+`semantic invariant failed` indicates internal authoritative-state corruption;
+diagnose the transition that preceded it rather than weakening the checker.
+
+Release builds use `NDEBUG` and omit the checker. Sanitizer builds retain it.
+
 ## `make test`
 
 The normal deterministic suite is:

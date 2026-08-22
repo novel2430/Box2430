@@ -34,6 +34,37 @@ The implementation deliberately stays close to one X11 event loop and explicit C
 state transitions. See `docs/IMPLEMENTATION_STYLE.md` for the long-lived
 engineering rationale.
 
+## Transition, Authority, and Projection responsibilities
+
+Box2430 organizes state-heavy paths using three responsibility categories:
+
+```text
+input / X observation
+    -> current policy and semantic transition
+    -> coherent in-memory authority
+    -> ordered X11 / ICCCM / EWMH / native-UI projection
+```
+
+This is a control-flow discipline, not a generic transaction engine or separate
+render pass. Protocol ordering remains next to the transition when it is part of
+observable behavior, as it is for workspace switching and WM-generated unmaps.
+
+The main interaction transitions are monitor activation, workspace activation,
+and client activation. Client activation owns semantic focus, selected-monitor
+coherence, workspace focus history, and urgency clearing. X input-focus
+projection is a separate operation: `FocusIn` compatibility can re-project the
+already chosen semantic focus without becoming another semantic focus path.
+
+Client movement has a smaller ownership-only boundary that changes the sole
+workspace owner and all membership/stable/stack/focus links without performing
+focus, mapping, geometry, EWMH, or UI work. The surrounding move or topology
+transition retains responsibility for geometry and ordered projection.
+
+Debug builds check the in-memory authority after startup and completed X event
+handling. These checks cover monitor/workspace ownership, global and
+workspace-local client ownership, list coherence, interaction coherence, and
+snap/maximize exclusion. They do not query X or assert transient mappedness.
+
 ## Core X11 concepts
 
 ### Manage, map, and visible
@@ -248,6 +279,11 @@ When Box2430 gives focus:
 A `FocusIn` compatibility path reasserts the WM's chosen focus if an ordinary
 client steals X focus behind Box2430's semantic state. It does not treat every
 raw focus event as permission for the client to redefine WM focus policy.
+
+Runtime `WM_HINTS` and `WM_PROTOCOLS` observations refresh focus capabilities
+without reactively choosing a different semantic focused client. A later focus
+transition uses the refreshed capability. This preserves the distinction
+between metadata observation and interaction intent.
 
 `_NET_ACTIVE_WINDOW` requests are controlled by `focus.active_window`:
 
@@ -697,6 +733,12 @@ Geometry is translated/clamped when monitor ownership changes. With `--follow`,
 focus/selection follows the client; without it, source/destination workspaces
 resolve their own visible/focus state.
 
+The ownership-only reassignment is shared with topology migration. Normal moves
+still preserve their established transition protocol: focused-source fallback
+is chosen before unlinking, same-monitor follow may keep the client mapped for
+incoming-first workspace activation, and follow activation ends by focusing and
+raising the moved client.
+
 Workspace-bar `workspace move-window` uses the same lower-level move path and can
 therefore move a focused client to a workspace label on another monitor.
 
@@ -827,6 +869,7 @@ incidental refactor:
 * ordinary clients are non-reparented; tray icons are protocol-specific embedded children;
 * workspaces are per-monitor, not one global desktop list;
 * selected monitor and focused client are distinct state;
+* semantic client focus decisions and X input-focus reassertion are distinct;
 * monitor geometry and workarea are distinct;
 * native bar reservation and MONOCLE tab reservation occur at different geometry layers;
 * semantic client geometry and temporary X presentation are distinct;

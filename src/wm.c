@@ -27,7 +27,239 @@ static void recompute_workareas(WM *wm);
 static void apply_normal_hints(WM *wm, Client *client, int *width, int *height);
 static void materialize_client_geometry(WM *wm, Client *client);
 static void grab_client_buttons(WM *wm, Client *client, bool focused);
+static bool client_is_visible(const Client *client);
 static void reconcile_client_mapping(WM *wm, Client *client);
+static void translate_client_latent_geometry(Client *client, Rect old_monitor,
+                                             Rect new_monitor);
+static void clamp_client_latent_geometry(WM *wm, Client *client, Rect workarea);
+
+#ifndef NDEBUG
+static void invariant_failure(const char *message)
+{
+    fprintf(stderr, "box2430: semantic invariant failed: %s\n", message);
+    abort();
+}
+
+static bool monitor_belongs_to_wm(const WM *wm, const Monitor *monitor)
+{
+    for (unsigned int i = 0; i < wm->monitor_count; ++i)
+        if (&wm->monitors[i] == monitor) return true;
+    return false;
+}
+
+static bool workspace_belongs_to_wm(const WM *wm, const Workspace *workspace)
+{
+    for (unsigned int i = 0; i < wm->monitor_count; ++i)
+        for (unsigned int j = 0; j < wm->config.workspace_count; ++j)
+            if (&wm->monitors[i].workspaces[j] == workspace) return true;
+    return false;
+}
+
+static unsigned int global_client_occurrences(const WM *wm, const Client *target)
+{
+    unsigned int count = 0;
+    for (const Client *client = wm->clients; client; client = client->next)
+        if (client == target) ++count;
+    return count;
+}
+
+static unsigned int membership_occurrences(const Workspace *workspace,
+                                           const Client *target,
+                                           unsigned int limit)
+{
+    unsigned int count = 0;
+    unsigned int visited = 0;
+    for (const Client *client = workspace->clients; client;
+         client = client->workspace_next) {
+        if (++visited > limit)
+            invariant_failure("workspace membership contains a cycle");
+        if (client == target) ++count;
+    }
+    return count;
+}
+
+static unsigned int tab_occurrences(const Workspace *workspace,
+                                    const Client *target, unsigned int limit)
+{
+    unsigned int count = 0;
+    unsigned int visited = 0;
+    for (const Client *client = workspace->tab_head; client;
+         client = client->tab_next) {
+        if (++visited > limit)
+            invariant_failure("workspace stable order contains a cycle");
+        if (client == target) ++count;
+    }
+    return count;
+}
+
+static unsigned int stack_occurrences(const Workspace *workspace,
+                                      const Client *target, unsigned int limit)
+{
+    unsigned int count = 0;
+    unsigned int visited = 0;
+    for (const Client *client = workspace->stack_head; client;
+         client = client->stack_next) {
+        if (++visited > limit)
+            invariant_failure("workspace stack order contains a cycle");
+        if (client == target) ++count;
+    }
+    return count;
+}
+
+static unsigned int focus_occurrences(const Workspace *workspace,
+                                      const Client *target, unsigned int limit)
+{
+    unsigned int count = 0;
+    unsigned int visited = 0;
+    for (const Client *client = workspace->focus_head; client;
+         client = client->focus_next) {
+        if (++visited > limit)
+            invariant_failure("workspace focus history contains a cycle");
+        if (client == target) ++count;
+    }
+    return count;
+}
+
+static unsigned int checked_global_client_count(const WM *wm)
+{
+    const Client *slow = wm->clients;
+    const Client *fast = wm->clients;
+    while (fast && fast->next) {
+        slow = slow->next;
+        fast = fast->next->next;
+        if (slow == fast) invariant_failure("global client list contains a cycle");
+    }
+
+    unsigned int count = 0;
+    for (const Client *client = wm->clients; client; client = client->next)
+        ++count;
+    return count;
+}
+
+static void check_workspace_invariants(const WM *wm, const Workspace *workspace,
+                                       unsigned int global_count)
+{
+    unsigned int membership_count = 0;
+    for (const Client *client = workspace->clients; client;
+         client = client->workspace_next) {
+        if (++membership_count > global_count)
+            invariant_failure("workspace membership contains a cycle or duplicate");
+        if (client->workspace != workspace)
+            invariant_failure("workspace membership contains a foreign client");
+        if (global_client_occurrences(wm, client) != 1)
+            invariant_failure("workspace client is not globally owned exactly once");
+        if (membership_occurrences(workspace, client, global_count) != 1)
+            invariant_failure("workspace membership contains a duplicate client");
+        if (tab_occurrences(workspace, client, global_count) != 1)
+            invariant_failure("workspace stable order differs from membership");
+        if (stack_occurrences(workspace, client, global_count) != 1)
+            invariant_failure("workspace stack order differs from membership");
+    }
+
+    unsigned int tab_count = 0;
+    const Client *tab_previous = NULL;
+    for (const Client *client = workspace->tab_head; client;
+         client = client->tab_next) {
+        if (++tab_count > global_count)
+            invariant_failure("workspace stable order contains a cycle");
+        if (client->tab_prev != tab_previous)
+            invariant_failure("workspace stable order has inconsistent links");
+        if (membership_occurrences(workspace, client, global_count) != 1)
+            invariant_failure("stable-order client is not a workspace member");
+        tab_previous = client;
+    }
+    if (tab_previous != workspace->tab_tail)
+        invariant_failure("workspace stable-order tail is inconsistent");
+    if (tab_count != membership_count)
+        invariant_failure("workspace stable-order size differs from membership");
+
+    unsigned int stack_count = 0;
+    const Client *stack_previous = NULL;
+    for (const Client *client = workspace->stack_head; client;
+         client = client->stack_next) {
+        if (++stack_count > global_count)
+            invariant_failure("workspace stack order contains a cycle");
+        if (client->stack_prev != stack_previous)
+            invariant_failure("workspace stack order has inconsistent links");
+        if (membership_occurrences(workspace, client, global_count) != 1)
+            invariant_failure("stack-order client is not a workspace member");
+        stack_previous = client;
+    }
+    if (stack_previous != workspace->stack_tail)
+        invariant_failure("workspace stack-order tail is inconsistent");
+    if (stack_count != membership_count)
+        invariant_failure("workspace stack-order size differs from membership");
+
+    unsigned int focus_count = 0;
+    const Client *focus_previous = NULL;
+    for (const Client *client = workspace->focus_head; client;
+         client = client->focus_next) {
+        if (++focus_count > membership_count)
+            invariant_failure("workspace focus history contains a cycle or duplicate");
+        if (client->focus_prev != focus_previous)
+            invariant_failure("workspace focus history has inconsistent links");
+        if (membership_occurrences(workspace, client, global_count) != 1)
+            invariant_failure("focus-history client is not a workspace member");
+        if (focus_occurrences(workspace, client, membership_count) != 1)
+            invariant_failure("workspace focus history contains a duplicate client");
+        focus_previous = client;
+    }
+    if (focus_previous != workspace->focus_tail)
+        invariant_failure("workspace focus-history tail is inconsistent");
+}
+
+static void wm_check_invariants(const WM *wm)
+{
+    if (!wm->monitors || wm->monitor_count == 0)
+        invariant_failure("WM has no monitor authority");
+    if (!monitor_belongs_to_wm(wm, wm->selected_monitor))
+        invariant_failure("selected monitor is outside WM monitor authority");
+
+    unsigned int global_count = checked_global_client_count(wm);
+    for (unsigned int i = 0; i < wm->monitor_count; ++i) {
+        const Monitor *monitor = &wm->monitors[i];
+        if (!monitor->workspaces)
+            invariant_failure("monitor has no workspace authority");
+        if (monitor->index != i)
+            invariant_failure("monitor index does not match its authority slot");
+        if (!workspace_belongs_to_wm(wm, monitor->active_workspace) ||
+            monitor->active_workspace->monitor != monitor)
+            invariant_failure("active workspace does not belong to its monitor");
+        for (unsigned int j = 0; j < wm->config.workspace_count; ++j) {
+            const Workspace *workspace = &monitor->workspaces[j];
+            if (workspace->monitor != monitor || workspace->index != j)
+                invariant_failure("workspace owner or index is inconsistent");
+            check_workspace_invariants(wm, workspace, global_count);
+        }
+    }
+
+    for (const Client *client = wm->clients; client; client = client->next) {
+        if (!workspace_belongs_to_wm(wm, client->workspace))
+            invariant_failure("globally owned client has no valid workspace");
+        if (membership_occurrences(client->workspace, client, global_count) != 1)
+            invariant_failure("globally owned client is not owned by one workspace");
+        if (client->snap_state != SNAP_NONE && client->maximized)
+            invariant_failure("client is both snapped and maximized");
+    }
+
+    if (wm->focused_client) {
+        const Client *focused = wm->focused_client;
+        if (global_client_occurrences(wm, focused) != 1)
+            invariant_failure("focused client is not globally owned");
+        if (focused->workspace != focused->workspace->monitor->active_workspace)
+            invariant_failure("focused client is not semantically visible");
+        if (focused->workspace->monitor != wm->selected_monitor)
+            invariant_failure("focused client and selected monitor disagree");
+        /* WM_HINTS/WM_PROTOCOLS observations intentionally do not reactively
+         * move an already established semantic focus. A later focus
+         * transition still filters through client_can_focus(). */
+    }
+}
+
+#define WM_CHECK_INVARIANTS(wm) wm_check_invariants(wm)
+#else
+#define WM_CHECK_INVARIANTS(wm) ((void)0)
+#endif
 
 static void handle_signal(int signal_number)
 {
@@ -320,6 +552,22 @@ static void unlink_workspace_orders(Workspace *workspace, Client *client)
     unlink_workspace_focus(workspace, client);
 }
 
+/* Change the sole workspace owner and every workspace-local order without
+ * performing focus, mapping, geometry, stacking, EWMH, or UI projection. */
+static void reassign_client_workspace_authority(Client *client,
+                                                Workspace *workspace)
+{
+    Workspace *old = client->workspace;
+    if (old == workspace) return;
+    unlink_workspace_orders(old, client);
+    client->workspace = workspace;
+    client->workspace_next = NULL;
+    client->tab_prev = client->tab_next = NULL;
+    client->stack_prev = client->stack_next = NULL;
+    client->focus_prev = client->focus_next = NULL;
+    append_workspace_orders(workspace, client);
+}
+
 static bool client_supports_protocol(WM *wm, Client *client, Atom protocol)
 {
     Atom *protocols = NULL;
@@ -411,7 +659,7 @@ Client *workspace_focus_target(Workspace *workspace)
     return workspace_focus_fallback(workspace, NULL);
 }
 
-static void set_client_input_focus(WM *wm, Client *client, Time time)
+static void project_client_input_focus(WM *wm, Client *client, Time time)
 {
     if (client->accepts_input)
         XSetInputFocus(wm->display, client->window, RevertToPointerRoot, time);
@@ -425,10 +673,35 @@ static void set_client_input_focus(WM *wm, Client *client, Time time)
         message.xclient.data.l[1] = (long)time;
         XSendEvent(wm->display, client->window, False, NoEventMask, &message);
     }
+}
+
+/* Project the semantic focus already chosen by Box2430. This helper does not
+ * select a client, monitor, or workspace and is also used to repair unexpected
+ * FocusIn observations without creating a second semantic focus path. */
+static void project_semantic_input_focus(WM *wm, Time time)
+{
+    if (wm->focused_client)
+        project_client_input_focus(wm, wm->focused_client, time);
+    else
+        XSetInputFocus(wm->display, wm->root, RevertToPointerRoot, time);
     x11_update_active_window(wm);
 }
 
-static void focus_client(WM *wm, Client *client, Time time)
+static void set_selected_monitor_authority(WM *wm, Monitor *monitor)
+{
+    wm->selected_monitor = monitor;
+}
+
+static void select_monitor_context(WM *wm, Monitor *monitor)
+{
+    set_selected_monitor_authority(wm, monitor);
+    x11_update_workarea(wm);
+}
+
+/* Semantic client activation for the single interaction seat. Client-specific
+ * activation owns focused_client, selected_monitor, and workspace focus
+ * history; projection remains ordered exactly as in the V1.7 focus path. */
+static void client_activate(WM *wm, Client *client, Time time)
 {
     if (client && !client_can_focus(client)) return;
     if (wm->focused_client == client && client) return;
@@ -439,21 +712,39 @@ static void focus_client(WM *wm, Client *client, Time time)
         grab_client_buttons(wm, previous, false);
     }
     if (!client) {
-        XSetInputFocus(wm->display, wm->root, RevertToPointerRoot, time);
-        x11_update_active_window(wm);
+        project_semantic_input_focus(wm, time);
         ui_update(wm);
         return;
     }
 
-    wm->selected_monitor = client->workspace->monitor;
-    x11_update_workarea(wm);
+    select_monitor_context(wm, client->workspace->monitor);
     promote_workspace_focus(client->workspace, client);
     set_client_urgent(wm, client, false);
     ui_client_border_refresh(wm, client);
     grab_client_buttons(wm, client, true);
-    set_client_input_focus(wm, client, time);
+    project_semantic_input_focus(wm, time);
     ui_update(wm);
     if (wm->config.raise_on_focus) client_raise(wm, client);
+}
+
+/* Activate a monitor without changing its active workspace or warping the
+ * pointer. The selected monitor remains authoritative even when the active
+ * workspace has no focusable client. */
+static void monitor_activate(WM *wm, Monitor *monitor, Time time)
+{
+    if (!monitor) return;
+    select_monitor_context(wm, monitor);
+    client_activate(wm, workspace_focus_target(monitor->active_workspace), time);
+}
+
+static void resolve_focus_before_client_removal(WM *wm, Client *client)
+{
+    if (wm->focused_client != client) return;
+    /* Fallback depends on the disappearing client's still-valid focus/tab
+     * links. Avoid refreshing X presentation on that disappearing client. */
+    Client *fallback = workspace_focus_fallback(client->workspace, client);
+    wm->focused_client = NULL;
+    client_activate(wm, fallback, CurrentTime);
 }
 
 static void present_client_geometry(WM *wm, Client *client, Rect geometry)
@@ -597,7 +888,7 @@ void client_focus_relative(WM *wm, bool forward)
         if (!cursor) cursor = forward ? workspace->tab_head : workspace->tab_tail;
         if (client_can_focus(cursor)) { target = cursor; break; }
     }
-    focus_client(wm, target, CurrentTime);
+    client_activate(wm, target, CurrentTime);
     if (workspace->mode == WORKSPACE_MONOCLE && target) client_raise(wm, target);
 }
 
@@ -605,7 +896,7 @@ void client_focus_tab_target(WM *wm, Client *client, Time time)
 {
     Workspace *workspace = wm->selected_monitor->active_workspace;
     if (!client || client->workspace != workspace) return;
-    focus_client(wm, client, time);
+    client_activate(wm, client, time);
     if (workspace->mode == WORKSPACE_MONOCLE) client_raise(wm, client);
 }
 
@@ -835,7 +1126,7 @@ void mouse_begin_drag(WM *wm, Client *client, bool resize, int root_x, int root_
         commit_client_geometry(wm, client, client->normal_geometry);
         if (was_maximized) update_net_wm_state(wm, client);
     }
-    focus_client(wm, client, CurrentTime);
+    client_activate(wm, client, CurrentTime);
     wm->drag.client = client;
     wm->drag.active = true;
     wm->drag.resize = resize;
@@ -937,7 +1228,7 @@ static void finish_drag(WM *wm)
         if (maximize) client_set_maximized(wm, client, true);
         else client_snap(wm, client, wm->drag.preview_snap);
     }
-    focus_client(wm, client, CurrentTime);
+    client_activate(wm, client, CurrentTime);
     wm->drag.active = false;
     wm->drag.client = NULL;
     wm->drag.preview_monitor = NULL;
@@ -1001,6 +1292,19 @@ static void client_set_requested_fullscreen(WM *wm, Client *client, bool request
     update_net_wm_state(wm, client);
 }
 
+static void project_client_mapped(WM *wm, Client *client)
+{
+    XMapWindow(wm->display, client->window);
+}
+
+/* Record causality before issuing the X request so its later UnmapNotify is an
+ * observation of WM projection rather than a client-withdrawal transition. */
+static void project_client_unmapped(WM *wm, Client *client)
+{
+    ++client->ignored_unmaps;
+    XUnmapWindow(wm->display, client->window);
+}
+
 void workspace_activate(WM *wm, Monitor *monitor, Workspace *workspace)
 {
     if (!monitor || !workspace || workspace->monitor != monitor) return;
@@ -1008,9 +1312,7 @@ void workspace_activate(WM *wm, Monitor *monitor, Workspace *workspace)
     bool monitor_changed = wm->selected_monitor != monitor;
     if (monitor->active_workspace == workspace) {
         if (!monitor_changed) return;
-        wm->selected_monitor = monitor;
-        x11_update_workarea(wm);
-        focus_client(wm, workspace_focus_target(workspace), CurrentTime);
+        monitor_activate(wm, monitor, CurrentTime);
         return;
     }
 
@@ -1019,17 +1321,15 @@ void workspace_activate(WM *wm, Monitor *monitor, Workspace *workspace)
     for (Client *client = workspace->clients; client; client = client->workspace_next)
         materialize_client_geometry(wm, client);
 
-    wm->selected_monitor = monitor;
-    x11_update_workarea(wm);
+    select_monitor_context(wm, monitor);
     monitor->active_workspace = workspace;
     for (Client *client = workspace->stack_head; client; client = client->stack_next) {
-        XMapWindow(wm->display, client->window);
+        project_client_mapped(wm, client);
         XRaiseWindow(wm->display, client->window);
     }
-    focus_client(wm, target, CurrentTime);
+    client_activate(wm, target, CurrentTime);
     for (Client *client = old->clients; client; client = client->workspace_next) {
-        ++client->ignored_unmaps;
-        XUnmapWindow(wm->display, client->window);
+        project_client_unmapped(wm, client);
     }
     ui_bar_update(wm);
     enforce_stacking(wm);
@@ -1038,13 +1338,12 @@ void workspace_activate(WM *wm, Monitor *monitor, Workspace *workspace)
 void monitor_select(WM *wm, Monitor *monitor)
 {
     if (!monitor) return;
-    wm->selected_monitor = monitor;
-    x11_update_workarea(wm);
+    select_monitor_context(wm, monitor);
     int x = monitor->geometry.x + monitor->geometry.width / 2;
     int y = monitor->geometry.y + monitor->geometry.height / 2;
     XWarpPointer(wm->display, None, wm->root, 0, 0, 0, 0, x, y);
     Workspace *workspace = monitor->active_workspace;
-    focus_client(wm, workspace_focus_target(workspace), CurrentTime);
+    client_activate(wm, workspace_focus_target(workspace), CurrentTime);
 }
 
 static Rect clamp_to_workarea(Rect geometry, Rect area, unsigned int border_width)
@@ -1079,46 +1378,32 @@ void client_move_to_workspace(WM *wm, Client *client, Workspace *workspace,
     Monitor *new_monitor = workspace->monitor;
     bool was_focused = wm->focused_client == client;
     if (was_focused)
-        focus_client(wm, workspace_focus_fallback(old, client), CurrentTime);
+        client_activate(wm, workspace_focus_fallback(old, client), CurrentTime);
 
     bool keep_mapped_for_follow = follow && old_monitor == new_monitor &&
         workspace != new_monitor->active_workspace;
-    if (old == old->monitor->active_workspace && !keep_mapped_for_follow) {
-        ++client->ignored_unmaps;
-        XUnmapWindow(wm->display, client->window);
-    }
-    unlink_workspace_orders(old, client);
+    bool was_visible = client_is_visible(client);
+    if (was_visible && !keep_mapped_for_follow)
+        project_client_unmapped(wm, client);
     if (translate_monitor_geometry && old_monitor != new_monitor) {
-        int dx = new_monitor->geometry.x - old_monitor->geometry.x;
-        int dy = new_monitor->geometry.y - old_monitor->geometry.y;
-        client->geometry.x += dx;
-        client->geometry.y += dy;
-        client->normal_geometry.x += dx;
-        client->normal_geometry.y += dy;
-        unsigned int border_width = client_free_border_width(wm, client);
-        client->geometry = clamp_to_workarea(client->geometry, new_monitor->workarea,
-                                              border_width);
-        client->normal_geometry = clamp_to_workarea(
-            client->normal_geometry, new_monitor->workarea, border_width);
+        translate_client_latent_geometry(client, old_monitor->geometry,
+                                         new_monitor->geometry);
+        clamp_client_latent_geometry(wm, client, new_monitor->workarea);
     }
-    client->workspace = workspace;
-    client->workspace_next = NULL;
-    client->tab_prev = client->tab_next = NULL;
-    client->stack_prev = client->stack_next = NULL;
-    client->focus_prev = client->focus_next = NULL;
-    append_workspace_orders(workspace, client);
+    reassign_client_workspace_authority(client, workspace);
 
     materialize_client_geometry(wm, client);
 
     if (follow) {
-        wm->selected_monitor = workspace->monitor;
+        /* Preserve V1.7 follow staging: suppress the active-workspace fallback
+         * before the moved client itself becomes the final focus target. */
+        set_selected_monitor_authority(wm, workspace->monitor);
         workspace_activate(wm, workspace->monitor, workspace);
-        XMapWindow(wm->display, client->window);
-        focus_client(wm, client, CurrentTime);
+        project_client_mapped(wm, client);
+        client_activate(wm, client, CurrentTime);
         client_raise(wm, client);
-    } else if (workspace == workspace->monitor->active_workspace) {
-        XMapWindow(wm->display, client->window);
-    }
+    } else if (client_is_visible(client))
+        project_client_mapped(wm, client);
     ui_update(wm);
 }
 
@@ -1497,17 +1782,16 @@ static void manage_window(WM *wm, Window window, bool map_window)
     x11_set_wm_state(wm, window, NormalState);
     read_wm_hints(wm, client);
     read_wm_protocols(wm, client);
-    bool visible = client->workspace == client->workspace->monitor->active_workspace;
+    bool visible = client_is_visible(client);
     if (visible && (map_window || attrs.map_state == IsUnmapped)) {
-        XMapWindow(wm->display, window);
+        project_client_mapped(wm, client);
     } else if (!map_window && !visible && attrs.map_state == IsViewable) {
-        ++client->ignored_unmaps;
-        XUnmapWindow(wm->display, window);
+        project_client_unmapped(wm, client);
     }
     if (policy.raise_on_map) {
         client_raise(wm, client);
     }
-    if (policy.focus_on_map && visible) focus_client(wm, client, CurrentTime);
+    if (policy.focus_on_map && visible) client_activate(wm, client, CurrentTime);
     if (x11_window_requests_fullscreen(wm, window))
         client_set_requested_fullscreen(wm, client, true);
     ui_update(wm);
@@ -1517,11 +1801,7 @@ static void manage_window(WM *wm, Window window, bool map_window)
 static void unmanage_client(WM *wm, Client *client, bool withdrawn)
 {
     Workspace *workspace = client->workspace;
-    if (wm->focused_client == client) {
-        Client *fallback = workspace_focus_fallback(workspace, client);
-        wm->focused_client = NULL;
-        focus_client(wm, fallback, CurrentTime);
-    }
+    resolve_focus_before_client_removal(wm, client);
     unlink_workspace_orders(workspace, client);
 
     Client **link = &wm->clients;
@@ -1665,19 +1945,6 @@ static bool plan_monitor_topology(WM *wm, const Rect *new_rects,
     return true;
 }
 
-static void topology_reassign_client(Client *client, Workspace *workspace)
-{
-    Workspace *old = client->workspace;
-    if (old == workspace) return;
-    unlink_workspace_orders(old, client);
-    client->workspace = workspace;
-    client->workspace_next = NULL;
-    client->tab_prev = client->tab_next = NULL;
-    client->stack_prev = client->stack_next = NULL;
-    client->focus_prev = client->focus_next = NULL;
-    append_workspace_orders(workspace, client);
-}
-
 static void translate_client_latent_geometry(Client *client, Rect old_monitor,
                                              Rect new_monitor)
 {
@@ -1714,10 +1981,9 @@ static void reconcile_client_mapping(WM *wm, Client *client)
     if (!XGetWindowAttributes(wm->display, client->window, &attrs)) return;
     bool visible = client_is_visible(client);
     if (visible && attrs.map_state == IsUnmapped) {
-        XMapWindow(wm->display, client->window);
+        project_client_mapped(wm, client);
     } else if (!visible && attrs.map_state != IsUnmapped) {
-        ++client->ignored_unmaps;
-        XUnmapWindow(wm->display, client->window);
+        project_client_unmapped(wm, client);
     }
 }
 
@@ -1788,7 +2054,7 @@ static void reconcile_monitors(WM *wm)
             Workspace *destination =
                 &staged[client_plan->new_monitor_index]
                      .workspaces[client_plan->workspace_index];
-            topology_reassign_client(client, destination);
+            reassign_client_workspace_authority(client, destination);
         }
     }
 
@@ -1801,7 +2067,8 @@ static void reconcile_monitors(WM *wm)
         wm->monitors[i].index = i;
         retarget_monitor_workspaces(wm, &wm->monitors[i]);
     }
-    wm->selected_monitor = &wm->monitors[plan.selected_new_index];
+    set_selected_monitor_authority(
+        wm, &wm->monitors[plan.selected_new_index]);
 
     ui_snap_preview_hide(wm);
     wm->drag.preview_monitor = plan.preview_new_index >= 0
@@ -1847,13 +2114,13 @@ static void reconcile_monitors(WM *wm)
     Client *preferred_focus = plan.preferred_focus;
     if (preferred_focus && client_is_visible(preferred_focus) &&
         client_can_focus(preferred_focus)) {
-        wm->selected_monitor = preferred_focus->workspace->monitor;
+        set_selected_monitor_authority(wm, preferred_focus->workspace->monitor);
         promote_workspace_focus(preferred_focus->workspace, preferred_focus);
         x11_update_active_window(wm);
     } else {
-        focus_client(wm, NULL, CurrentTime);
+        client_activate(wm, NULL, CurrentTime);
         Workspace *workspace = wm->selected_monitor->active_workspace;
-        focus_client(wm, workspace_focus_target(workspace), CurrentTime);
+        client_activate(wm, workspace_focus_target(workspace), CurrentTime);
     }
 
     x11_update_workarea(wm);
@@ -1919,11 +2186,13 @@ static void handle_event(WM *wm, XEvent *event)
     TrayEventResult tray_result = tray_handle_event(wm, event);
     if (tray_result & TRAY_EVENT_CONSUMED) {
         if (tray_result & TRAY_EVENT_CHANGED) enforce_stacking(wm);
+        WM_CHECK_INVARIANTS(wm);
         return;
     }
     Client *client;
     SpecialWindow *special;
     switch (event->type) {
+    /* Client requests are interpreted through current management policy. */
     case MapRequest:
         manage_window(wm, event->xmaprequest.window, true);
         break;
@@ -1931,8 +2200,12 @@ static void handle_event(WM *wm, XEvent *event)
         handle_configure_request(wm, &event->xconfigurerequest);
         break;
     case ConfigureNotify:
+        /* Root geometry is an X observation; reconciliation owns any
+         * resulting topology transition. */
         if (event->xconfigure.window == wm->root) reconcile_monitors(wm);
         break;
+    /* Lifecycle observations may consume WM projection causality or trigger
+     * the established unmanage transition. */
     case DestroyNotify:
         client = find_client(wm, event->xdestroywindow.window);
         if (client) unmanage_client(wm, client, false);
@@ -1967,16 +2240,14 @@ static void handle_event(WM *wm, XEvent *event)
         break;
     case ButtonPress:
         {
+        /* Pointer hit testing supplies context for user-intent transitions. */
         if (event->xbutton.window == wm->root) {
             if (event->xbutton.button == Button1 &&
                 event->xbutton.subwindow == None) {
                 Monitor *monitor = monitor_at_point(
                     wm, event->xbutton.x_root, event->xbutton.y_root);
                 if (monitor != wm->selected_monitor) {
-                    wm->selected_monitor = monitor;
-                    x11_update_workarea(wm);
-                    focus_client(wm, workspace_focus_target(
-                        monitor->active_workspace), event->xbutton.time);
+                    monitor_activate(wm, monitor, event->xbutton.time);
                 }
             }
             break;
@@ -2047,7 +2318,7 @@ static void handle_event(WM *wm, XEvent *event)
                     break;
                 }
             }
-            focus_client(wm, client, event->xbutton.time);
+            client_activate(wm, client, event->xbutton.time);
             if (matched) {
                 const char *argv[BOX2430_MAX_COMMAND_ARGS];
                 for (int i = 0; i < matched->argc; ++i) argv[i] = matched->argv[i];
@@ -2079,16 +2350,17 @@ static void handle_event(WM *wm, XEvent *event)
             client != wm->focused_client &&
             event->xcrossing.mode == NotifyNormal &&
             event->xcrossing.detail != NotifyInferior)
-            focus_client(wm, client, event->xcrossing.time);
+            client_activate(wm, client, event->xcrossing.time);
         break;
     case FocusIn:
+        /* Observation only: repair X focus from semantic Authority. */
         if (wm->focused_client &&
             event->xfocus.window != wm->focused_client->window &&
             event->xfocus.mode == NotifyNormal &&
             event->xfocus.detail != NotifyPointer &&
             event->xfocus.detail != NotifyPointerRoot &&
             event->xfocus.detail != NotifyDetailNone) {
-            set_client_input_focus(wm, wm->focused_client, CurrentTime);
+            project_semantic_input_focus(wm, CurrentTime);
         }
         break;
     case PropertyNotify:
@@ -2144,6 +2416,7 @@ static void handle_event(WM *wm, XEvent *event)
         }
         break;
     case ClientMessage:
+        /* EWMH messages remain client requests subject to existing policy. */
         client = find_client(wm, event->xclient.window);
         if (event->xclient.message_type == wm->atoms.net_active_window && client &&
             client != wm->focused_client) {
@@ -2151,7 +2424,7 @@ static void handle_event(WM *wm, XEvent *event)
                 set_client_urgent(wm, client, true);
             } else if (client->workspace ==
                        client->workspace->monitor->active_workspace) {
-                focus_client(wm, client, CurrentTime);
+                client_activate(wm, client, CurrentTime);
             }
         } else if (event->xclient.message_type == wm->atoms.net_close_window && client) {
             client_close(wm, client);
@@ -2189,6 +2462,7 @@ static void handle_event(WM *wm, XEvent *event)
     default:
         break;
     }
+    WM_CHECK_INVARIANTS(wm);
 }
 
 static void discover_existing_windows(WM *wm)
@@ -2284,6 +2558,7 @@ bool wm_init(WM *wm, const char *display_name, const char *config_path,
     grab_default_keys(wm);
     discover_existing_windows(wm);
     XSync(wm->display, False);
+    WM_CHECK_INVARIANTS(wm);
     return true;
 }
 
@@ -2334,7 +2609,7 @@ void wm_destroy(WM *wm)
        keep clients hidden.  Remap them so a successor WM can discover every
        live client without Box2430-specific persistent state. */
     for (Client *client = wm->clients; client; client = client->next)
-        XMapWindow(wm->display, client->window);
+        project_client_mapped(wm, client);
     while (wm->clients) {
         unmanage_client(wm, wm->clients, true);
     }
