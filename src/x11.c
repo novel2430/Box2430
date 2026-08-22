@@ -61,6 +61,10 @@ void x11_init_atoms(WM *wm)
     wm->atoms.net_wm_state = XInternAtom(wm->display, "_NET_WM_STATE", False);
     wm->atoms.net_wm_state_fullscreen =
         XInternAtom(wm->display, "_NET_WM_STATE_FULLSCREEN", False);
+    wm->atoms.net_wm_state_maximized_horz =
+        XInternAtom(wm->display, "_NET_WM_STATE_MAXIMIZED_HORZ", False);
+    wm->atoms.net_wm_state_maximized_vert =
+        XInternAtom(wm->display, "_NET_WM_STATE_MAXIMIZED_VERT", False);
     wm->atoms.net_close_window = XInternAtom(wm->display, "_NET_CLOSE_WINDOW", False);
     wm->atoms.utf8_string = XInternAtom(wm->display, "UTF8_STRING", False);
     wm->atoms.net_wm_name = XInternAtom(wm->display, "_NET_WM_NAME", False);
@@ -89,6 +93,8 @@ void x11_init_atoms(WM *wm)
         wm->atoms.net_client_list_stacking,
         wm->atoms.net_wm_state,
         wm->atoms.net_wm_state_fullscreen,
+        wm->atoms.net_wm_state_maximized_horz,
+        wm->atoms.net_wm_state_maximized_vert,
         wm->atoms.net_close_window,
         wm->atoms.net_wm_name,
         wm->atoms.net_wm_window_type,

@@ -298,6 +298,11 @@ Snap targets are computed from the monitor workarea. Side and corner sizes come 
 
 Entering snap or maximize preserves `normal_geometry` when needed. Clearing the state restores that geometry.
 
+EWMH maximize requests reuse this same full-workarea maximize state. Box2430 does not
+introduce independent horizontal/vertical maximize modes: a request involving either
+`_NET_WM_STATE_MAXIMIZED_HORZ` or `_NET_WM_STATE_MAXIMIZED_VERT` maps to the
+single existing maximize state, and an active maximize is advertised with both atoms.
+
 Interactive movement or resizing first leaves snap/maximize and returns the client to normal geometry.
 
 ### ICCCM size constraints
@@ -555,7 +560,7 @@ Important event families include:
 * `EnterNotify`: sloppy focus;
 * `PropertyNotify`: size-hint invalidation, focus/protocol capability refresh,
   title/class/transient/type metadata updates, and dock struts;
-* `ClientMessage`: EWMH activation, close, and fullscreen requests;
+* `ClientMessage`: EWMH activation, close, fullscreen, and maximize requests;
 * root `ConfigureNotify`: monitor reconciliation;
 * `Expose`: tab-bar redraw.
 
@@ -575,6 +580,7 @@ The current implementation supports the parts needed by Box2430 rather than atte
 * `_NET_CLIENT_LIST_STACKING`
 * `_NET_SUPPORTING_WM_CHECK` with a `Box2430` identity window
 * `_NET_WM_STATE_FULLSCREEN`
+* `_NET_WM_STATE_MAXIMIZED_HORZ` / `_NET_WM_STATE_MAXIMIZED_VERT`
 * `_NET_CLOSE_WINDOW`
 * `_NET_WM_WINDOW_TYPE`
 * `_NET_WM_STRUT` / `_NET_WM_STRUT_PARTIAL`

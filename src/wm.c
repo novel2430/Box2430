@@ -515,13 +515,20 @@ static Rect monocle_content_area(const WM *wm, const Workspace *workspace)
     return area;
 }
 
-static void update_fullscreen_property(WM *wm, Client *client)
+static void update_net_wm_state(WM *wm, Client *client)
 {
-    if (client->fullscreen || client->client_fullscreen) {
-        Atom state = wm->atoms.net_wm_state_fullscreen;
+    Atom states[3];
+    int count = 0;
+    if (client->fullscreen || client->client_fullscreen)
+        states[count++] = wm->atoms.net_wm_state_fullscreen;
+    if (client->maximized) {
+        states[count++] = wm->atoms.net_wm_state_maximized_horz;
+        states[count++] = wm->atoms.net_wm_state_maximized_vert;
+    }
+    if (count > 0) {
         XChangeProperty(wm->display, client->window, wm->atoms.net_wm_state,
                         XA_ATOM, 32, PropModeReplace,
-                        (unsigned char *)&state, 1);
+                        (unsigned char *)states, count);
     } else {
         XDeleteProperty(wm->display, client->window, wm->atoms.net_wm_state);
     }
@@ -764,14 +771,17 @@ void client_snap(WM *wm, Client *client, SnapState state)
             client->snap_state = SNAP_NONE;
             client->maximized = false;
             commit_client_geometry(wm, client, client->normal_geometry);
+            update_net_wm_state(wm, client);
         }
         return;
     }
     if (client->snap_state == SNAP_NONE && !client->maximized)
         client->normal_geometry = client->geometry;
+    bool was_maximized = client->maximized;
     client->maximized = false;
     client->snap_state = state;
     commit_client_geometry(wm, client, snap_geometry(wm, client, state));
+    if (was_maximized) update_net_wm_state(wm, client);
 }
 
 static Monitor *monitor_at_point(WM *wm, int x, int y)
@@ -819,9 +829,11 @@ void mouse_begin_drag(WM *wm, Client *client, bool resize, int root_x, int root_
     if (!client || client->workspace->mode == WORKSPACE_MONOCLE || client->fullscreen)
         return;
     if (client->snap_state != SNAP_NONE || client->maximized) {
+        bool was_maximized = client->maximized;
         client->snap_state = SNAP_NONE;
         client->maximized = false;
         commit_client_geometry(wm, client, client->normal_geometry);
+        if (was_maximized) update_net_wm_state(wm, client);
     }
     focus_client(wm, client, CurrentTime);
     wm->drag.client = client;
@@ -950,6 +962,7 @@ void client_set_maximized(WM *wm, Client *client, bool maximized)
         client->snap_state = SNAP_NONE;
         commit_client_geometry(wm, client, client->normal_geometry);
     }
+    update_net_wm_state(wm, client);
 }
 
 static void apply_real_fullscreen(WM *wm, Client *client, bool fullscreen)
@@ -958,7 +971,7 @@ static void apply_real_fullscreen(WM *wm, Client *client, bool fullscreen)
     client->fullscreen = fullscreen;
     materialize_client_geometry(wm, client);
     enforce_stacking(wm);
-    update_fullscreen_property(wm, client);
+    update_net_wm_state(wm, client);
     x11_update_client_lists(wm);
 }
 
@@ -974,7 +987,7 @@ void client_set_fullscreen(WM *wm, Client *client, bool fullscreen)
     if (!client) return;
     client->user_fullscreen = fullscreen;
     apply_real_fullscreen(wm, client, client_wants_real_fullscreen(client));
-    update_fullscreen_property(wm, client);
+    update_net_wm_state(wm, client);
 }
 
 static void client_set_requested_fullscreen(WM *wm, Client *client, bool requested)
@@ -985,7 +998,7 @@ static void client_set_requested_fullscreen(WM *wm, Client *client, bool request
         client->client_fullscreen = requested;
     }
     apply_real_fullscreen(wm, client, client_wants_real_fullscreen(client));
-    update_fullscreen_property(wm, client);
+    update_net_wm_state(wm, client);
 }
 
 void workspace_activate(WM *wm, Monitor *monitor, Workspace *workspace)
@@ -2120,12 +2133,24 @@ static void handle_event(WM *wm, XEvent *event)
             }
         } else if (event->xclient.message_type == wm->atoms.net_close_window && client) {
             client_close(wm, client);
-        } else if (event->xclient.message_type == wm->atoms.net_wm_state && client &&
-                   (event->xclient.data.l[1] == (long)wm->atoms.net_wm_state_fullscreen ||
-                    event->xclient.data.l[2] == (long)wm->atoms.net_wm_state_fullscreen)) {
+        } else if (event->xclient.message_type == wm->atoms.net_wm_state && client) {
             long action = event->xclient.data.l[0];
-            bool requested = action == 1 || (action == 2 && !client->client_fullscreen);
-            if (action >= 0 && action <= 2) client_set_requested_fullscreen(wm, client, requested);
+            Atom state1 = (Atom)event->xclient.data.l[1];
+            Atom state2 = (Atom)event->xclient.data.l[2];
+            if (action < 0 || action > 2) break;
+            if (state1 == wm->atoms.net_wm_state_fullscreen ||
+                state2 == wm->atoms.net_wm_state_fullscreen) {
+                bool requested = action == 1 ||
+                                 (action == 2 && !client->client_fullscreen);
+                client_set_requested_fullscreen(wm, client, requested);
+            }
+            if (state1 == wm->atoms.net_wm_state_maximized_horz ||
+                state1 == wm->atoms.net_wm_state_maximized_vert ||
+                state2 == wm->atoms.net_wm_state_maximized_horz ||
+                state2 == wm->atoms.net_wm_state_maximized_vert) {
+                bool requested = action == 1 || (action == 2 && !client->maximized);
+                client_set_maximized(wm, client, requested);
+            }
         }
         break;
     case Expose:

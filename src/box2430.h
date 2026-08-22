@@ -397,6 +397,8 @@ typedef struct Atoms {
     Atom net_client_list_stacking;
     Atom net_wm_state;
     Atom net_wm_state_fullscreen;
+    Atom net_wm_state_maximized_horz;
+    Atom net_wm_state_maximized_vert;
     Atom net_close_window;
     Atom utf8_string;
     Atom net_wm_name;

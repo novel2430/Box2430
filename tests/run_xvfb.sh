@@ -21,6 +21,7 @@ for scenario in \
     xvfb_semantic_geometry.sh \
     xvfb_configure_request.sh \
     xvfb_fullscreen_transitions.sh \
+    xvfb_maximize_ewmh.sh \
     xvfb_mouse.sh \
     xvfb_numlock.sh \
     xvfb_keymap.sh \
