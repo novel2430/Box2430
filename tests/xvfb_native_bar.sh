@@ -59,8 +59,8 @@ Xvfb "$display" -screen 0 800x600x24 -nolisten tcp >"$tmp_dir/xvfb.log" 2>&1 &
 xvfb_pid=$!
 wait_for "DISPLAY=$display xdpyinfo >/dev/null 2>&1" || fail "Xvfb did not start"
 
-# Top bar: reserve the post-strut workarea, stay between clients and tabs, and
-# remain mapped while real fullscreen covers all normal WM presentation.
+# Top bar with bottom tabs: reserve the post-strut workarea independently, stay
+# between clients and tabs, and remain mapped under real fullscreen.
 start_wm tests/fixtures/config-native-bar-top.toml top-wm.log
 wait_for "DISPLAY=$display xprop -root _NET_WORKAREA | grep -q '0, 24, 800, 576'" ||
     fail "top bar reservation missing from _NET_WORKAREA"
@@ -108,11 +108,11 @@ assert_geometry "$client" 0 54 796 542 "maximized client after strut + bar"
 assert_below "$bar" "$dock" "native bar is not below external dock"
 
 DISPLAY=$display xdotool key super+m
-wait_for "DISPLAY=$display xdotool search --name '^box2430-tabbar-0$' >/dev/null 2>&1" || fail "top tab bar missing"
+wait_for "DISPLAY=$display xdotool search --name '^box2430-tabbar-0$' >/dev/null 2>&1" || fail "bottom tab bar missing"
 tab=$(DISPLAY=$display xdotool search --name '^box2430-tabbar-0$' | head -n 1)
-wait_for "DISPLAY=$display xwininfo -id $tab | grep -q 'Map State: IsViewable'" || fail "top tab bar did not map"
-assert_geometry "$tab" 0 54 800 31 "top tab bar after strut + bar"
-assert_geometry "$client" 0 85 796 511 "top MONOCLE content"
+wait_for "DISPLAY=$display xwininfo -id $tab | grep -q 'Map State: IsViewable'" || fail "bottom tab bar did not map"
+assert_geometry "$tab" 0 569 800 31 "bottom tab bar after top strut + bar"
+assert_geometry "$client" 0 54 796 511 "bottom-tab MONOCLE content"
 assert_below "$bar" "$tab" "native bar is not below MONOCLE tabs"
 assert_below "$tab" "$dock" "MONOCLE tabs are not below external dock"
 
@@ -126,8 +126,8 @@ assert_below "$bar" "$client" "fullscreen client is not above native bar"
 assert_below "$tab" "$client" "fullscreen client is not above MONOCLE tabs"
 assert_below "$dock" "$client" "fullscreen client is not above external dock"
 DISPLAY=$display xdotool key super+f
-wait_for "test \"\$(DISPLAY=$display xwininfo -id $client | awk '/Absolute upper-left Y:/ {print \$4; exit}')\" = 85" ||
-    fail "fullscreen exit did not restore top MONOCLE content"
+wait_for "test \"\$(DISPLAY=$display xwininfo -id $client | awk '/Absolute upper-left Y:/ {print \$4; exit}')\" = 54" ||
+    fail "fullscreen exit did not restore bottom-tab MONOCLE content"
 
 kill "$dock_pid" 2>/dev/null || true
 wait "$dock_pid" 2>/dev/null || true
@@ -135,8 +135,8 @@ dock_pid=
 stop_client
 stop_wm
 
-# Bottom bar: workarea stays above the bar, while MONOCLE tabs attach to the
-# bottom edge of client content rather than to the monitor edge.
+# Bottom bar with top tabs: workarea stays above the bar while the MONOCLE tab
+# edge remains independently configurable.
 start_wm tests/fixtures/config-native-bar-bottom.toml bottom-wm.log
 wait_for "DISPLAY=$display xprop -root _NET_WORKAREA | grep -q '0, 0, 800, 576'" ||
     fail "bottom bar reservation missing from _NET_WORKAREA"
@@ -153,18 +153,18 @@ wait_for "test \"\$(DISPLAY=$display xwininfo -id $client | awk '/Height:/ {prin
     fail "bottom maximize did not use post-bar workarea"
 assert_geometry "$client" 0 0 796 572 "bottom-bar maximize"
 DISPLAY=$display xdotool key super+m
-wait_for "DISPLAY=$display xdotool search --name '^box2430-tabbar-0$' >/dev/null 2>&1" || fail "bottom tab bar missing"
+wait_for "DISPLAY=$display xdotool search --name '^box2430-tabbar-0$' >/dev/null 2>&1" || fail "top tab bar missing"
 tab=$(DISPLAY=$display xdotool search --name '^box2430-tabbar-0$' | head -n 1)
-wait_for "DISPLAY=$display xwininfo -id $tab | grep -q 'Map State: IsViewable'" || fail "bottom tab bar did not map"
-assert_geometry "$tab" 0 545 800 31 "bottom tab bar"
-assert_geometry "$client" 0 0 796 541 "bottom MONOCLE content"
+wait_for "DISPLAY=$display xwininfo -id $tab | grep -q 'Map State: IsViewable'" || fail "top tab bar did not map"
+assert_geometry "$tab" 0 0 800 31 "top tab bar with bottom native bar"
+assert_geometry "$client" 0 31 796 541 "top-tab MONOCLE content"
 assert_below "$client" "$bar" "bottom MONOCLE client is not below native bar"
 assert_below "$bar" "$tab" "bottom native bar is not below MONOCLE tabs"
 stop_client
 stop_wm
 
-# Position remains the MONOCLE edge policy even when the native bar itself is
-# disabled.  This also keeps the V1.5 full-monitor workarea when disabled.
+# Tab position remains independent when the native bar itself is disabled.
+# This also keeps the V1.5 full-monitor workarea when disabled.
 start_wm tests/fixtures/config-native-bar-disabled-bottom.toml disabled-wm.log
 wait_for "DISPLAY=$display xprop -root _NET_WORKAREA | grep -q '0, 0, 800, 600'" ||
     fail "disabled native bar still reserved workarea"

@@ -4,6 +4,7 @@ position = "bottom"
 
 [appearance.tabs]
 enabled = true
+position = "bottom"
 height = 31
 
 [bindings]

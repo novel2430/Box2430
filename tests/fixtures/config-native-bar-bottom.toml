@@ -6,6 +6,7 @@ bg = "#335577"
 
 [appearance.tabs]
 enabled = true
+position = "top"
 height = 31
 
 [bindings]

@@ -421,7 +421,7 @@ static Rect monocle_content_area(const WM *wm, const Monitor *monitor)
 {
     Rect area = monitor->workarea;
     int tab_height = (int)ui_tab_height(wm, monitor);
-    if (wm->config.bar.position == UI_BAR_TOP)
+    if (wm->config.tabs.position == UI_EDGE_TOP)
         area.y += tab_height;
     area.height -= tab_height;
     return area;
@@ -632,7 +632,7 @@ static void calculate_workareas(WM *wm)
             if (height >= (unsigned int)area.height)
                 height = (unsigned int)area.height - 1;
             monitor->bar_geometry.height = (int)height;
-            if (wm->config.bar.position == UI_BAR_TOP) {
+            if (wm->config.bar.position == UI_EDGE_TOP) {
                 monitor->bar_geometry.y = area.y;
                 area.y += (int)height;
             } else {

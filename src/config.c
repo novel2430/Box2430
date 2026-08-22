@@ -131,13 +131,14 @@ void config_set_defaults(Config *config)
         .snap_corner_height_ratio = 0.5,
         .tabs = {
             .enabled = true,
+            .position = UI_EDGE_TOP,
             .height = 24,
             .padding = 8,
             .source = UI_LABEL_TITLE,
         },
         .bar = {
             .enabled = true,
-            .position = UI_BAR_TOP,
+            .position = UI_EDGE_TOP,
             .height = 24,
             .padding = 8,
             .gap = 8,
@@ -292,6 +293,16 @@ static bool read_enum(toml_datum_t table, const char *prefix, const char *key,
     }
     fprintf(stderr, "box2430: invalid value for config option %s.%s\n", prefix, key);
     return false;
+}
+
+static bool read_ui_edge(toml_datum_t table, const char *prefix, const char *key,
+                         UIEdge *edge)
+{
+    static const char *values[] = {"top", "bottom"};
+    unsigned int choice = (unsigned int)*edge;
+    if (!read_enum(table, prefix, key, values, 2, &choice)) return false;
+    *edge = (UIEdge)choice;
+    return true;
 }
 
 static bool read_color(toml_datum_t table, const char *prefix, const char *key,
@@ -868,11 +879,14 @@ static bool parse_rules(Config *candidate, toml_datum_t rules)
 static bool parse_tabs(Config *candidate, toml_datum_t tabs)
 {
     static const char *keys[] = {
-        "enabled", "height", "padding", "font", "font_bold", "source",
-        "format", "fg", "bg", "font_style", "inactive", "active", "urgent",
+        "enabled", "position", "height", "padding", "font", "font_bold",
+        "source", "format", "fg", "bg", "font_style", "inactive", "active",
+        "urgent",
     };
-    return validate_keys(tabs, "appearance.tabs", keys, 13) &&
+    return validate_keys(tabs, "appearance.tabs", keys, 14) &&
            read_bool(tabs, "appearance.tabs", "enabled", &candidate->tabs.enabled) &&
+           read_ui_edge(tabs, "appearance.tabs", "position",
+                        &candidate->tabs.position) &&
            read_uint(tabs, "appearance.tabs", "height", 12, 128,
                      &candidate->tabs.height) &&
            read_uint(tabs, "appearance.tabs", "padding", 0, 128,
@@ -987,11 +1001,9 @@ static bool parse_bar(Config *candidate, toml_datum_t bar)
         "enabled", "position", "height", "padding", "gap", "font", "font_bold",
         "fg", "bg", "left", "center", "right", "widgets",
     };
-    static const char *positions[] = {"top", "bottom"};
-    unsigned int position = (unsigned int)candidate->bar.position;
     if (!validate_keys(bar, "appearance.bar", keys, 13) ||
         !read_bool(bar, "appearance.bar", "enabled", &candidate->bar.enabled) ||
-        !read_enum(bar, "appearance.bar", "position", positions, 2, &position) ||
+        !read_ui_edge(bar, "appearance.bar", "position", &candidate->bar.position) ||
         !read_uint(bar, "appearance.bar", "height", 12, 128,
                    &candidate->bar.height) ||
         !read_uint(bar, "appearance.bar", "padding", 0, 128,
@@ -1010,7 +1022,6 @@ static bool parse_bar(Config *candidate, toml_datum_t bar)
                           &candidate->bar.center_count) ||
         !read_widget_list(bar, "right", candidate->bar.right,
                           &candidate->bar.right_count)) return false;
-    candidate->bar.position = (UIBarPosition)position;
     return validate_widget_uniqueness(&candidate->bar) &&
            parse_bar_widgets(&candidate->bar, toml_get(bar, "widgets"));
 }

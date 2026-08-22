@@ -1047,7 +1047,7 @@ void ui_tab_draw(WM *wm, Monitor *monitor)
 static int tab_window_y(const WM *wm, const Monitor *monitor,
                         unsigned int height)
 {
-    if (wm->config.bar.position == UI_BAR_BOTTOM)
+    if (wm->config.tabs.position == UI_EDGE_BOTTOM)
         return monitor->workarea.y + monitor->workarea.height - (int)height;
     return monitor->workarea.y;
 }

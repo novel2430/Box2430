@@ -62,10 +62,10 @@ typedef enum UILabelSource {
     UI_LABEL_INSTANCE,
 } UILabelSource;
 
-typedef enum UIBarPosition {
-    UI_BAR_TOP,
-    UI_BAR_BOTTOM,
-} UIBarPosition;
+typedef enum UIEdge {
+    UI_EDGE_TOP,
+    UI_EDGE_BOTTOM,
+} UIEdge;
 
 typedef enum UIBarWidget {
     UI_WIDGET_WORKSPACES,
@@ -117,6 +117,7 @@ typedef struct UIStyleOverride {
 
 typedef struct TabConfig {
     bool enabled;
+    UIEdge position;
     unsigned int height;
     unsigned int padding;
     char font[128];
@@ -164,7 +165,7 @@ typedef struct ClockWidgetConfig {
 
 typedef struct BarConfig {
     bool enabled;
-    UIBarPosition position;
+    UIEdge position;
     unsigned int height;
     unsigned int padding;
     unsigned int gap;

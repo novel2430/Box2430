@@ -101,6 +101,7 @@ font_style = "normal"
 
 [appearance.tabs]
 enabled = true
+position = "top"
 height = 24
 padding = 8
 font = "monospace:size=10"
