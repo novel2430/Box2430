@@ -6,6 +6,9 @@
 bool ui_init(WM *wm);
 void ui_destroy(WM *wm);
 void ui_update(WM *wm);
+bool ui_is_internal_window(const WM *wm, Window window);
+void ui_snap_preview_show(WM *wm, Rect outer);
+void ui_snap_preview_hide(WM *wm);
 
 UIStyle ui_resolve_style(UIStyle base, const UIStyleOverride *override);
 const char *ui_client_label(const Client *client, UILabelSource source);

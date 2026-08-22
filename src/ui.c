@@ -1266,6 +1266,107 @@ void ui_client_border_refresh(WM *wm, Client *client)
     XSetWindowBorder(wm->display, client->window, pixel);
 }
 
+static void init_snap_preview_resources(WM *wm)
+{
+    wm->ui_snap_preview_color = WhitePixel(wm->display, wm->screen);
+    wm->ui_snap_preview_color_allocated = false;
+    if (!wm->config.snap_preview) return;
+
+    XColor color = {0};
+    XColor exact = {0};
+    if (XAllocNamedColor(wm->display,
+                         DefaultColormap(wm->display, wm->screen),
+                         wm->config.snap_preview_color, &color, &exact)) {
+        wm->ui_snap_preview_color = color.pixel;
+        wm->ui_snap_preview_color_allocated = true;
+    }
+}
+
+static void free_snap_preview_resources(WM *wm)
+{
+    if (!wm->ui_snap_preview_color_allocated) return;
+    XFreeColors(wm->display, DefaultColormap(wm->display, wm->screen),
+                &wm->ui_snap_preview_color, 1, 0);
+    wm->ui_snap_preview_color_allocated = false;
+}
+
+static bool ensure_snap_preview_windows(WM *wm)
+{
+    if (wm->ui_snap_preview_windows[0]) return true;
+    XSetWindowAttributes attributes = {
+        .override_redirect = True,
+        .background_pixel = wm->ui_snap_preview_color,
+    };
+    for (size_t i = 0; i < 4; ++i) {
+        wm->ui_snap_preview_windows[i] = XCreateWindow(
+            wm->display, wm->root, 0, 0, 1, 1, 0, CopyFromParent,
+            InputOutput, CopyFromParent, CWOverrideRedirect | CWBackPixel,
+            &attributes);
+        if (!wm->ui_snap_preview_windows[i]) {
+            for (size_t j = 0; j < i; ++j) {
+                XDestroyWindow(wm->display, wm->ui_snap_preview_windows[j]);
+                wm->ui_snap_preview_windows[j] = None;
+            }
+            return false;
+        }
+    }
+    return true;
+}
+
+void ui_snap_preview_hide(WM *wm)
+{
+    if (!wm || !wm->display) return;
+    for (size_t i = 0; i < 4; ++i)
+        if (wm->ui_snap_preview_windows[i])
+            XUnmapWindow(wm->display, wm->ui_snap_preview_windows[i]);
+}
+
+void ui_snap_preview_show(WM *wm, Rect outer)
+{
+    if (!wm || !wm->display || !wm->config.snap_preview ||
+        !ensure_snap_preview_windows(wm))
+        return;
+
+    int width = outer.width;
+    int height = outer.height;
+    int line = (int)wm->config.snap_preview_width;
+    if (line > width) line = width;
+    if (line > height) line = height;
+    Rect pieces[4] = {
+        {outer.x, outer.y, width, line},
+        {outer.x, outer.y + height - line, width, line},
+        {outer.x, outer.y, line, height},
+        {outer.x + width - line, outer.y, line, height},
+    };
+    for (size_t i = 0; i < 4; ++i) {
+        XMoveResizeWindow(wm->display, wm->ui_snap_preview_windows[i],
+                          pieces[i].x, pieces[i].y,
+                          (unsigned int)pieces[i].width,
+                          (unsigned int)pieces[i].height);
+        XMapRaised(wm->display, wm->ui_snap_preview_windows[i]);
+    }
+}
+
+static void destroy_snap_preview_windows(WM *wm)
+{
+    for (size_t i = 0; i < 4; ++i) {
+        if (wm->ui_snap_preview_windows[i])
+            XDestroyWindow(wm->display, wm->ui_snap_preview_windows[i]);
+        wm->ui_snap_preview_windows[i] = None;
+    }
+}
+
+bool ui_is_internal_window(const WM *wm, Window window)
+{
+    if (!wm || !window) return false;
+    for (unsigned int i = 0; i < wm->monitor_count; ++i)
+        if (wm->monitors[i].bar == window || wm->monitors[i].tab_bar == window)
+            return true;
+    for (size_t i = 0; i < 4; ++i)
+        if (wm->ui_snap_preview_windows[i] == window) return true;
+    return false;
+}
+
 static bool init_tab_resources(WM *wm)
 {
     Visual *visual = DefaultVisual(wm->display, wm->screen);
@@ -1377,9 +1478,11 @@ static bool init_bar_resources(WM *wm)
 bool ui_init(WM *wm)
 {
     init_border_resources(wm);
+    init_snap_preview_resources(wm);
     ui_status_refresh(wm);
     update_clock_text(wm);
     if (!init_tab_resources(wm)) {
+        free_snap_preview_resources(wm);
         free_border_resources(wm);
         free(wm->status_text);
         wm->status_text = NULL;
@@ -1388,6 +1491,7 @@ bool ui_init(WM *wm)
     if (!init_bar_resources(wm)) {
         free_tab_colors(wm);
         close_tab_fonts(wm);
+        free_snap_preview_resources(wm);
         free_border_resources(wm);
         free(wm->status_text);
         wm->status_text = NULL;
@@ -1405,6 +1509,7 @@ bool ui_init(WM *wm)
                 close_bar_fonts(wm);
                 free_tab_colors(wm);
                 close_tab_fonts(wm);
+                free_snap_preview_resources(wm);
                 free_border_resources(wm);
                 free(wm->status_text);
                 wm->status_text = NULL;
@@ -1429,6 +1534,7 @@ bool ui_init(WM *wm)
             }
             free_tab_colors(wm);
             close_tab_fonts(wm);
+            free_snap_preview_resources(wm);
             free_border_resources(wm);
             free(wm->status_text);
             wm->status_text = NULL;
@@ -1463,6 +1569,8 @@ void ui_destroy(WM *wm)
         wm->tab_resources_ready = false;
     }
     close_tab_fonts(wm);
+    destroy_snap_preview_windows(wm);
+    free_snap_preview_resources(wm);
     free_border_resources(wm);
     free(wm->status_text);
     wm->status_text = NULL;

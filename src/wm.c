@@ -692,30 +692,6 @@ static Monitor *monitor_at_point(WM *wm, int x, int y)
     return wm->selected_monitor;
 }
 
-static void hide_snap_preview(WM *wm)
-{
-    for (size_t i = 0; i < 4; ++i)
-        if (wm->drag.preview_windows[i])
-            XUnmapWindow(wm->display, wm->drag.preview_windows[i]);
-}
-
-static bool ensure_snap_preview(WM *wm)
-{
-    if (wm->drag.preview_windows[0]) return true;
-    XSetWindowAttributes attributes = {
-        .override_redirect = True,
-        .background_pixel = wm->snap_preview_color,
-    };
-    for (size_t i = 0; i < 4; ++i) {
-        wm->drag.preview_windows[i] = XCreateWindow(
-            wm->display, wm->root, 0, 0, 1, 1, 0, CopyFromParent,
-            InputOutput, CopyFromParent, CWOverrideRedirect | CWBackPixel,
-            &attributes);
-        if (!wm->drag.preview_windows[i]) return false;
-    }
-    return true;
-}
-
 static Rect snap_preview_outer_target(WM *wm, Client *client, Monitor *monitor,
                                       SnapState state, bool maximize)
 {
@@ -725,31 +701,6 @@ static Rect snap_preview_outer_target(WM *wm, Client *client, Monitor *monitor,
     inner.width += 2 * border;
     inner.height += 2 * border;
     return inner;
-}
-
-static void show_snap_preview(WM *wm, Client *client, Monitor *monitor,
-                              SnapState state, bool maximize)
-{
-    if (!wm->config.snap_preview || !ensure_snap_preview(wm)) return;
-    Rect outer = snap_preview_outer_target(wm, client, monitor, state, maximize);
-    int width = outer.width;
-    int height = outer.height;
-    int line = (int)wm->config.snap_preview_width;
-    if (line > width) line = width;
-    if (line > height) line = height;
-    Rect pieces[4] = {
-        {outer.x, outer.y, width, line},
-        {outer.x, outer.y + height - line, width, line},
-        {outer.x, outer.y, line, height},
-        {outer.x + width - line, outer.y, line, height},
-    };
-    for (size_t i = 0; i < 4; ++i) {
-        XMoveResizeWindow(wm->display, wm->drag.preview_windows[i],
-                          pieces[i].x, pieces[i].y,
-                          (unsigned int)pieces[i].width,
-                          (unsigned int)pieces[i].height);
-        XMapRaised(wm->display, wm->drag.preview_windows[i]);
-    }
 }
 
 static SnapState pointer_snap_target(WM *wm, Monitor *monitor, int x, int y)
@@ -838,14 +789,14 @@ static void update_drag(WM *wm, int root_x, int root_y)
         if (target != wm->drag.preview_snap ||
             desired_monitor != wm->drag.preview_monitor ||
             maximize != wm->drag.preview_maximized) {
-            hide_snap_preview(wm);
+            ui_snap_preview_hide(wm);
             wm->drag.preview_snap = target;
             wm->drag.preview_monitor = desired_monitor;
             wm->drag.preview_maximized = maximize;
-            if (maximize) {
-                show_snap_preview(wm, client, monitor, SNAP_NONE, true);
-            } else if (target != SNAP_NONE) {
-                show_snap_preview(wm, client, monitor, target, false);
+            if (maximize || target != SNAP_NONE) {
+                Rect outer = snap_preview_outer_target(
+                    wm, client, monitor, target, maximize);
+                ui_snap_preview_show(wm, outer);
             }
         }
     }
@@ -871,7 +822,7 @@ static void finish_drag(WM *wm)
                                    (int)wm->config.snap_edge_zone;
         }
     }
-    hide_snap_preview(wm);
+    ui_snap_preview_hide(wm);
     if (!target) {
         int center_x = client->geometry.x + client->geometry.width / 2;
         int center_y = client->geometry.y + client->geometry.height / 2;
@@ -1742,7 +1693,7 @@ static void reconcile_monitors(WM *wm)
     }
     wm->selected_monitor = &wm->monitors[plan.selected_new_index];
 
-    hide_snap_preview(wm);
+    ui_snap_preview_hide(wm);
     wm->drag.preview_monitor = plan.preview_new_index >= 0
         ? &wm->monitors[plan.preview_new_index] : NULL;
     wm->drag.preview_snap = SNAP_NONE;
@@ -2152,8 +2103,6 @@ bool wm_init(WM *wm, const char *display_name, const char *config_path,
     if (!tray_init(wm)) return false;
     ui_bar_update(wm);
 
-    wm->snap_preview_color = named_color(wm, wm->config.snap_preview_color,
-                                         WhitePixel(wm->display, wm->screen));
     grab_default_keys(wm);
     discover_existing_windows(wm);
     XSync(wm->display, False);
@@ -2218,9 +2167,6 @@ void wm_destroy(WM *wm)
     XDeleteProperty(wm->display, wm->root, wm->atoms.net_client_list_stacking);
     XDeleteProperty(wm->display, wm->root, wm->atoms.net_supported);
     XDeleteProperty(wm->display, wm->root, wm->atoms.net_workarea);
-    for (size_t i = 0; i < 4; ++i)
-        if (wm->drag.preview_windows[i])
-            XDestroyWindow(wm->display, wm->drag.preview_windows[i]);
     tray_destroy(wm);
     ui_destroy(wm);
     XSync(wm->display, False);

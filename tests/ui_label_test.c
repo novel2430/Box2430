@@ -93,9 +93,22 @@ int main(void)
         return fail("active+urgent workspace state mismatch");
 
     WM wm = {0};
-    Monitor clock_monitor = {.bar_geometry = {0, 0, 800, 24}};
+    Monitor clock_monitor = {
+        .bar_geometry = {0, 0, 800, 24},
+        .bar = (Window)101,
+        .tab_bar = (Window)102,
+    };
     wm.monitors = &clock_monitor;
     wm.monitor_count = 1;
+    wm.ui_snap_preview_windows[0] = (Window)103;
+    if (!ui_is_internal_window(&wm, (Window)101) ||
+        !ui_is_internal_window(&wm, (Window)102) ||
+        !ui_is_internal_window(&wm, (Window)103))
+        return fail("UI internal-window ownership mismatch");
+    if (ui_is_internal_window(&wm, (Window)104) ||
+        ui_is_internal_window(&wm, None))
+        return fail("ordinary window misclassified as UI-owned");
+
     wm.config.bar.enabled = true;
     if (ui_clock_visible(&wm))
         return fail("clock visibility enabled without a configured clock widget");

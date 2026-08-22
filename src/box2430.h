@@ -426,9 +426,10 @@ typedef struct WM {
         SnapState preview_snap;
         Monitor *preview_monitor;
         bool preview_maximized;
-        Window preview_windows[4];
     } drag;
-    unsigned long snap_preview_color;
+    Window ui_snap_preview_windows[4];
+    unsigned long ui_snap_preview_color;
+    bool ui_snap_preview_color_allocated;
     XftFont *tab_fonts[BOX2430_MAX_TAB_FONTS];
     unsigned int tab_font_count;
     XftFont *tab_fonts_bold[BOX2430_MAX_TAB_FONTS];

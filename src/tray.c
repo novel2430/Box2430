@@ -1,4 +1,5 @@
 #include "tray.h"
+#include "ui.h"
 
 #include <X11/Xatom.h>
 #include <X11/Xutil.h>
@@ -90,13 +91,7 @@ static bool window_owned_elsewhere(const WM *wm, Window window)
     for (const SpecialWindow *special = wm->special_windows; special;
          special = special->next)
         if (special->window == window) return true;
-    for (unsigned int i = 0; i < wm->monitor_count; ++i) {
-        if (wm->monitors[i].bar == window || wm->monitors[i].tab_bar == window)
-            return true;
-    }
-    for (size_t i = 0; i < sizeof(wm->drag.preview_windows) /
-                           sizeof(wm->drag.preview_windows[0]); ++i)
-        if (wm->drag.preview_windows[i] == window) return true;
+    if (ui_is_internal_window(wm, window)) return true;
     return false;
 }
 
