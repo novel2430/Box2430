@@ -15,6 +15,13 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 fail() { echo "FAIL: $*" >&2; exit 1; }
+image_convert() {
+    if command -v magick >/dev/null 2>&1; then
+        magick "$@"
+    else
+        convert "$@"
+    fi
+}
 wait_for() {
     attempts=0
     while ! sh -c "$1"; do
@@ -25,7 +32,7 @@ wait_for() {
 }
 capture() {
     DISPLAY=$display xwd -silent -root -out "build/evidence/$1.xwd"
-    convert "build/evidence/$1.xwd" "build/evidence/$1.png"
+    image_convert "build/evidence/$1.xwd" "build/evidence/$1.png"
 }
 
 mkdir -p build/evidence

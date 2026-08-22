@@ -16,6 +16,13 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 fail() { echo "FAIL: $*" >&2; exit 1; }
+image_convert() {
+    if command -v magick >/dev/null 2>&1; then
+        magick "$@"
+    else
+        convert "$@"
+    fi
+}
 wait_for() {
     attempts=0
     while ! sh -c "$1"; do
@@ -161,7 +168,7 @@ assert_geometry "$client" 316 296 320 180 "FREE restore after snap/fullscreen to
 
 mkdir -p build/evidence
 DISPLAY=$display xwd -silent -root -out build/evidence/xephyr-topology.xwd
-convert build/evidence/xephyr-topology.xwd build/evidence/xephyr-topology.png
+image_convert build/evidence/xephyr-topology.xwd build/evidence/xephyr-topology.png
 
 kill "$third_pid" "$second_pid" "$client_pid" 2>/dev/null || true
 third_pid= second_pid= client_pid=

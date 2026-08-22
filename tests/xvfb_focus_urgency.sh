@@ -15,6 +15,13 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 fail() { echo "FAIL: $*" >&2; exit 1; }
+image_convert() {
+    if command -v magick >/dev/null 2>&1; then
+        magick "$@"
+    else
+        convert "$@"
+    fi
+}
 wait_for() {
     attempts=0
     while ! sh -c "$1"; do
@@ -28,7 +35,7 @@ wait_active() {
     wait_for "DISPLAY=$display xprop -root _NET_ACTIVE_WINDOW | grep -qi $wanted"
 }
 pixel_at() {
-    convert "$1" -format "%[pixel:p{$2,$3}]" info:
+    image_convert "$1" -format "%[pixel:p{$2,$3}]" info:
 }
 
 Xvfb "$display" -screen 0 800x600x24 -nolisten tcp >"$tmp_dir/xvfb.log" 2>&1 &

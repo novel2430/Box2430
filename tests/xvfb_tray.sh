@@ -66,9 +66,13 @@ wm_pid=$!
 wait_for "test -s $tmp_dir/manager.out" || fail "tray MANAGER announcement missing"
 wait "$watch_pid" || fail "tray MANAGER watcher failed"
 watch_pid=
-manager_owner=$(cat "$tmp_dir/manager.out")
+set -- $(cat "$tmp_dir/manager.out")
+manager_owner=$1
+manager_timestamp=$2
 selection_owner=$(DISPLAY=$display "$tray_bin" owner) || fail "tray selection not owned"
 [ "$manager_owner" = "$selection_owner" ] || fail "MANAGER owner does not match tray selection owner"
+[ "$manager_timestamp" -gt 0 ] || fail "MANAGER announcement used CurrentTime instead of a server timestamp"
+DISPLAY=$display "$tray_bin" visual >/dev/null || fail "tray visual property does not match the default visual"
 DISPLAY=$display xprop -id "$selection_owner" _NET_SYSTEM_TRAY_ORIENTATION | grep -q '= 0' ||
     fail "tray orientation hint is not horizontal"
 

@@ -15,6 +15,13 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 fail() { echo "FAIL: $*" >&2; exit 1; }
+image_convert() {
+    if command -v magick >/dev/null 2>&1; then
+        magick "$@"
+    else
+        convert "$@"
+    fi
+}
 wait_for() {
     attempts=0
     while ! sh -c "$1"; do
@@ -152,7 +159,7 @@ wait_pointer_ge 800 ||
 
 mkdir -p build/evidence
 DISPLAY=$display xwd -silent -root -out build/evidence/xephyr-multimon.xwd
-convert build/evidence/xephyr-multimon.xwd build/evidence/xephyr-multimon.png
+image_convert build/evidence/xephyr-multimon.xwd build/evidence/xephyr-multimon.png
 
 kill "$drag_pid" "$two_pid" "$one_pid" 2>/dev/null || true
 drag_pid= two_pid= one_pid=

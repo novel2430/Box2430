@@ -2,6 +2,7 @@
 
 #include <X11/Xatom.h>
 #include <X11/Xlib.h>
+#include <X11/Xutil.h>
 #include <signal.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -50,7 +51,8 @@ static int run_watch(Display *display, int screen)
                 event.xclient.message_type == manager &&
                 event.xclient.format == 32 &&
                 (Atom)event.xclient.data.l[1] == selection) {
-                printf("0x%lx\n", (Window)event.xclient.data.l[2]);
+                printf("0x%lx %lu\n", (Window)event.xclient.data.l[2],
+                       (unsigned long)event.xclient.data.l[0]);
                 fflush(stdout);
                 return 0;
             }
@@ -125,7 +127,8 @@ static void send_dock_request(Display *display, Window owner, Atom opcode,
 
 static int run_icon(Display *display, int screen, const char *name,
                     unsigned int width, unsigned int height,
-                    unsigned int resize_width, unsigned int resize_height)
+                    unsigned int resize_width, unsigned int resize_height,
+                    unsigned int minimum_width)
 {
     Window root = RootWindow(display, screen);
     Atom selection = tray_selection(display, screen);
@@ -146,6 +149,14 @@ static int run_icon(Display *display, int screen, const char *name,
     XSelectInput(display, icon, StructureNotifyMask | PropertyChangeMask);
     bool mapped = true;
     set_xembed_info(display, icon, xembed_info, mapped);
+    if (minimum_width) {
+        XSizeHints hints = {0};
+        hints.flags = PMinSize;
+        hints.min_width = minimum_width > 0x7fffffffU
+            ? 0x7fffffff : (int)minimum_width;
+        hints.min_height = 1;
+        XSetWMNormalHints(display, icon, &hints);
+    }
 
     send_dock_request(display, owner, opcode, icon);
 
@@ -187,6 +198,96 @@ static int run_icon(Display *display, int screen, const char *name,
     }
     XDestroyWindow(display, icon);
     XSync(display, False);
+    return 0;
+}
+
+static int run_request_dock(Display *display, int screen, Window window)
+{
+    Window owner = XGetSelectionOwner(display, tray_selection(display, screen));
+    if (owner == None) return 1;
+    Atom opcode = XInternAtom(display, "_NET_SYSTEM_TRAY_OPCODE", False);
+    send_dock_request(display, owner, opcode, window);
+    XSync(display, False);
+    return 0;
+}
+
+static int run_destroy_window(Display *display, Window window)
+{
+    XDestroyWindow(display, window);
+    XSync(display, False);
+    return 0;
+}
+
+static int run_visual(Display *display, int screen)
+{
+    Window owner = XGetSelectionOwner(display, tray_selection(display, screen));
+    if (owner == None) return 1;
+    Atom visual_atom = XInternAtom(display, "_NET_SYSTEM_TRAY_VISUAL", False);
+    Atom actual_type = None;
+    int actual_format = 0;
+    unsigned long count = 0;
+    unsigned long remaining = 0;
+    unsigned char *data = NULL;
+    int status = XGetWindowProperty(display, owner, visual_atom, 0, 1, False,
+                                    XA_VISUALID, &actual_type, &actual_format,
+                                    &count, &remaining, &data);
+    unsigned long expected = XVisualIDFromVisual(DefaultVisual(display, screen));
+    bool valid = status == Success && data && actual_type == XA_VISUALID &&
+        actual_format == 32 && count == 1 &&
+        ((unsigned long *)data)[0] == expected;
+    if (data) XFree(data);
+    if (valid) printf("0x%lx\n", expected);
+    return valid ? 0 : 1;
+}
+
+static int run_synthetic_configure(Display *display, Window host, Window icon,
+                                   int width, int height)
+{
+    XEvent event = {0};
+    event.xconfigurerequest.type = ConfigureRequest;
+    event.xconfigurerequest.display = display;
+    event.xconfigurerequest.parent = host;
+    event.xconfigurerequest.window = icon;
+    event.xconfigurerequest.width = width;
+    event.xconfigurerequest.height = height;
+    event.xconfigurerequest.value_mask = CWWidth | CWHeight;
+    XSendEvent(display, host, False, SubstructureRedirectMask, &event);
+    XSync(display, False);
+    return 0;
+}
+
+static int run_storm(Display *display, int screen, unsigned int count)
+{
+    Window root = RootWindow(display, screen);
+    Atom selection = tray_selection(display, screen);
+    Window owner = XGetSelectionOwner(display, selection);
+    if (owner == None) return 1;
+    Atom opcode = XInternAtom(display, "_NET_SYSTEM_TRAY_OPCODE", False);
+    Atom xembed = XInternAtom(display, "_XEMBED", False);
+    Atom xembed_info = XInternAtom(display, "_XEMBED_INFO", False);
+
+    for (unsigned int i = 0; i < count; ++i) {
+        Window icon = XCreateSimpleWindow(display, root, 0, 0, 32, 32, 0, 0,
+                                          0x224466);
+        XSelectInput(display, icon, StructureNotifyMask | PropertyChangeMask);
+        set_xembed_info(display, icon, xembed_info, true);
+        send_dock_request(display, owner, opcode, icon);
+        Window host = None;
+        if (!wait_embedded(display, icon, xembed, &host)) return 1;
+
+        if ((i & 1U) == 0) {
+            XResizeWindow(display, icon, 4096, 1);
+            set_xembed_info(display, icon, xembed_info, false);
+            XDestroyWindow(display, icon);
+        } else {
+            set_xembed_info(display, icon, xembed_info, false);
+            set_xembed_info(display, icon, xembed_info, true);
+            XReparentWindow(display, icon, root, 0, 0);
+            XDestroyWindow(display, icon);
+        }
+        XSync(display, False);
+    }
+    printf("%u\n", count);
     return 0;
 }
 
@@ -244,6 +345,21 @@ int main(int argc, char **argv)
         Window owner = XGetSelectionOwner(display, tray_selection(display, screen));
         if (owner != None) printf("0x%lx\n", owner);
         result = owner != None ? 0 : 1;
+    } else if (strcmp(argv[1], "visual") == 0) {
+        result = run_visual(display, screen);
+    } else if (strcmp(argv[1], "request-dock") == 0 && argc == 3) {
+        result = run_request_dock(display, screen,
+                                  (Window)strtoul(argv[2], NULL, 0));
+    } else if (strcmp(argv[1], "destroy") == 0 && argc == 3) {
+        result = run_destroy_window(display,
+                                    (Window)strtoul(argv[2], NULL, 0));
+    } else if (strcmp(argv[1], "synthetic-configure") == 0 && argc == 6) {
+        result = run_synthetic_configure(
+            display, (Window)strtoul(argv[2], NULL, 0),
+            (Window)strtoul(argv[3], NULL, 0), atoi(argv[4]), atoi(argv[5]));
+    } else if (strcmp(argv[1], "storm") == 0 && argc == 3) {
+        result = run_storm(display, screen,
+                           (unsigned int)strtoul(argv[2], NULL, 10));
     } else if (strcmp(argv[1], "ordinary-xembed") == 0 && argc >= 5) {
         unsigned int width = (unsigned int)strtoul(argv[3], NULL, 10);
         unsigned int height = (unsigned int)strtoul(argv[4], NULL, 10);
@@ -254,8 +370,10 @@ int main(int argc, char **argv)
         unsigned int resize_width = (unsigned int)strtoul(argv[5], NULL, 10);
         unsigned int resize_height = argc >= 7
             ? (unsigned int)strtoul(argv[6], NULL, 10) : height;
+        unsigned int minimum_width = argc >= 8
+            ? (unsigned int)strtoul(argv[7], NULL, 10) : 0U;
         result = run_icon(display, screen, argv[2], width, height,
-                          resize_width, resize_height);
+                          resize_width, resize_height, minimum_width);
     }
     XCloseDisplay(display);
     return result;

@@ -36,12 +36,15 @@ struct Tray {
     Atom selection;
     Atom opcode;
     Atom orientation;
+    Atom visual;
     Atom manager;
     Atom xembed;
     Atom xembed_info;
+    Atom timestamp_atom;
     TrayIcon *icons;
     TrayIcon *tail;
     unsigned int slot_height;
+    unsigned int width_limit;
     Rect allocation;
     bool active;
     bool host_mapped;
@@ -72,6 +75,80 @@ static TrayIcon *find_icon(const Tray *tray, Window window)
     for (TrayIcon *icon = tray->icons; icon; icon = icon->next)
         if (icon->window == window) return icon;
     return NULL;
+}
+
+static bool window_owned_elsewhere(const WM *wm, Window window)
+{
+    if (!wm || !window || window == wm->root) return true;
+    const Tray *tray = wm->tray;
+    if (tray && (window == tray->owner || window == tray->host ||
+                 find_icon(tray, window)))
+        return true;
+
+    for (const Client *client = wm->clients; client; client = client->next)
+        if (client->window == window) return true;
+    for (const SpecialWindow *special = wm->special_windows; special;
+         special = special->next)
+        if (special->window == window) return true;
+    for (unsigned int i = 0; i < wm->monitor_count; ++i) {
+        if (wm->monitors[i].bar == window || wm->monitors[i].tab_bar == window)
+            return true;
+    }
+    for (size_t i = 0; i < sizeof(wm->drag.preview_windows) /
+                           sizeof(wm->drag.preview_windows[0]); ++i)
+        if (wm->drag.preview_windows[i] == window) return true;
+    return false;
+}
+
+static unsigned int icon_width_limit(unsigned int bar_width)
+{
+    uint64_t spacing = 2U * (uint64_t)TRAY_ICON_SPACING;
+    return bar_width > spacing ? bar_width - (unsigned int)spacing : 1U;
+}
+
+static unsigned int selected_icon_width_limit(const WM *wm)
+{
+    if (wm && wm->selected_monitor &&
+        wm->selected_monitor->bar_geometry.width > 0)
+        return icon_width_limit(
+            (unsigned int)wm->selected_monitor->bar_geometry.width);
+    if (wm && wm->display) {
+        int width = DisplayWidth(wm->display, wm->screen);
+        if (width > 0) return icon_width_limit((unsigned int)width);
+    }
+    return 1U;
+}
+
+static unsigned int positive_dimension(int value)
+{
+    return value > 0 ? (unsigned int)value : 1U;
+}
+
+typedef struct TrayTimestampWait {
+    Window window;
+    Atom atom;
+} TrayTimestampWait;
+
+static Bool timestamp_event(Display *display, XEvent *event, XPointer data)
+{
+    (void)display;
+    TrayTimestampWait *wait = (TrayTimestampWait *)data;
+    return event->type == PropertyNotify &&
+        event->xproperty.window == wait->window &&
+        event->xproperty.atom == wait->atom;
+}
+
+static Time server_timestamp(WM *wm)
+{
+    Tray *tray = wm->tray;
+    if (!tray || !tray->owner || !tray->timestamp_atom) return CurrentTime;
+    unsigned char marker = 0;
+    XChangeProperty(wm->display, tray->owner, tray->timestamp_atom,
+                    tray->timestamp_atom, 8, PropModeReplace, &marker, 1);
+    TrayTimestampWait wait = {tray->owner, tray->timestamp_atom};
+    XEvent event;
+    XIfEvent(wm->display, &event, timestamp_event, (XPointer)&wait);
+    return event.xproperty.time;
 }
 
 static bool read_xembed_info(WM *wm, TrayIcon *icon,
@@ -151,6 +228,15 @@ static unsigned int scale_width(unsigned int width, unsigned int height,
     return scaled > UINT_MAX ? UINT_MAX : (unsigned int)scaled;
 }
 
+static uint64_t aspect_width(unsigned int height, int numerator,
+                             int denominator, bool round_up)
+{
+    if (!height || numerator <= 0 || denominator <= 0) return 1U;
+    uint64_t product = (uint64_t)height * (unsigned int)numerator;
+    if (round_up) product += (unsigned int)denominator - 1U;
+    return product / (unsigned int)denominator;
+}
+
 static void apply_icon_hints(WM *wm, TrayIcon *icon, unsigned int target_height,
                              unsigned int *width)
 {
@@ -158,7 +244,7 @@ static void apply_icon_hints(WM *wm, TrayIcon *icon, unsigned int target_height,
     long supplied = 0;
     if (!XGetWMNormalHints(wm->display, icon->window, &hints, &supplied)) return;
 
-    int value = *width > (unsigned int)INT_MAX ? INT_MAX : (int)*width;
+    uint64_t value = *width;
     int base = (hints.flags & PBaseSize) ? hints.base_width
         : (hints.flags & PMinSize) ? hints.min_width : 0;
     int minimum = (hints.flags & PMinSize) ? hints.min_width : 0;
@@ -167,67 +253,87 @@ static void apply_icon_hints(WM *wm, TrayIcon *icon, unsigned int target_height,
     if ((hints.flags & PAspect) && target_height > 0 &&
         hints.min_aspect.x > 0 && hints.min_aspect.y > 0 &&
         hints.max_aspect.x > 0 && hints.max_aspect.y > 0) {
-        double ratio = (double)value / target_height;
-        double minimum_ratio = (double)hints.min_aspect.x / hints.min_aspect.y;
-        double maximum_ratio = (double)hints.max_aspect.x / hints.max_aspect.y;
-        if (ratio < minimum_ratio)
-            value = (int)(target_height * minimum_ratio + 0.5);
-        else if (ratio > maximum_ratio)
-            value = (int)(target_height * maximum_ratio + 0.5);
+        uint64_t minimum_left = value * (unsigned int)hints.min_aspect.y;
+        uint64_t minimum_right =
+            (uint64_t)target_height * (unsigned int)hints.min_aspect.x;
+        uint64_t maximum_left = value * (unsigned int)hints.max_aspect.y;
+        uint64_t maximum_right =
+            (uint64_t)target_height * (unsigned int)hints.max_aspect.x;
+        if (minimum_left < minimum_right)
+            value = aspect_width(target_height, hints.min_aspect.x,
+                                 hints.min_aspect.y, true);
+        else if (maximum_left > maximum_right)
+            value = aspect_width(target_height, hints.max_aspect.x,
+                                 hints.max_aspect.y, false);
     }
 
+    int64_t adjusted_value = value > (uint64_t)INT64_MAX
+        ? INT64_MAX : (int64_t)value;
     if ((hints.flags & PResizeInc) && hints.width_inc > 0) {
-        int adjusted = value - base;
+        int64_t adjusted = adjusted_value - (int64_t)base;
         if (adjusted > 0) adjusted -= adjusted % hints.width_inc;
-        value = adjusted + base;
+        adjusted_value = adjusted + (int64_t)base;
     }
-    if (minimum > 0 && value < minimum) value = minimum;
-    if (maximum > 0 && value > maximum) value = maximum;
-    if (value < 1) value = 1;
-    *width = (unsigned int)value;
+    if (minimum > 0 && adjusted_value < minimum) adjusted_value = minimum;
+    if (maximum > 0 && adjusted_value > maximum) adjusted_value = maximum;
+    if (adjusted_value < 1) adjusted_value = 1;
+    if ((uint64_t)adjusted_value > UINT_MAX) adjusted_value = UINT_MAX;
+    *width = (unsigned int)adjusted_value;
 }
 
-static void normalize_icon(WM *wm, TrayIcon *icon, unsigned int slot_height)
+static void normalize_icon(WM *wm, TrayIcon *icon, unsigned int slot_height,
+                           unsigned int width_limit)
 {
     if (!slot_height) slot_height = 1U;
+    if (!width_limit) width_limit = 1U;
     unsigned int width = scale_width(icon->requested_width,
                                      icon->requested_height, slot_height);
     apply_icon_hints(wm, icon, slot_height, &width);
-    icon->width = width ? width : 1U;
+    if (!width) width = 1U;
+    if (width > width_limit) width = width_limit;
+    icon->width = width;
     icon->height = slot_height;
 }
 
-static void normalize_all_icons(WM *wm, unsigned int slot_height)
+static void normalize_all_icons(WM *wm, unsigned int slot_height,
+                                unsigned int width_limit)
 {
     Tray *tray = wm->tray;
-    if (!tray || !tray->active || !slot_height || tray->slot_height == slot_height)
+    if (!tray || !tray->active || !slot_height || !width_limit ||
+        (tray->slot_height == slot_height && tray->width_limit == width_limit))
         return;
     tray->slot_height = slot_height;
+    tray->width_limit = width_limit;
     for (TrayIcon *icon = tray->icons; icon; icon = icon->next) {
-        normalize_icon(wm, icon, slot_height);
+        normalize_icon(wm, icon, slot_height, width_limit);
         XResizeWindow(wm->display, icon->window, icon->width, icon->height);
     }
 }
 
-static unsigned int icon_width_sum(const Tray *tray)
+static unsigned int icon_width_sum(const Tray *tray, unsigned int limit)
 {
+    if (!limit) return 0;
     uint64_t width = 0;
     unsigned int count = 0;
     for (const TrayIcon *icon = tray->icons; icon; icon = icon->next) {
         if (!icon->mapped) continue;
         width += icon->width;
         ++count;
+        if (width >= limit) return limit;
     }
     if (!count) return 0;
     width += (uint64_t)(count + 1U) * TRAY_ICON_SPACING;
-    return width > UINT_MAX ? UINT_MAX : (unsigned int)width;
+    return width >= limit ? limit : (unsigned int)width;
 }
 
 static void layout_icons(WM *wm)
 {
     Tray *tray = wm->tray;
-    if (!tray || !tray->active || !tray->host) return;
-    int cursor = (int)TRAY_ICON_SPACING;
+    if (!tray || !tray->active || !tray->host || tray->allocation.width <= 0)
+        return;
+    unsigned int allocation_width = (unsigned int)tray->allocation.width;
+    unsigned int cursor = TRAY_ICON_SPACING < allocation_width
+        ? TRAY_ICON_SPACING : allocation_width;
     for (TrayIcon *icon = tray->icons; icon; icon = icon->next) {
         if (!icon->mapped) {
             XUnmapWindow(wm->display, icon->window);
@@ -235,10 +341,11 @@ static void layout_icons(WM *wm)
         }
         int y = tray->allocation.height > (int)icon->height
             ? (tray->allocation.height - (int)icon->height) / 2 : 0;
-        XMoveResizeWindow(wm->display, icon->window, cursor, y,
+        XMoveResizeWindow(wm->display, icon->window, (int)cursor, y,
                           icon->width, icon->height);
         XMapWindow(wm->display, icon->window);
-        cursor += (int)icon->width + (int)TRAY_ICON_SPACING;
+        uint64_t next = (uint64_t)cursor + icon->width + TRAY_ICON_SPACING;
+        cursor = next >= allocation_width ? allocation_width : (unsigned int)next;
     }
     XClearWindow(wm->display, tray->host);
 }
@@ -271,33 +378,43 @@ static void unembed_icon(WM *wm, TrayIcon *icon)
     if (remap) XMapWindow(wm->display, icon->window);
 }
 
-static void deactivate(WM *wm, bool release_selection)
+static void clear_icons(WM *wm, bool unembed)
 {
     Tray *tray = wm->tray;
-    if (!tray) return;
     for (TrayIcon *icon = tray->icons; icon;) {
         TrayIcon *next = icon->next;
-        unembed_icon(wm, icon);
+        if (unembed) unembed_icon(wm, icon);
         free(icon);
         icon = next;
     }
     tray->icons = tray->tail = NULL;
+}
 
-    if (release_selection && tray->active && tray->selection && tray->owner &&
+static void deactivate(WM *wm, bool release_selection, bool unembed_icons)
+{
+    Tray *tray = wm->tray;
+    if (!tray) return;
+    bool was_active = tray->active;
+    tray->active = false;
+    clear_icons(wm, unembed_icons);
+
+    if (release_selection && was_active && tray->selection && tray->owner &&
         XGetSelectionOwner(wm->display, tray->selection) == tray->owner)
         XSetSelectionOwner(wm->display, tray->selection, None, CurrentTime);
     if (tray->host) XDestroyWindow(wm->display, tray->host);
     if (tray->owner) XDestroyWindow(wm->display, tray->owner);
     tray->host = tray->owner = None;
-    tray->active = false;
     tray->host_mapped = false;
+    tray->slot_height = 0;
+    tray->width_limit = 0;
     tray->allocation = (Rect){0};
 }
 
 static bool dock_icon(WM *wm, Window window, Time timestamp)
 {
     Tray *tray = wm->tray;
-    if (!tray || !tray->active || !window || find_icon(tray, window)) return false;
+    if (!tray || !tray->active || !window || window_owned_elsewhere(wm, window))
+        return false;
 
     XWindowAttributes attributes;
     if (!XGetWindowAttributes(wm->display, window, &attributes) ||
@@ -318,8 +435,10 @@ static bool dock_icon(WM *wm, Window window, Time timestamp)
         wm->selected_monitor->bar_geometry.height > 0)
         slot_height = (unsigned int)wm->selected_monitor->bar_geometry.height;
     if (!slot_height) slot_height = wm->config.bar.height ? wm->config.bar.height : 1U;
-    normalize_icon(wm, icon, slot_height);
+    unsigned int width_limit = selected_icon_width_limit(wm);
+    normalize_icon(wm, icon, slot_height, width_limit);
     tray->slot_height = slot_height;
+    tray->width_limit = width_limit;
 
     XAddToSaveSet(wm->display, window);
     XSelectInput(wm->display, window,
@@ -360,7 +479,9 @@ static bool resize_icon(WM *wm, TrayIcon *icon, unsigned int width,
     icon->requested_height = height;
     unsigned int slot_height = wm->tray->slot_height;
     if (!slot_height) slot_height = wm->config.bar.height ? wm->config.bar.height : 1U;
-    normalize_icon(wm, icon, slot_height);
+    unsigned int width_limit = selected_icon_width_limit(wm);
+    normalize_icon(wm, icon, slot_height, width_limit);
+    wm->tray->width_limit = width_limit;
     XResizeWindow(wm->display, icon->window, icon->width, icon->height);
     return old_width != icon->width || old_height != icon->height;
 }
@@ -383,9 +504,12 @@ bool tray_init(WM *wm)
     tray->opcode = XInternAtom(wm->display, "_NET_SYSTEM_TRAY_OPCODE", False);
     tray->orientation = XInternAtom(wm->display,
                                     "_NET_SYSTEM_TRAY_ORIENTATION", False);
+    tray->visual = XInternAtom(wm->display, "_NET_SYSTEM_TRAY_VISUAL", False);
     tray->manager = XInternAtom(wm->display, "MANAGER", False);
     tray->xembed = XInternAtom(wm->display, "_XEMBED", False);
     tray->xembed_info = XInternAtom(wm->display, "_XEMBED_INFO", False);
+    tray->timestamp_atom = XInternAtom(wm->display,
+                                       "_BOX2430_TRAY_TIMESTAMP", False);
 
     Window existing = XGetSelectionOwner(wm->display, tray->selection);
     if (existing != None) {
@@ -433,8 +557,12 @@ bool tray_init(WM *wm)
     unsigned long orientation = 0;
     XChangeProperty(wm->display, tray->owner, tray->orientation, XA_CARDINAL, 32,
                     PropModeReplace, (unsigned char *)&orientation, 1);
+    unsigned long visual = XVisualIDFromVisual(DefaultVisual(wm->display, wm->screen));
+    XChangeProperty(wm->display, tray->owner, tray->visual, XA_VISUALID, 32,
+                    PropModeReplace, (unsigned char *)&visual, 1);
 
-    XSetSelectionOwner(wm->display, tray->selection, tray->owner, CurrentTime);
+    Time timestamp = server_timestamp(wm);
+    XSetSelectionOwner(wm->display, tray->selection, tray->owner, timestamp);
     if (XGetSelectionOwner(wm->display, tray->selection) != tray->owner) {
         fprintf(stderr, "box2430: unable to acquire system tray selection %s\n",
                 selection_name);
@@ -450,7 +578,7 @@ bool tray_init(WM *wm)
     manager.xclient.window = wm->root;
     manager.xclient.message_type = tray->manager;
     manager.xclient.format = 32;
-    manager.xclient.data.l[0] = CurrentTime;
+    manager.xclient.data.l[0] = (long)timestamp;
     manager.xclient.data.l[1] = (long)tray->selection;
     manager.xclient.data.l[2] = (long)tray->owner;
     XSendEvent(wm->display, wm->root, False, StructureNotifyMask, &manager);
@@ -461,7 +589,7 @@ bool tray_init(WM *wm)
 void tray_destroy(WM *wm)
 {
     if (!wm || !wm->tray) return;
-    deactivate(wm, true);
+    deactivate(wm, true, true);
     XSync(wm->display, False);
     free(wm->tray);
     wm->tray = NULL;
@@ -471,9 +599,11 @@ void tray_prepare_layout(WM *wm, const Monitor *monitor)
 {
     Tray *tray = wm ? wm->tray : NULL;
     if (!tray || !tray->active || monitor != wm->selected_monitor ||
-        monitor->bar_geometry.height <= 0)
+        monitor->bar_geometry.width <= 0 || monitor->bar_geometry.height <= 0)
         return;
-    normalize_all_icons(wm, (unsigned int)monitor->bar_geometry.height);
+    normalize_all_icons(wm, (unsigned int)monitor->bar_geometry.height,
+                        icon_width_limit(
+                            (unsigned int)monitor->bar_geometry.width));
 }
 
 unsigned int tray_widget_width(const WM *wm, const Monitor *monitor)
@@ -482,7 +612,7 @@ unsigned int tray_widget_width(const WM *wm, const Monitor *monitor)
     if (!tray || !tray->active || !monitor || monitor != wm->selected_monitor ||
         monitor->bar_geometry.width <= 0 || monitor->bar_geometry.height <= 0)
         return 0;
-    return icon_width_sum(tray);
+    return icon_width_sum(tray, (unsigned int)monitor->bar_geometry.width);
 }
 
 void tray_set_allocation(WM *wm, const Monitor *monitor, Rect rect)
@@ -491,13 +621,20 @@ void tray_set_allocation(WM *wm, const Monitor *monitor, Rect rect)
     if (!tray || !tray->active || !monitor || monitor != wm->selected_monitor)
         return;
 
-    if (rect.width <= 0 || rect.height <= 0 || !icon_width_sum(tray)) {
+    unsigned int bar_width = monitor->bar_geometry.width > 0
+        ? (unsigned int)monitor->bar_geometry.width : 0U;
+    unsigned int bar_height = monitor->bar_geometry.height > 0
+        ? (unsigned int)monitor->bar_geometry.height : 0U;
+    if (rect.width <= 0 || rect.height <= 0 ||
+        !icon_width_sum(tray, bar_width)) {
         if (tray->host_mapped) XUnmapWindow(wm->display, tray->host);
         tray->host_mapped = false;
         tray->allocation = (Rect){0};
         return;
     }
 
+    if ((unsigned int)rect.width > bar_width) rect.width = (int)bar_width;
+    if ((unsigned int)rect.height > bar_height) rect.height = (int)bar_height;
     Rect allocation = {
         monitor->bar_geometry.x + rect.x,
         monitor->bar_geometry.y + rect.y,
@@ -572,8 +709,8 @@ TrayEventResult tray_handle_event(WM *wm, XEvent *event)
         icon = find_icon(tray, event->xresizerequest.window);
         if (icon) {
             bool changed = resize_icon(wm, icon,
-                                       (unsigned int)event->xresizerequest.width,
-                                       (unsigned int)event->xresizerequest.height);
+                                       positive_dimension(event->xresizerequest.width),
+                                       positive_dimension(event->xresizerequest.height));
             return TRAY_EVENT_CONSUMED |
                 (changed ? TRAY_EVENT_CHANGED : 0U);
         }
@@ -584,9 +721,9 @@ TrayEventResult tray_handle_event(WM *wm, XEvent *event)
             unsigned int width = icon->requested_width;
             unsigned int height = icon->requested_height;
             if (event->xconfigurerequest.value_mask & CWWidth)
-                width = (unsigned int)event->xconfigurerequest.width;
+                width = positive_dimension(event->xconfigurerequest.width);
             if (event->xconfigurerequest.value_mask & CWHeight)
-                height = (unsigned int)event->xconfigurerequest.height;
+                height = positive_dimension(event->xconfigurerequest.height);
             bool changed = resize_icon(wm, icon, width, height);
             return TRAY_EVENT_CONSUMED |
                 (changed ? TRAY_EVENT_CHANGED : 0U);
@@ -616,9 +753,18 @@ TrayEventResult tray_handle_event(WM *wm, XEvent *event)
             remove_icon(tray, icon);
             return TRAY_EVENT_CONSUMED | TRAY_EVENT_CHANGED;
         }
-        if (event->xdestroywindow.window == tray->host ||
-            event->xdestroywindow.window == tray->owner)
-            return TRAY_EVENT_CONSUMED;
+        if (event->xdestroywindow.window == tray->host) {
+            fprintf(stderr, "box2430: system tray host destroyed; tray disabled\n");
+            tray->host = None;
+            deactivate(wm, true, false);
+            return TRAY_EVENT_CONSUMED | TRAY_EVENT_CHANGED;
+        }
+        if (event->xdestroywindow.window == tray->owner) {
+            fprintf(stderr, "box2430: system tray owner destroyed; tray disabled\n");
+            tray->owner = None;
+            deactivate(wm, false, true);
+            return TRAY_EVENT_CONSUMED | TRAY_EVENT_CHANGED;
+        }
         break;
     case ReparentNotify:
         icon = find_icon(tray, event->xreparent.window);
@@ -635,7 +781,7 @@ TrayEventResult tray_handle_event(WM *wm, XEvent *event)
         if (event->xselectionclear.selection == tray->selection &&
             event->xselectionclear.window == tray->owner) {
             fprintf(stderr, "box2430: system tray selection lost; tray disabled\n");
-            deactivate(wm, false);
+            deactivate(wm, false, true);
             return TRAY_EVENT_CONSUMED | TRAY_EVENT_CHANGED;
         }
         break;
