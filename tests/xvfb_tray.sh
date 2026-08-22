@@ -4,6 +4,7 @@ set -eu
 display=${BOX2430_TEST_DISPLAY:-:182}
 box2430_bin=${BOX2430_BIN:-./build/debug/box2430}
 tray_bin=${BOX2430_TRAY_BIN:-./build/debug/x11-tray-test-client}
+color_bin=${BOX2430_COLOR_BIN:-./build/debug/x11-window-color}
 stacking_bin=${BOX2430_STACKING_BIN:-./build/debug/x11-stacking-order}
 tmp_dir=$(mktemp -d)
 xvfb_pid= wm_pid= watch_pid= pre_xembed_pid= runtime_xembed_pid= icon1_pid= icon2_pid= icon3_pid= blocker_pid=
@@ -107,6 +108,8 @@ wait_for "test \"\$(DISPLAY=$display xwininfo -id $host | awk '/Width:/ {print \
 [ "$(field "$icon1" 'Height:')" = 24 ] || fail "square icon height was not normalized"
 [ "$(parent_of "$icon1")" = "$host" ] || fail "icon was not reparented into tray host"
 [ "$(field "$host" 'Absolute upper-left X:')" = 772 ] || fail "tray host did not occupy right allocation"
+DISPLAY=$display "$color_bin" "$host" '#663322' >/dev/null ||
+    fail "tray host did not use appearance.bar.widgets.tray.bg"
 DISPLAY=$display "$stacking_bin" "$bar" "$host" || fail "tray host is not above native bar"
 
 # A second 48x24 icon preserves its aspect/width.  Dock order remains stable.

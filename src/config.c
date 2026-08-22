@@ -1009,19 +1009,26 @@ static bool parse_clock_widget(BarConfig *bar, toml_datum_t table)
                                &bar->clock.style, false);
 }
 
+static bool parse_tray_widget(BarConfig *bar, toml_datum_t table)
+{
+    static const char *keys[] = {"bg"};
+    return validate_keys(table, "appearance.bar.widgets.tray", keys, 1) &&
+           read_style_override(table, "appearance.bar.widgets.tray",
+                               &bar->tray.style, false);
+}
+
 static bool parse_bar_widgets(BarConfig *bar, toml_datum_t widgets)
 {
     static const char *keys[] = {
         "workspaces", "mode", "title", "status", "clock", "tray",
     };
     if (!validate_keys(widgets, "appearance.bar.widgets", keys, 6)) return false;
-    toml_datum_t tray = toml_get(widgets, "tray");
     return parse_workspace_widget(bar, toml_get(widgets, "workspaces")) &&
            parse_mode_widget(bar, toml_get(widgets, "mode")) &&
            parse_title_widget(bar, toml_get(widgets, "title")) &&
            parse_status_widget(bar, toml_get(widgets, "status")) &&
            parse_clock_widget(bar, toml_get(widgets, "clock")) &&
-           validate_keys(tray, "appearance.bar.widgets.tray", NULL, 0);
+           parse_tray_widget(bar, toml_get(widgets, "tray"));
 }
 
 static bool parse_bar(Config *candidate, toml_datum_t bar)

@@ -573,6 +573,7 @@ The current implementation supports the parts needed by Box2430 rather than atte
 * `_NET_ACTIVE_WINDOW`
 * `_NET_CLIENT_LIST`
 * `_NET_CLIENT_LIST_STACKING`
+* `_NET_SUPPORTING_WM_CHECK` with a `Box2430` identity window
 * `_NET_WM_STATE_FULLSCREEN`
 * `_NET_CLOSE_WINDOW`
 * `_NET_WM_WINDOW_TYPE`

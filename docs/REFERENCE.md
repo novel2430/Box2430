@@ -93,6 +93,7 @@ The configuration file is TOML. Unknown keys, invalid values, invalid rules, or 
 | `[fullscreen]` | `client_policy = "fake"` (`allow`/`fake`/`deny`) |
 | `[appearance]` | `background = "#000000"` fallback root color, painted only on fresh session start |
 | `[appearance.border]` | `width = 2`, focused/unfocused/urgent `#RRGGBB` colors |
+| `[appearance.bar]` | native bar layout, fonts, base `fg`/`bg`, and per-widget style overrides; tray supports an independent `bg` and otherwise inherits the bar background |
 | `[appearance.tabs]` | enabled, height, padding, normal/bold Xft fonts, active/inactive/urgent colors and bold flags |
 | `[appearance.snap_preview]` | `color = "#89b4fa"`, `width = 2` |
 | `[snap]` | `enabled = true`, `edge_zone = 16`, side/corner ratios `= 0.5`, `preview = true` |

@@ -9,6 +9,9 @@ left = []
 center = []
 right = ["tray"]
 
+[appearance.bar.widgets.tray]
+bg = "#663322"
+
 [appearance.tabs]
 enabled = false
 

@@ -73,6 +73,8 @@ run_invalid config-v2-invalid-font-style \
     "invalid value for config option appearance.tabs.active.font_style"
 run_invalid config-v2-invalid-color \
     "appearance.bar.widgets.title.fg must be #RRGGBB"
+run_invalid config-v2-invalid-tray-fg \
+    "unknown config option appearance.bar.widgets.tray.fg"
 run_invalid config-v2-invalid-format-zero \
     "config option appearance.bar.widgets.status.format must contain exactly one %s"
 run_invalid config-v2-invalid-format-many \

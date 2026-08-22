@@ -52,6 +52,8 @@ void x11_init_atoms(WM *wm)
     wm->atoms.wm_take_focus = XInternAtom(wm->display, "WM_TAKE_FOCUS", False);
     wm->atoms.wm_state = XInternAtom(wm->display, "WM_STATE", False);
     wm->atoms.net_supported = XInternAtom(wm->display, "_NET_SUPPORTED", False);
+    wm->atoms.net_supporting_wm_check =
+        XInternAtom(wm->display, "_NET_SUPPORTING_WM_CHECK", False);
     wm->atoms.net_active_window = XInternAtom(wm->display, "_NET_ACTIVE_WINDOW", False);
     wm->atoms.net_client_list = XInternAtom(wm->display, "_NET_CLIENT_LIST", False);
     wm->atoms.net_client_list_stacking =
@@ -81,6 +83,7 @@ void x11_init_atoms(WM *wm)
 
     Atom supported[] = {
         wm->atoms.net_supported,
+        wm->atoms.net_supporting_wm_check,
         wm->atoms.net_active_window,
         wm->atoms.net_client_list,
         wm->atoms.net_client_list_stacking,
@@ -98,6 +101,25 @@ void x11_init_atoms(WM *wm)
         wm->atoms.net_wm_strut_partial,
         wm->atoms.net_workarea,
     };
+    wm->wm_check_window = XCreateSimpleWindow(
+        wm->display, wm->root, -1, -1, 1, 1, 0,
+        BlackPixel(wm->display, wm->screen), BlackPixel(wm->display, wm->screen));
+    if (wm->wm_check_window) {
+        XChangeProperty(wm->display, wm->wm_check_window,
+                        wm->atoms.net_supporting_wm_check, XA_WINDOW, 32,
+                        PropModeReplace,
+                        (unsigned char *)&wm->wm_check_window, 1);
+        static const char wm_name[] = "Box2430";
+        XChangeProperty(wm->display, wm->wm_check_window, wm->atoms.net_wm_name,
+                        wm->atoms.utf8_string, 8, PropModeReplace,
+                        (const unsigned char *)wm_name, sizeof(wm_name) - 1U);
+        XStoreName(wm->display, wm->wm_check_window, wm_name);
+        XChangeProperty(wm->display, wm->root,
+                        wm->atoms.net_supporting_wm_check, XA_WINDOW, 32,
+                        PropModeReplace,
+                        (unsigned char *)&wm->wm_check_window, 1);
+    }
+
     XChangeProperty(wm->display, wm->root, wm->atoms.net_supported, XA_ATOM, 32,
                     PropModeReplace, (unsigned char *)supported,
                     (int)(sizeof(supported) / sizeof(supported[0])));

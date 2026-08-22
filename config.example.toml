@@ -105,6 +105,9 @@ font_style = "normal"
 format = "%H:%M"
 font_style = "normal"
 
+[appearance.bar.widgets.tray]
+bg = "#222222"
+
 [appearance.tabs]
 enabled = true
 position = "top"

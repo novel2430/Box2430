@@ -49,6 +49,20 @@ DISPLAY=$display "$box2430_bin" -c tests/fixtures/config-default-no-bar.toml >"$
 wm_pid=$!
 wait_for "DISPLAY=$display xprop -root _NET_CLIENT_LIST | grep -q 0x" || fail "client was not managed"
 
+# Publish the standard EWMH WM identity used by desktop-introspection tools.
+wait_for "DISPLAY=$display xprop -root _NET_SUPPORTING_WM_CHECK | grep -q 'window id'" ||
+    fail "_NET_SUPPORTING_WM_CHECK was not published"
+wm_check=$(DISPLAY=$display xprop -root _NET_SUPPORTING_WM_CHECK | awk '{print $NF}')
+[ -n "$wm_check" ] || fail "WM check window id was empty"
+DISPLAY=$display xprop -root _NET_SUPPORTED | grep -q '_NET_SUPPORTING_WM_CHECK' ||
+    fail "_NET_SUPPORTING_WM_CHECK missing from _NET_SUPPORTED"
+DISPLAY=$display xprop -id "$wm_check" _NET_SUPPORTING_WM_CHECK |
+    grep -qi "$wm_check" || fail "WM check window did not self-reference"
+DISPLAY=$display xprop -id "$wm_check" _NET_WM_NAME |
+    grep -q 'Box2430' || fail "WM check window missing _NET_WM_NAME"
+DISPLAY=$display xprop -id "$wm_check" WM_NAME |
+    grep -q 'Box2430' || fail "WM check window missing WM_NAME"
+
 # A second WM must fail rather than stealing ownership.
 if DISPLAY=$display "$box2430_bin" -c tests/fixtures/config-default-no-bar.toml >"$tmp_dir/second.log" 2>&1; then
     fail "second WM acquired ownership"
@@ -99,5 +113,10 @@ wait_for "! DISPLAY=$display xprop -root _NET_CLIENT_LIST | grep -q 0x" || fail 
 kill "$wm_pid"
 wait "$wm_pid"
 wm_pid=
+
+if DISPLAY=$display xprop -root _NET_SUPPORTING_WM_CHECK 2>/dev/null |
+    grep -q 'window id'; then
+    fail "WM shutdown left _NET_SUPPORTING_WM_CHECK on root"
+fi
 
 echo "PASS: Xvfb bootstrap ownership/manage/unmanage scenario"

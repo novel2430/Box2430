@@ -2296,8 +2296,13 @@ void wm_destroy(WM *wm)
     XDeleteProperty(wm->display, wm->root, wm->atoms.net_active_window);
     XDeleteProperty(wm->display, wm->root, wm->atoms.net_client_list);
     XDeleteProperty(wm->display, wm->root, wm->atoms.net_client_list_stacking);
+    XDeleteProperty(wm->display, wm->root, wm->atoms.net_supporting_wm_check);
     XDeleteProperty(wm->display, wm->root, wm->atoms.net_supported);
     XDeleteProperty(wm->display, wm->root, wm->atoms.net_workarea);
+    if (wm->wm_check_window) {
+        XDestroyWindow(wm->display, wm->wm_check_window);
+        wm->wm_check_window = None;
+    }
     tray_destroy(wm);
     ui_destroy(wm);
     XSync(wm->display, False);

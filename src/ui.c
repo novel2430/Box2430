@@ -1202,6 +1202,7 @@ static size_t bar_color_pointers(WM *wm, XftColor **colors)
     colors[count++] = &wm->bar_status_bg;
     colors[count++] = &wm->bar_clock_fg;
     colors[count++] = &wm->bar_clock_bg;
+    colors[count++] = &wm->bar_tray_bg;
     return count;
 }
 
@@ -1216,7 +1217,7 @@ static void free_color_prefix(WM *wm, XftColor **colors, size_t count)
 static void free_bar_colors(WM *wm)
 {
     XftColor *colors[1 + UI_WORKSPACE_STATE_COUNT * 2 +
-                     UI_MODE_STATE_COUNT * 2 + 6];
+                     UI_MODE_STATE_COUNT * 2 + 7];
     size_t count = bar_color_pointers(wm, colors);
     free_color_prefix(wm, colors, count);
 }
@@ -1455,11 +1456,13 @@ static bool init_bar_resources(WM *wm)
     UIStyle title = title_style(wm);
     UIStyle status = status_style(wm);
     UIStyle clock = clock_style(wm);
+    UIStyle tray = ui_resolve_style(wm->config.bar.style,
+                                    &wm->config.bar.tray.style);
 
     XftColor *colors[1 + UI_WORKSPACE_STATE_COUNT * 2 +
-                     UI_MODE_STATE_COUNT * 2 + 6];
+                     UI_MODE_STATE_COUNT * 2 + 7];
     const char *names[1 + UI_WORKSPACE_STATE_COUNT * 2 +
-                      UI_MODE_STATE_COUNT * 2 + 6];
+                      UI_MODE_STATE_COUNT * 2 + 7];
     size_t count = bar_color_pointers(wm, colors);
     size_t n = 0;
     names[n++] = wm->config.bar.style.bg;
@@ -1477,6 +1480,7 @@ static bool init_bar_resources(WM *wm)
     names[n++] = status.bg;
     names[n++] = clock.fg;
     names[n++] = clock.bg;
+    names[n++] = tray.bg;
     if (n != count) {
         close_bar_fonts(wm);
         return false;

@@ -175,6 +175,10 @@ typedef struct ClockWidgetConfig {
     UIStyleOverride style;
 } ClockWidgetConfig;
 
+typedef struct TrayWidgetConfig {
+    UIStyleOverride style;
+} TrayWidgetConfig;
+
 typedef struct BarConfig {
     bool enabled;
     UIEdge position;
@@ -195,6 +199,7 @@ typedef struct BarConfig {
     TitleWidgetConfig title;
     StatusWidgetConfig status;
     ClockWidgetConfig clock;
+    TrayWidgetConfig tray;
 } BarConfig;
 
 typedef enum WindowType {
@@ -386,6 +391,7 @@ typedef struct Atoms {
     Atom wm_take_focus;
     Atom wm_state;
     Atom net_supported;
+    Atom net_supporting_wm_check;
     Atom net_active_window;
     Atom net_client_list;
     Atom net_client_list_stacking;
@@ -418,6 +424,7 @@ typedef struct WM {
     Display *display;
     int screen;
     Window root;
+    Window wm_check_window;
     int x_fd;
     Atoms atoms;
     Config config;
@@ -472,6 +479,7 @@ typedef struct WM {
     XftColor bar_status_bg;
     XftColor bar_clock_fg;
     XftColor bar_clock_bg;
+    XftColor bar_tray_bg;
     char *status_text;
     char clock_text[BOX2430_MAX_CLOCK_TEXT];
     bool tab_resources_ready;

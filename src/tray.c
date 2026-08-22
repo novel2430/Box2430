@@ -81,6 +81,7 @@ static TrayIcon *find_icon(const Tray *tray, Window window)
 static bool window_owned_elsewhere(const WM *wm, Window window)
 {
     if (!wm || !window || window == wm->root) return true;
+    if (window == wm->wm_check_window) return true;
     const Tray *tray = wm->tray;
     if (tray && (window == tray->owner || window == tray->host ||
                  find_icon(tray, window)))
@@ -532,7 +533,7 @@ bool tray_init(WM *wm)
 
     XSetWindowAttributes host_attributes = {
         .override_redirect = True,
-        .background_pixel = wm->bar_bg.pixel,
+        .background_pixel = wm->bar_tray_bg.pixel,
         .event_mask = SubstructureRedirectMask | SubstructureNotifyMask |
                       ExposureMask | StructureNotifyMask,
     };
