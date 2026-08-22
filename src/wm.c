@@ -42,6 +42,7 @@ static void invariant_failure(const char *message)
 
 static bool monitor_belongs_to_wm(const WM *wm, const Monitor *monitor)
 {
+    if (!monitor) return false;
     for (unsigned int i = 0; i < wm->monitor_count; ++i)
         if (&wm->monitors[i] == monitor) return true;
     return false;
@@ -49,9 +50,13 @@ static bool monitor_belongs_to_wm(const WM *wm, const Monitor *monitor)
 
 static bool workspace_belongs_to_wm(const WM *wm, const Workspace *workspace)
 {
-    for (unsigned int i = 0; i < wm->monitor_count; ++i)
+    if (!workspace) return false;
+    for (unsigned int i = 0; i < wm->monitor_count; ++i) {
+        const Workspace *workspaces = wm->monitors[i].workspaces;
+        if (!workspaces) continue;
         for (unsigned int j = 0; j < wm->config.workspace_count; ++j)
-            if (&wm->monitors[i].workspaces[j] == workspace) return true;
+            if (&workspaces[j] == workspace) return true;
+    }
     return false;
 }
 
