@@ -92,6 +92,23 @@ int main(void)
     if (ui_workspace_visual_state(&monitor, &active) != UI_WORKSPACE_ACTIVE_URGENT)
         return fail("active+urgent workspace state mismatch");
 
+    WM tab_wm = {0};
+    Workspace tab_workspace = {.mode = WORKSPACE_MONOCLE};
+    Client tab_client = {.workspace = &tab_workspace};
+    tab_wm.config.tabs.enabled = true;
+    if (ui_tabs_should_materialize(&tab_wm, &tab_workspace))
+        return fail("empty MONOCLE workspace incorrectly materialized tabs");
+    tab_workspace.clients = &tab_client;
+    if (!ui_tabs_should_materialize(&tab_wm, &tab_workspace))
+        return fail("occupied MONOCLE workspace did not materialize tabs");
+    tab_workspace.mode = WORKSPACE_FREE;
+    if (ui_tabs_should_materialize(&tab_wm, &tab_workspace))
+        return fail("FREE workspace incorrectly materialized tabs");
+    tab_workspace.mode = WORKSPACE_MONOCLE;
+    tab_wm.config.tabs.enabled = false;
+    if (ui_tabs_should_materialize(&tab_wm, &tab_workspace))
+        return fail("disabled tabs were materialized");
+
     WM wm = {0};
     Monitor clock_monitor = {
         .bar_geometry = {0, 0, 800, 24},
@@ -124,6 +141,6 @@ int main(void)
     if (ui_clock_visible(&wm))
         return fail("disabled native bar incorrectly requests clock wakeups");
 
-    puts("PASS: UI client label/format/style/workspace-state/clock-visibility helpers");
+    puts("PASS: UI client label/format/style/workspace-state/tab-visibility/clock-visibility helpers");
     return 0;
 }

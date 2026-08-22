@@ -163,8 +163,8 @@ static void enforce_stacking(WM *wm)
             XRaiseWindow(wm->display, wm->monitors[i].bar);
     tray_raise(wm);
     for (unsigned int i = 0; i < wm->monitor_count; ++i)
-        if (wm->config.tabs.enabled && wm->monitors[i].tab_bar &&
-            wm->monitors[i].active_workspace->mode == WORKSPACE_MONOCLE)
+        if (wm->monitors[i].tab_bar && ui_tabs_should_materialize(
+                wm, wm->monitors[i].active_workspace))
             XRaiseWindow(wm->display, wm->monitors[i].tab_bar);
     for (SpecialWindow *special = wm->special_windows; special; special = special->next)
         if (special->type != WINDOW_TYPE_DESKTOP)
@@ -436,9 +436,11 @@ static Rect fit_workarea(WM *wm, const Client *client, Rect area)
     return (Rect){area.x, area.y, width, height};
 }
 
-static Rect monocle_content_area(const WM *wm, const Monitor *monitor)
+static Rect monocle_content_area(const WM *wm, const Workspace *workspace)
 {
+    const Monitor *monitor = workspace->monitor;
     Rect area = monitor->workarea;
+    if (!ui_tabs_should_materialize(wm, workspace)) return area;
     int tab_height = (int)ui_tab_height(wm, monitor);
     if (wm->config.tabs.position == UI_EDGE_TOP)
         area.y += tab_height;
@@ -589,7 +591,8 @@ static void materialize_client_geometry(WM *wm, Client *client)
     if (client->fullscreen) {
         present_client_geometry(wm, client, monitor->geometry);
     } else if (client->workspace->mode == WORKSPACE_MONOCLE) {
-        Rect area = fit_workarea(wm, client, monocle_content_area(wm, monitor));
+        Rect area = fit_workarea(
+            wm, client, monocle_content_area(wm, client->workspace));
         present_client_geometry(wm, client, area);
     } else if (client->maximized) {
         commit_client_geometry(wm, client,
@@ -1028,7 +1031,7 @@ void client_move_to_workspace(WM *wm, Client *client, Workspace *workspace,
     } else if (workspace == workspace->monitor->active_workspace) {
         XMapWindow(wm->display, client->window);
     }
-    ui_bar_update(wm);
+    ui_update(wm);
 }
 
 static void grab_default_keys(WM *wm)
@@ -1419,7 +1422,7 @@ static void manage_window(WM *wm, Window window, bool map_window)
     if (policy.focus_on_map && visible) focus_client(wm, client, CurrentTime);
     if (x11_window_requests_fullscreen(wm, window))
         client_set_requested_fullscreen(wm, client, true);
-    ui_bar_update(wm);
+    ui_update(wm);
     x11_update_client_lists(wm);
 }
 

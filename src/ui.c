@@ -983,6 +983,12 @@ void ui_bar_update(WM *wm)
     }
 }
 
+bool ui_tabs_should_materialize(const WM *wm, const Workspace *workspace)
+{
+    return wm->config.tabs.enabled && workspace &&
+        workspace->mode == WORKSPACE_MONOCLE && workspace->clients;
+}
+
 unsigned int ui_tab_height(const WM *wm, const Monitor *monitor)
 {
     int minimum_content_height = 2 * (int)wm->config.border.monocle.width + 1;
@@ -1058,8 +1064,8 @@ void ui_tab_update(WM *wm)
     for (unsigned int i = 0; i < wm->monitor_count; ++i) {
         Monitor *monitor = &wm->monitors[i];
         unsigned int height = ui_tab_height(wm, monitor);
-        bool visible = wm->config.tabs.enabled &&
-            monitor->active_workspace->mode == WORKSPACE_MONOCLE && height;
+        bool visible = ui_tabs_should_materialize(
+            wm, monitor->active_workspace) && height;
         unsigned int window_height = height ? height : 1;
         int y = tab_window_y(wm, monitor, window_height);
         XMoveResizeWindow(wm->display, monitor->tab_bar,

@@ -35,6 +35,7 @@ Workspace *ui_bar_workspace_hit_test(WM *wm, Monitor *monitor, int x);
 UIWorkspaceVisualState ui_workspace_visual_state(const Monitor *monitor,
                                                  const Workspace *workspace);
 
+bool ui_tabs_should_materialize(const WM *wm, const Workspace *workspace);
 unsigned int ui_tab_height(const WM *wm, const Monitor *monitor);
 bool ui_tab_create_monitor(WM *wm, Monitor *monitor);
 void ui_tab_destroy_monitor(WM *wm, Monitor *monitor);
