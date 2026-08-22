@@ -1,8 +1,11 @@
 # Box2430 Development
 
-This document describes how to build, test, debug, and verify the current Box2430 codebase.
+This document describes how to build, test, debug, and verify the current
+Box2430 repository.
 
-For implementation semantics, see `docs/ARCHITECTURE.md`. For long-lived engineering principles, see `docs/IMPLEMENTATION_STYLE.md`.
+For runtime semantics see `docs/ARCHITECTURE.md`. For commands/configuration see
+`docs/REFERENCE.md`. For long-lived engineering principles see
+`docs/IMPLEMENTATION_STYLE.md`.
 
 ## Required build environment
 
@@ -10,7 +13,6 @@ For implementation semantics, see `docs/ARCHITECTURE.md`. For long-lived enginee
 * GNU Make
 * `pkg-config`
 * X11 development libraries:
-
   * `x11`
   * `xinerama`
   * `xft`
@@ -21,7 +23,7 @@ Verify the required libraries with:
 pkg-config --exists x11 xinerama xft
 ```
 
-Useful X11 test tools include:
+Useful X11 test/debug tools include:
 
 * Xvfb
 * Xephyr
@@ -34,7 +36,7 @@ Useful X11 test tools include:
 * `xwd`
 * ImageMagick (`convert`)
 
-Useful debugging tools include `gdb`, `strace`, and Valgrind.
+Useful general debugging tools include `gdb`, `strace`, and Valgrind.
 
 ## Build profiles
 
@@ -44,7 +46,7 @@ Debug build:
 make
 ```
 
-The binary is:
+Binary:
 
 ```text
 build/debug/box2430
@@ -56,7 +58,7 @@ Release build:
 make release
 ```
 
-The binary is:
+Binary:
 
 ```text
 build/release/box2430
@@ -68,25 +70,25 @@ AddressSanitizer + UndefinedBehaviorSanitizer build:
 make sanitize
 ```
 
-This profile uses Clang by default and produces:
+The sanitizer profile uses Clang by default and produces:
 
 ```text
 build/sanitize/box2430
 ```
 
-Build the X11 fixture/helper programs used by the integration tests with:
+Build all X11 fixture/helper programs and focused local tests with:
 
 ```sh
 make test-tools
 ```
 
-Clean all profiles with:
+Clean all build profiles:
 
 ```sh
 make clean
 ```
 
-A staged installation can be checked without modifying the host system:
+A staged install can be checked without modifying the host system:
 
 ```sh
 make release
@@ -95,100 +97,204 @@ make DESTDIR="$PWD/build/stage" install
 
 ## Environment preflight
 
-On a new development machine, verify the environment before investigating WM failures.
+On a new development machine, verify the environment before treating a failure
+as a WM bug.
 
-At minimum, confirm:
+At minimum:
 
 1. `pkg-config --exists x11 xinerama xft` succeeds;
 2. `make` succeeds;
 3. `make test-tools` succeeds;
 4. an Xvfb display can start and accept `xdpyinfo` connections;
-5. `make sanitize` builds and the sanitizer runtime actually executes;
-6. Xephyr can connect to the host display if visual or multi-monitor testing is needed.
+5. `make sanitize` builds and the sanitizer runtime can execute;
+6. Xephyr can connect to the host X display when nested visual/topology testing
+   is needed.
 
-An environment failure changes what can be verified; it does not imply a Box2430 semantic failure.
+Missing libraries, sandbox socket restrictions, or an unavailable host display
+change what can be verified; they do not by themselves imply a Box2430 semantic
+failure.
 
-## Testing philosophy
+## Testing strategy
 
-Test observable WM behavior through the same path used by a real user whenever practical.
+Prefer observable behavior through the real path used by the WM.
 
-For example, a keybinding bug should normally be exercised as:
+For example, a keybinding regression is ideally exercised as:
 
 ```text
-X keyboard event
-    -> binding lookup
-    -> command dispatch
-    -> WM state/action
+X KeyPress
+    -> key lookup / modifiers
+    -> stored binding
+    -> command context + dispatch
+    -> WM state transition
     -> observable X11 result
 ```
 
-Do not replace this with a direct call to the final command handler unless the lower-level test is only supplemental.
+Likewise:
 
-Examples:
+* use `xdotool`/X events for binding behavior rather than calling a command
+  helper directly;
+* spawn tests should cover binding dispatch, `fork`/`exec`, and the resulting
+  window/process behavior together;
+* focus-cycle tests should verify that ordinary focus/raise operations do not
+  reorder stable client order;
+* geometry tests should inspect actual X window geometry;
+* bar/tab/workspace interactions should send real pointer events to the native
+  UI windows;
+* tray tests should exercise the XEmbed selection, docking, reparenting, mapped
+  state, geometry, and lifecycle rather than only tray helper functions.
 
-* Send keybinds with `xdotool` instead of calling command functions directly.
-* Spawn tests should cover binding dispatch, `fork`/`exec`, and the resulting managed window together.
-* Focus-cycle tests should exercise real keybindings and verify that ordinary focus changes do not reorder the stable client cycle.
-* Geometry tests should inspect the resulting X window geometry, not only internal state.
+Use the cheapest layer that genuinely verifies the behavior:
 
-When fixing a reproducible bug, prefer adding the smallest regression scenario that exercises the real failing path.
-
-## Xvfb integration suite
-
-Most deterministic behavior is tested in a headless X server.
-
-Build first:
-
-```sh
-make
-make test-tools
+```text
+pure/local logic         -> focused C test / build check
+headless X11 behavior    -> Xvfb
+visual/topology behavior -> Xephyr
+real hardware/session    -> user-controlled X session
 ```
 
-Run the full suite:
+When fixing a reproducible bug, prefer the smallest regression scenario that
+fails on the buggy behavior and passes for the intended reason.
+
+## `make test`
+
+The normal deterministic suite is:
 
 ```sh
 make test
 ```
 
-`make test` first checks pure monitor-topology normalization and then runs the
-Xvfb integration scenarios. `tests/run_xvfb.sh` runs only those Xvfb scenarios
-directly after the binaries and test tools have been built.
+The Makefile performs:
 
-The pure monitor test also covers logical Xinerama matching, including
-enumeration reorder, monitor insertion/removal, geometry changes, ambiguous
-geometry-only identity, and negative coordinates. `tests/xephyr_topology.sh`
-adds the real-X11 side of the contract for same-logical-monitor resolution
-changes, latent FREE geometry, MONOCLE, snap, and fullscreen rematerialization.
-
-The suite currently covers areas including:
-
-* WM ownership and startup discovery;
-* manage/unmanage, WM-hidden workspace clients versus genuine client withdrawal,
-  and workspace transition mapping/focus ordering;
-* commands and FREE/MONOCLE transitions;
-* strict configuration parsing and binding validation;
-* rules and fullscreen policies;
-* docks, struts, workareas, and special windows;
-* semantic geometry, snap, maximize, MONOCLE/fullscreen nesting, and
-  ConfigureRequest geometry ownership/idempotence;
-* interactive mouse move/resize and snap preview;
-* NumLock-insensitive bindings;
-* duplicate-KeySym/all-KeyCode grabs and runtime keyboard-map rebuilds;
-* ICCCM size hints, focus protocol, and `FocusIn` compatibility;
-* runtime ICCCM/EWMH property-cache refresh without reactive focus/layout side effects;
-* stable client-order focus cycling, focus-stack restoration, and urgency;
-* MONOCLE tab-bar behavior;
-* restart behavior, including cold-start-only background/autostart semantics;
-* direct `spawn`, shell-backed `spawn-shell`, and SIGCHLD inheritance behavior.
-
-Individual scenarios can be run directly, for example:
-
-```sh
-tests/xvfb_mouse.sh
-tests/xvfb_spawn.sh
+```text
+build/debug/monitor-geometry-test
+build/debug/ui-label-test
+tests/run_xvfb.sh
 ```
 
-The scripts use `BOX2430_TEST_DISPLAY` when an explicit unused display number is needed:
+So `make test` contains two focused local tests followed by the Xvfb integration
+suite.
+
+### Monitor geometry test
+
+`tests/monitor_geometry_test.c` checks the pure monitor-topology helpers in
+`src/monitor.c`, including:
+
+* duplicate rectangle normalization;
+* fallback behavior;
+* negative coordinates;
+* exact matching across Xinerama enumeration reorder;
+* insertion/removal;
+* resolution/origin changes;
+* overlap/center-distance continuity;
+* deterministic ambiguous geometry matching.
+
+This test verifies the geometry matching primitive. Xephyr topology scenarios
+verify that the same model is integrated correctly with live X11 monitor/client
+state.
+
+### UI label test
+
+`tests/ui_label_test.c` exercises pure/native-UI helper behavior without needing
+a live WM session. Coverage includes label formatting/style resolution,
+workspace/mode/title state selection, clock visibility, and related UI helper
+logic used by the bar and tabs.
+
+## Xvfb integration suite
+
+After building the WM and test tools, the headless scenarios can also be run
+directly:
+
+```sh
+tests/run_xvfb.sh
+```
+
+The current runner executes 36 scenarios:
+
+```text
+xvfb_bootstrap.sh
+xvfb_core_commands.sh
+xvfb_workspace_transition.sh
+xvfb_config.sh
+xvfb_v2_config.sh
+xvfb_border_modes.sh
+xvfb_rules.sh
+xvfb_special_windows.sh
+xvfb_native_bar.sh
+xvfb_override_redirect_notification.sh
+xvfb_bar_widgets.sh
+xvfb_workspacebar.sh
+xvfb_bar_pressure.sh
+xvfb_status_clock.sh
+xvfb_tray.sh
+xvfb_tray_hardening.sh
+xvfb_semantic_geometry.sh
+xvfb_configure_request.sh
+xvfb_fullscreen_transitions.sh
+xvfb_maximize_ewmh.sh
+xvfb_mouse.sh
+xvfb_numlock.sh
+xvfb_keymap.sh
+xvfb_normal_hints.sh
+xvfb_focus_cycle.sh
+xvfb_tabbar.sh
+xvfb_tabbar_empty.sh
+xvfb_lifecycle.sh
+xvfb_visibility_withdrawal.sh
+xvfb_restart.sh
+xvfb_focus_urgency.sh
+xvfb_focus_history.sh
+xvfb_focus_protocol.sh
+xvfb_property_cache.sh
+xvfb_focus_compat.sh
+xvfb_spawn.sh
+```
+
+Some test/fixture names still contain `v2` because they were introduced during
+that development phase. The name is historical; the tested native-UI
+configuration is part of the current repository behavior.
+
+The Xvfb suite currently covers areas including:
+
+* WM ownership and startup discovery, including adopted `IconicState` windows;
+* manage/unmanage and original-border restoration;
+* inactive-workspace unmapping vs. genuine client withdrawal;
+* workspace transition mapping/focus/paint ordering;
+* core command dispatch and command-context validation;
+* strict atomic TOML parsing and invalid-config fallback;
+* native UI configuration validation, state-style validation, and old-config rejection;
+* independent FREE/MONOCLE border presentation;
+* ordered rules and client fullscreen policies;
+* Docks, struts, workareas, Desktop/Notification special windows;
+* native bar top/bottom workarea reservation;
+* bar widget layout/state, narrow-layout pressure, and workspace-label hit testing;
+* root status and internal clock refresh;
+* external override-redirect notification stacking relative to native UI;
+* XEmbed tray selection, docking, lifecycle, geometry normalization, and hardening;
+* semantic geometry, normal restore state, snap, maximize, MONOCLE, and fullscreen nesting;
+* ConfigureRequest ownership/idempotence;
+* EWMH maximize and fullscreen transitions;
+* interactive mouse move/resize and snap preview;
+* NumLock/CapsLock-insensitive passive grabs;
+* duplicate KeySym/all-KeyCode grabs and runtime `MappingNotify` rebuilds;
+* ICCCM size hints;
+* stable client/tab focus cycling;
+* MONOCLE tab interactions and empty-tab behavior;
+* urgency and workspace focus-history restoration;
+* `WM_TAKE_FOCUS`, InputHint, and FocusIn compatibility;
+* runtime metadata/property-cache refresh without implicit re-placement;
+* restart boundaries, including cold-start-only background/autostart behavior;
+* direct `spawn`, `spawn-shell`, and SIGCHLD inheritance/reset behavior.
+
+Run one scenario directly when iterating on a focused area:
+
+```sh
+tests/xvfb_tray.sh
+tests/xvfb_workspacebar.sh
+tests/xvfb_focus_compat.sh
+```
+
+The scripts use `BOX2430_TEST_DISPLAY` when an explicit unused display number is
+needed:
 
 ```sh
 BOX2430_TEST_DISPLAY=:150 tests/xvfb_spawn.sh
@@ -200,44 +306,58 @@ A different WM binary can be supplied with `BOX2430_BIN`:
 BOX2430_BIN=./build/sanitize/box2430 tests/run_xvfb.sh
 ```
 
-This is the normal way to run the integration suite against the sanitizer build.
+This is the normal way to run the same integration suite against another build
+profile.
 
-## Xephyr tests
+## Xephyr scenarios
 
-Use Xephyr when nested visual behavior, Xinerama layout, or topology changes matter.
+Xephyr is used when nested visual behavior, multi-monitor rendering, or live
+Xinerama topology changes matter.
 
-Available scenarios include:
+Current scenarios are:
 
-```sh
+```text
 tests/xephyr_visual.sh
 tests/xephyr_multimon.sh
 tests/xephyr_topology.sh
+tests/xephyr_bar_widgets.sh
+tests/xephyr_native_bar_topology.sh
+tests/xephyr_tray.sh
+tests/xephyr_tray_topology.sh
 ```
 
 They cover behavior such as:
 
 * FREE overlap and border presentation;
-* snap preview, snap, maximize, and fullscreen;
-* per-monitor workspaces and monitor movement;
+* snap preview, snap, maximize, and fullscreen visuals;
+* MONOCLE tab rendering, including non-ASCII titles;
+* per-monitor workspaces and client movement;
 * cross-monitor drag;
-* Xinerama monitor selection;
-* topology reconciliation, including semantic focus preservation and geometry
-  rematerialization across resolution changes;
-* MONOCLE tab rendering, including non-ASCII titles.
+* Xinerama monitor selection and logical monitor continuity;
+* topology reconciliation across resolution/origin changes;
+* preservation/rematerialization of latent FREE geometry, snap, maximize,
+  MONOCLE, and fullscreen state;
+* native bar/widgets on multi-monitor layouts;
+* native bar placement across topology changes;
+* tray rendering/embedding in a nested server;
+* tray relocation/reallocation as selected monitor/topology changes.
 
-Some Xephyr scenarios capture evidence under:
+Some Xephyr scenarios capture visual evidence under:
 
 ```text
 build/evidence/
 ```
 
-They require access to a working host X display. If Xephyr cannot connect to the host display, use Xvfb for non-visual verification and treat the Xephyr-specific result as not verified in that environment.
+Xephyr requires access to a working host X display. If the nested server cannot
+connect to that host display, use Xvfb for non-visual verification and report the
+Xephyr result as unverified rather than failed product behavior.
 
 ## X server restrictions in sandboxes
 
-Xvfb and Xephyr should be run outside restrictive filesystem/process sandboxes when the sandbox prevents X server socket creation.
+Xvfb and Xephyr may fail inside restrictive filesystem/process sandboxes that
+prevent X server socket creation.
 
-Known symptoms include:
+Typical symptoms include:
 
 ```text
 Xvfb did not start
@@ -245,15 +365,18 @@ Cannot establish any listening sockets
 Owner of /tmp/.X11-unix should be set to root
 ```
 
-When these errors occur in a sandbox, do not repeatedly change display numbers or modify Box2430 code. Re-run the same test outside the sandbox with an unused display number.
+When these appear because of the execution environment, do not repeatedly
+change display numbers or modify Box2430 code to compensate. Re-run the same
+test outside the restrictive sandbox with an unused display.
 
-Compilation, static inspection, and tests that do not start an X server may still be run inside the sandbox.
+Compilation, static inspection, and tests that do not launch an X server may
+still be useful inside the sandbox.
 
 ## Sanitizers
 
 `make sanitize` enables AddressSanitizer and UndefinedBehaviorSanitizer.
 
-For substantial behavior changes, a useful verification sequence is:
+A useful substantial-change sequence is:
 
 ```sh
 make clean
@@ -262,29 +385,32 @@ make test-tools
 BOX2430_BIN=./build/sanitize/box2430 tests/run_xvfb.sh
 ```
 
-Run relevant Xephyr scenarios with the sanitizer binary as well when the change affects multi-monitor or visual behavior.
+Run relevant Xephyr scenarios with the sanitizer binary as well when the change
+affects monitor topology, native UI, tray, or visual geometry.
 
-If GCC's sanitizer runtime is unavailable on a machine, using Clang is preferred over weakening the checks.
+If GCC's sanitizer runtime is unavailable on a machine, using Clang is preferred
+over weakening checks.
 
-LeakSanitizer-clean process teardown is not treated as a universal requirement because external X11/font libraries may retain process-lifetime allocations.
+LeakSanitizer-clean process teardown is not treated as a universal requirement
+because external X11/font libraries can retain process-lifetime allocations.
 
-## Valgrind and the Xft/fontconfig baseline
+## Valgrind and Xft/fontconfig baseline
 
 Xft/fontconfig may retain process-lifetime allocations at exit. When a Valgrind
 finding appears to originate entirely in those libraries, compare it with a
 minimal Xft-only reproducer in the same environment before treating it as a
-Box2430 leak. Do not add Box2430 cleanup workarounds or change product behavior
-merely to suppress matching external-library teardown behavior.
+Box2430 leak.
 
-This does **not** make arbitrary Valgrind findings acceptable. Investigate any:
+Do not add product cleanup workarounds solely to suppress an identical external
+library teardown baseline.
+
+This does **not** make arbitrary findings acceptable. Investigate any:
 
 * invalid read or write;
 * use of uninitialized data;
 * allocation whose stack includes Box2430 code;
 * leak whose allocation path differs from the external-library baseline;
 * leak that grows repeatedly during normal WM operations.
-
-When uncertain, compare the finding with a minimal Xft program in the same environment.
 
 ## Debugging X11 behavior
 
@@ -299,9 +425,17 @@ xdotool search --name '<title>'
 xdotool getwindowgeometry --shell <window-id>
 ```
 
-For event-order or lifetime bugs, preserve the real asynchronous X11 sequence before changing implementation details. A disappearing client may legitimately produce an ordinary `BadWindow` race; distinguish that from incorrect Box2430 bookkeeping or an unexpected non-`BadWindow` X error.
+For native UI/tray work, window names are also useful when inspecting the root
+tree. Box2430 names monitor bars and its tray owner/host, which can help separate
+internal windows from managed application clients.
 
-When a test fails, inspect the WM/X-server logs produced by the scenario before reducing the test to an internal helper call.
+For event-order or lifetime bugs, preserve the real asynchronous X11 sequence
+before changing implementation details. A disappearing client may legitimately
+produce an ordinary `BadWindow`; distinguish that from incorrect internal
+bookkeeping or unexpected non-`BadWindow` X errors.
+
+When an integration scenario fails, inspect the WM/X-server logs produced by the
+scenario before reducing the test to an internal helper.
 
 ## Adding or changing tests
 
@@ -310,17 +444,25 @@ Choose the narrowest existing scenario that matches the behavior being changed.
 Prefer:
 
 * extending an existing `xvfb_*.sh` scenario for deterministic X11 behavior;
-* adding a new Xvfb scenario when the behavior forms a distinct regression boundary;
-* using Xephyr only when visual output, topology, or nested multi-monitor behavior is essential;
-* adding a small fixture client under `tests/` when an exact ICCCM/EWMH behavior cannot be produced reliably with `xterm` or `xdotool`.
+* adding a new Xvfb scenario when the behavior creates a distinct regression boundary;
+* using Xephyr only when visual output, live topology, or nested multi-monitor
+  behavior is essential;
+* extending `monitor_geometry_test.c` or `ui_label_test.c` when the behavior is
+  genuinely pure/local;
+* adding a small fixture client under `tests/` when an exact ICCCM/EWMH/XEmbed
+  behavior cannot be produced reliably with `xterm` or `xdotool`.
 
-Test fixture configuration belongs under:
+Fixture configuration belongs under:
 
 ```text
 tests/fixtures/
 ```
 
-A regression test should fail for the original bug and pass because of the intended fix, not because of unrelated timing or environment assumptions.
+A regression test should fail for the original bug and pass because of the
+intended fix, not because of unrelated sleep timing or environmental assumptions.
+
+Avoid writing a test that merely duplicates implementation logic and then proves
+the duplicate agrees with itself.
 
 ## Runtime economy checks
 
@@ -331,11 +473,13 @@ make release
 tests/measure_economy.sh
 ```
 
-The script reports idle RSS, RSS with a configurable number of xterms, and idle CPU usage under Xvfb.
+The script reports idle RSS, RSS with a configurable number of xterms, and idle
+CPU usage under Xvfb.
 
-Use it to notice major regressions, not as a fixed release gate tied to historical machine-specific numbers.
+Use it to notice large regressions, not as a fixed release gate tied to one
+historical machine.
 
-The client count can be changed with:
+Change the client count with:
 
 ```sh
 BOX2430_CLIENT_COUNT=20 tests/measure_economy.sh
@@ -343,31 +487,54 @@ BOX2430_CLIENT_COUNT=20 tests/measure_economy.sh
 
 ## Real-session smoke testing
 
-Xvfb and Xephyr provide most automated coverage, but changes involving real input devices, panels, drivers, X.Org/XLibre differences, or physical multi-monitor behavior may still deserve a real-session smoke test.
+Xvfb/Xephyr cover most automated behavior, but changes involving real input
+devices, notification daemons, wallpaper tools, panels, drivers, X.Org/XLibre
+differences, physical multi-monitor changes, or real tray applications may still
+deserve a real-session smoke test.
 
-Do this from a disposable X session or spare VT. Do not replace a user's active window manager from an automated test or coding-agent session.
+Use a disposable X session or spare VT. Automated tooling/coding agents must not
+replace the user's active WM unless explicitly authorized for that exact action.
 
 A convenient dedicated startup file is:
 
 ```sh
-printf '%s\n' 'xterm &' 'exec /path/to/box2430 -c /path/to/config.toml' > ~/.xinitrc-box2430
+printf '%s\n' \
+  'xterm &' \
+  'exec /path/to/box2430 -c /path/to/config.toml' \
+  > ~/.xinitrc-box2430
 ```
 
-Then start it manually on an unused display using the host system's normal X.Org or XLibre `xinit`/`startx` procedure.
+Start it manually on an unused display using the host system's normal X.Org or
+XLibre `xinit`/`startx` procedure.
 
-Before testing, configure an explicit `wm quit` binding so the session can be exited cleanly.
+Before testing, configure an explicit `wm quit` binding so the session can be
+exited cleanly.
 
-For a broad smoke test, check the behaviors touched by the change, plus basic startup, window management, focus, workspace switching, FREE/MONOCLE, move/resize, and clean WM exit.
+For a broad smoke test, check at least:
+
+* startup and existing-window adoption;
+* ordinary focus/raise/lower;
+* workspace switching per monitor;
+* FREE/MONOCLE and tab interaction;
+* native bar rendering/status/clock;
+* tray with a real XEmbed application when relevant;
+* move/resize/snap/maximize/fullscreen;
+* notification stacking if native UI stacking changed;
+* physical monitor unplug/replug only when topology behavior is in scope;
+* clean WM exit/restart.
 
 ## Verification reporting
 
-Only report a test as passing if it was actually executed successfully in the current environment.
+Only report a test as passing when it was actually executed successfully in the
+current environment.
 
-Distinguish clearly between:
+Use clear categories:
 
 * **PASS** — executed and succeeded;
 * **FAIL** — executed and failed;
-* **UNVERIFIED** — could not be executed because of an environment limitation;
+* **UNVERIFIED** — could not execute because of an environment limitation;
 * **USER HANDOFF** — intentionally requires a real user-controlled X session.
 
-Do not convert an unavailable X server, missing Xephyr host display, or sandbox socket restriction into a claim about Box2430 correctness.
+Do not convert a missing development library, unavailable X server, missing
+Xephyr host display, or sandbox socket restriction into a statement about
+Box2430 correctness.

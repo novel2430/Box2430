@@ -1,144 +1,170 @@
 # Box2430 Architecture
 
-This document describes the architecture of the current Box2430 implementation. It is a guide to how the window manager is structured and how its major state transitions work; it is not a separate design contract.
+This document describes the architecture of the current Box2430 implementation.
+It explains the runtime state model and the major invariants behind the code; it
+is not a separate frozen specification.
 
 ## Overview
 
-Box2430 is a small, single-threaded, non-reparenting X11 stacking window manager built directly on Xlib.
+Box2430 is a small, single-threaded, non-reparenting X11 stacking window manager
+built directly on Xlib. Ordinary managed application windows remain their own
+X11 top-level windows; Box2430 does not wrap them in frame windows.
 
-The implementation keeps most window-management behavior in one place rather than splitting it across a large framework:
+The native UI is part of the same runtime rather than a separate panel process.
+Bars, MONOCLE tab bars, snap-preview windows, and the tray owner/host are
+Box2430-owned override-redirect windows. XEmbed tray icons are the notable
+reparenting exception: tray protocol requires icons to be embedded into the tray
+host.
 
-| File            | Responsibility                                                                                           |
-| --------------- | -------------------------------------------------------------------------------------------------------- |
-| `src/main.c`    | CLI parsing, session-start detection, WM lifecycle, and restart                                          |
-| `src/wm.c`      | Core state, event handling, focus, geometry, workspaces, monitors, tabs, snapping, and window management |
-| `src/command.c` | Command validation and dispatch, including process spawning                                                       |
-| `src/config.c`  | Built-in defaults and strict TOML configuration loading                                                  |
-| `src/x11.c`     | X11 ownership, atoms, window metadata, struts, and EWMH/ICCCM-facing helpers                             |
-| `src/box2430.h` | Shared data structures and public internal interfaces                                                    |
+The main source layout is:
 
-There is no frame-window hierarchy around managed clients. Box2430 manages the client windows themselves and adds only its own override-redirect helper windows, such as tab bars and snap previews.
+| File | Responsibility |
+| --- | --- |
+| `src/main.c` | CLI parsing, fresh-session/restart distinction, WM lifecycle, and re-exec |
+| `src/wm.c` | Main state machine: events, clients, workspaces, focus, stacking, geometry, monitor reconciliation, dragging, ICCCM/EWMH reactions |
+| `src/ui.c` / `src/ui.h` | Borders, native bars, widget layout/drawing, status/clock text, MONOCLE tabs, snap preview |
+| `src/tray.c` / `src/tray.h` | XEmbed system-tray selection, owner/host windows, icon lifecycle and geometry |
+| `src/monitor.c` | Monitor rectangle normalization and logical topology matching |
+| `src/command.c` | Command validation/dispatch and child-process launch paths |
+| `src/config.c` | Built-in defaults and strict atomic TOML configuration loading |
+| `src/x11.c` | WM ownership, atoms, window metadata, struts, client lists, workarea, and ICCCM/EWMH helpers |
+| `src/box2430.h` | Shared structures, enums, constants, and internal interfaces |
 
-## Core Concepts
+The implementation deliberately stays close to one X11 event loop and explicit C
+state transitions. See `docs/IMPLEMENTATION_STYLE.md` for the long-lived
+engineering rationale.
 
-A few X11 and window-manager terms are easy to confuse. These distinctions are used throughout the codebase.
+## Core X11 concepts
 
 ### Manage, map, and visible
 
-**Managing** a window means Box2430 has created a `Client` or `SpecialWindow` record for it and has taken responsibility for its WM behavior.
+**Managing** a window means Box2430 has adopted it into a `Client` or
+`SpecialWindow` record and is responsible for the relevant WM behavior.
 
-**Mapping** is an X11 operation that makes a window eligible to become viewable. An application normally calls `XMapWindow`; because Box2430 owns `SubstructureRedirectMask` on the root window, a new top-level client produces a `MapRequest` that the WM handles first.
+**Mapping** is an X11 operation. Because Box2430 owns `SubstructureRedirectMask`
+on the root, an ordinary top-level application's map request is normally seen by
+the WM as `MapRequest` before the window becomes visible.
 
-In configuration names such as `focus_on_map` and `raise_on_map`, **map refers to this X11 window-mapping event**, not to a map/dictionary data structure.
+A managed client does not have to remain mapped. Clients on inactive workspaces
+stay managed while Box2430 unmaps them. Returning to that workspace remaps the
+same clients without re-running the management pipeline.
 
-Managed and mapped are not the same as currently visible. A client may remain fully managed while Box2430 unmaps it because its workspace is inactive. When that workspace becomes active, Box2430 maps it again without treating it as a new client.
+At startup, Box2430 can also adopt an unmapped top-level window left in ICCCM
+`IconicState` by a previous WM. `IconicState` is only a startup-discovery signal;
+Box2430 does not implement a minimize workflow and does not use `IconicState` to
+represent hidden workspaces.
 
-At startup, an unmapped top-level window left in ICCCM `IconicState` by a
-previous window manager is also eligible for discovery. `IconicState` is only
-a discovery signal: after adoption the window enters the ordinary Box2430
-client and workspace model.
-
-Workspace hiding is not minimization. Box2430 does not expose a minimize state.
-Hiding an inactive workspace unmaps its clients while they remain managed and
-keeps their adopted `WM_STATE` as `NormalState`; `IconicState` is not used as a
-workspace-visibility state.
-
-This gives three useful questions:
+Useful distinctions are therefore:
 
 ```text
-Is it managed?   -> Does Box2430 own client state for it?
-Is it mapped?    -> Is the X window currently mapped?
-Is it visible?   -> Is it on an active workspace and not otherwise hidden?
+managed  -> Box2430 owns runtime state for the window
+mapped   -> the X window is mapped
+visible  -> it belongs to an active workspace and its presentation is mapped
 ```
+
+### WM-generated unmap vs. client withdrawal
+
+Workspace hiding uses real `XUnmapWindow` calls. Applications may also unmap a
+top-level window to withdraw it from WM management.
+
+`Client.ignored_unmaps` distinguishes unmaps generated by Box2430 from genuine
+withdrawal. A WM-generated unmap must not accidentally destroy client state.
+When a live client is actually unmanaged/withdrawn, Box2430 restores its original
+border width, releases passive button grabs, stops selecting client events, and
+sets `WM_STATE` to `WithdrawnState`.
 
 ### Focus and raise
 
-**Focus** controls which client receives keyboard input and is considered the active client. Focusing also updates Box2430 state such as `focused_client`, the workspace's focus stack, urgency, focused border, and `_NET_ACTIVE_WINDOW`. Focus does not reorder the workspace's stable client order.
+Focus and stacking are separate semantics.
 
-**Raise** changes stacking order: it moves a client toward the top of the ordinary client stack. It does not by itself give that client keyboard focus.
+**Focus** changes the client that receives keyboard focus and updates:
 
-The two operations are intentionally independent in FREE mode. For example, with the defaults:
+* `wm->focused_client`;
+* the workspace focus-history list;
+* urgency state;
+* focused/unfocused/urgent border presentation;
+* passive click-focus grabs;
+* `_NET_ACTIVE_WINDOW`;
+* the selected monitor when focus moves to a client on another monitor.
 
-```toml
-raise_on_focus = false
-focus_on_map = true
-raise_on_map = true
-```
+**Raise** changes the workspace's bottom-to-top stack order. Raising does not by
+itself assign keyboard focus.
 
-when a new visible client is mapped, Box2430 normally both raises it and focuses it. Later focusing another existing client does **not** automatically raise that client because `raise_on_focus` is false.
+With the defaults, a newly mapped visible client is both focused and raised
+because `focus_on_map = true` and `raise_on_map = true`, but later focusing an
+existing client does not raise it because `raise_on_focus = false`.
 
-The three options therefore mean:
-
-* `focus_on_map`: focus a newly managed client when it is mapped onto a currently visible workspace;
-* `raise_on_map`: place a newly managed client at the top of its workspace stack;
-* `raise_on_focus`: whenever normal focus changes to a client, also raise it.
-
-MONOCLE is a deliberate exception to strict focus/raise independence. MONOCLE clients overlap in the same content area, so tab or focus navigation raises the selected client to make it the visible one even when global `raise_on_focus` is disabled.
-
-### Unmap and withdraw
-
-Box2430 sometimes calls `XUnmapWindow` itself, most notably when hiding clients on an inactive workspace. This is a presentation operation; the client remains managed.
-
-Applications can also unmap their own top-level windows as part of withdrawing them from WM management. `ignored_unmaps` lets Box2430 distinguish WM-generated unmaps from client-generated withdrawal so that hiding a workspace does not accidentally destroy its client bookkeeping.
+MONOCLE intentionally couples focus selection with raising: all MONOCLE clients
+occupy the same content rectangle, so the focused tab must also become the top
+ordinary client to be visible.
 
 ### Selected monitor and focused client
 
-`selected_monitor` and `focused_client` answer different questions.
+`selected_monitor` is not just an alias for the focused client's monitor.
 
-`focused_client` is the client currently receiving WM focus. `selected_monitor` is the monitor targeted by monitor/workspace-oriented commands. Focusing a client selects that client's monitor, but Box2430 can also select a monitor explicitly even when focus does not move to a client there.
+* client-specific focus normally selects that client's monitor;
+* monitor/workspace/mode commands use `selected_monitor` as their target;
+* `monitor next|prev` can select another monitor and then focus that monitor's
+  active-workspace fallback client;
+* the selected monitor also determines which monitor exposes the single XEmbed
+  tray.
 
-This distinction allows commands such as workspace switching to operate per monitor rather than through one global desktop state.
+This separation is what makes workspaces per-monitor rather than a single global
+desktop index.
 
-## Core State Model
+## Core state model
 
-The top-level `WM` object owns the complete runtime state:
+The top-level `WM` object owns the process-wide runtime state:
 
 ```text
 WM
+├── Config
 ├── Monitor[]
-│   └── Workspace[]
-│       └── Client membership and ordering
+│   ├── geometry / workarea / bar_geometry
+│   ├── Workspace[]
+│   ├── active_workspace
+│   ├── native bar window + Xft draw state
+│   └── MONOCLE tab-bar window + Xft draw state
 ├── global Client list
 ├── SpecialWindow list
-├── focused Client
 ├── selected Monitor
-└── drag state
+├── focused Client
+├── Tray
+├── native UI resources / cached status + clock text
+└── interactive drag / snap-preview state
 ```
 
 ### Monitors and workspaces
 
-Each `Monitor` owns its own array of workspaces:
+Every monitor owns its own workspace array:
 
 ```text
-Monitor
-├── geometry
-├── workarea
-├── workspaces[]
-├── active_workspace
-└── tab_bar
+Monitor 0                     Monitor 1
+├── workspace 1              ├── workspace 1
+├── workspace 2              ├── workspace 2
+└── ...                      └── ...
 ```
 
-Workspaces are therefore **per-monitor**, not global virtual desktops. Monitor 1 workspace 2 and monitor 2 workspace 2 are separate `Workspace` objects.
+The same workspace number on two monitors represents two different `Workspace`
+objects. Activating workspace 2 on one monitor does not change the active
+workspace of another monitor.
 
-Switching a workspace only changes the active workspace of that monitor. Other monitors keep their own active workspaces.
+Each workspace stores:
 
-`selected_monitor` is the monitor targeted by workspace, mode, and focus commands when no client-specific destination is involved. Focusing a client also selects that client's monitor.
+* `mode`: FREE or MONOCLE;
+* membership list;
+* stable tab/client order;
+* stack order;
+* focus-history order.
 
-At steady state, clients on inactive workspaces are genuinely unmapped. During
-activation, Box2430 first prepares all incoming geometry while it is hidden,
-then makes the incoming workspace active, maps and focuses it, and only then
-unmaps the outgoing clients. Both workspaces may therefore be mapped during a
-short controlled overlap. Active-workspace stacking rules ignore outgoing
-clients during that overlap so they cannot be raised back above the incoming
-workspace.
+These lists intentionally model different semantics and are not interchangeable.
 
 ### Clients
 
-A normal or dialog window is represented by `Client`.
+Every ordinary/dialog client belongs to exactly one workspace and also appears
+in the WM-wide ownership list.
 
-Every client belongs to exactly one workspace and also appears in the WM-wide client list. The global list is primarily ownership/discovery state; workspace-local lists determine user-visible ordering.
-
-Important client state includes:
+Important semantic client state includes:
 
 ```text
 workspace
@@ -152,457 +178,667 @@ client_fullscreen
 urgent
 accepts_input
 takes_focus
+border_enabled
+fullscreen_policy
+cached title / class / instance / type / transient relationship
+cached ICCCM size hints
 ```
 
-`geometry` and `normal_geometry` should not be treated as interchangeable.
+`geometry` and `normal_geometry` have different roles. `normal_geometry` is the
+restore point preserved across snap/maximize. MONOCLE and real fullscreen are
+temporary presentation states and must not overwrite that restore state.
 
-`normal_geometry` is the restore point used when leaving snap or maximize. MONOCLE and real fullscreen are presentation states: they may resize the actual X window without replacing the underlying normal workspace geometry.
+## Workspace ordering
 
-## Workspace Ordering
-
-Each workspace keeps several independent views of the same clients.
+A workspace keeps several views of the same clients.
 
 ### Membership order
 
-`workspace->clients` is a simple membership list. It is useful for operations that must visit every client in the workspace, such as rematerializing geometry.
+`workspace->clients` is a simple membership chain used when every client in the
+workspace must be visited, for example during rematerialization.
 
-### Stable client / tab order
+### Stable client/tab order
 
-`tab_head` / `tab_tail` define the workspace's canonical client order. The same order is rendered as tabs in MONOCLE mode, but it also exists and is used in FREE mode.
+`tab_head` / `tab_tail` are the canonical stable client order.
 
-New clients are appended to the end. Focusing or raising a client does not reorder this list.
+New clients are appended. Normal focus changes, urgency, raise/lower, and focus
+history do not reorder this list.
 
-`focus next` / `focus prev` cycle through this order with wraparound, skipping clients that cannot receive focus. Focus history does not reorder this list.
+The same order is used by:
+
+* `focus next` / `focus prev` in both FREE and MONOCLE;
+* MONOCLE tab drawing;
+* keyboard `tab focus N`.
 
 ### Stack order
 
-`stack_head` / `stack_tail` define bottom-to-top stacking order for ordinary clients in a workspace.
+`stack_head` / `stack_tail` are bottom-to-top ordinary-client stack order.
 
-Raise and lower operations modify this list. Focus and stacking are intentionally separate unless `raise_on_focus` or a specific operation explicitly raises a client.
+`client_raise()` and `client_lower()` modify this list. Focus only modifies it
+when an operation explicitly raises, such as MONOCLE tab selection or global
+`raise_on_focus`.
 
-Stable client/tab order and stack order are independent: focus cycling does not change stacking, and raise/lower operations do not change focus-cycle order.
+### Focus-history order
 
-At the root-window level, Box2430 keeps its known tiers ordered with sibling-relative stacking: ordinary clients stay below native bar/tray/tab UI, managed special windows stay above native UI, and real fullscreen clients stay above those known tiers. The native UI is not repeatedly raised to the absolute top of the root stack. This lets unrelated override-redirect overlays, such as notification windows, remain above the native UI after they map without Box2430 adopting them as managed clients.
+`focus_head` / `focus_tail` are most-recently-focused to least-recently-focused
+history. This exists to restore useful focus after a client disappears, a
+workspace is entered, or topology changes.
 
-### Focus order
+It is independent from both stable client order and X stacking order.
 
-`focus_head` / `focus_tail` define most-recently-focused to least-recently-focused order for clients that have actually received focus in the workspace. This is a separate interaction stack; it is not X stacking order and it does not affect `focus next` / `focus prev`.
+## Focus model
 
-A newly managed or moved client is not added merely because it exists in the workspace. `focus_client()` promotes a client to `focus_head` when Box2430 performs a real semantic focus transition. Removing or moving a client detaches it from this order.
+A client is considered focusable if ICCCM metadata says it accepts direct input
+or supports `WM_TAKE_FOCUS`.
 
-## Focus Model
+When Box2430 gives focus:
 
-`wm->focused_client` is the globally focused managed client. Each workspace keeps the independent focus order described above so focus can be restored by recency without coupling focus to X stacking.
+1. update internal semantic focus;
+2. update border/button-grab presentation for old/new clients;
+3. select the client's monitor;
+4. move the client to the head of workspace focus history;
+5. clear its urgency;
+6. use `XSetInputFocus` when `InputHint` permits;
+7. send `WM_TAKE_FOCUS` when supported;
+8. update `_NET_ACTIVE_WINDOW` and native UI;
+9. optionally raise when `raise_on_focus` is enabled.
 
-A client is focusable when it either accepts normal X input focus or supports `WM_TAKE_FOCUS`.
+A `FocusIn` compatibility path reasserts the WM's chosen focus if an ordinary
+client steals X focus behind Box2430's semantic state. It does not treat every
+raw focus event as permission for the client to redefine WM focus policy.
 
-On focus, Box2430 may:
+`_NET_ACTIVE_WINDOW` requests are controlled by `focus.active_window`:
 
-1. update `focused_client`;
-2. select the client's monitor;
-3. promote the client to the workspace's `focus_head`;
-4. clear urgency;
-5. call `XSetInputFocus` when appropriate;
-6. send `WM_TAKE_FOCUS` when supported;
-7. update `_NET_ACTIVE_WINDOW`;
-8. redraw tab bars;
-9. optionally raise the client.
+* `urgent` marks a requesting non-focused client urgent;
+* `focus` focuses the requesting client only when it is already on its monitor's
+  active workspace.
 
-Click focus uses passive button grabs so Box2430 can focus the window and then replay an unmatched click to the client. Sloppy focus uses `EnterNotify`.
-
-In click mode only unfocused clients carry the catch-all first-click grab;
-focused clients and sloppy-focus clients retain only explicit WM mouse-binding
-grabs. `FocusIn` conflicts from clients that acquire X input focus directly are
-corrected back to Box2430's semantic focused client. Sloppy crossing events are
-filtered, and stacking synchronization discards stale `EnterNotify` events
-created by internal restacking.
-
-Client `_NET_ACTIVE_WINDOW` requests default to marking an unfocused client
-urgent instead of allowing focus stealing. The `[focus].active_window` policy
-can be set to `"focus"` to retain direct focusing for visible, focusable clients.
-
-When a focused client disappears or leaves a workspace, Box2430 first restores
-the most recently focused remaining client from the workspace focus order.
-Workspace and monitor activation use the same focus-order head. If no remaining
-client has focus history, Box2430 falls back to stable client order: removal
-prefers the next focusable client and then a previous one, while activation
-starts from the newest (`tab_tail`) end. Root focus is used only when no
-focusable client exists.
+This avoids implicitly switching workspaces in response to client activation
+requests.
 
 ## FREE and MONOCLE
 
-Every workspace has one of two modes.
-
 ### FREE
 
-FREE mode uses ordinary stacking-window geometry.
+FREE is normal stacking-window behavior:
 
-Clients can be moved, resized, snapped, maximized, and raised/lowered independently.
+* clients keep their committed semantic geometry;
+* overlap is allowed;
+* ordinary focus and raise are independent;
+* move/resize, snap, and maximize are available;
+* the FREE border style is used.
 
 ### MONOCLE
 
-In MONOCLE mode, all clients in the active workspace are materialized into the monitor's MONOCLE content area.
+MONOCLE keeps the same workspace membership and stable client order, but changes
+presentation:
 
-The content area is:
+* every client is presented in the monitor's MONOCLE content rectangle;
+* focus/tab selection raises the selected client;
+* the MONOCLE border style is used;
+* an optional tab bar is created for the visible MONOCLE workspace when it has
+  clients;
+* the tab bar can independently occupy the top or bottom edge of the monitor
+  workarea.
 
-```text
-monitor workarea
-minus the tab bar at the top
-```
+MONOCLE does not replace `Client.geometry`/`normal_geometry` with the temporary
+full-content rectangle. Leaving MONOCLE rematerializes the client's underlying
+FREE semantic state.
 
-when tabs are enabled and there is enough vertical space.
+## Geometry model
 
-The clients are not converted into tiles and are not removed from their normal workspace state. Leaving MONOCLE restores the appropriate underlying FREE presentation.
+Box2430 separates raw monitor geometry, monitor workarea, semantic client
+geometry, and temporary presentation geometry.
 
-All MONOCLE clients remain managed in normal stack order. The focused/tab-selected client is raised, making stacking determine which client is visible on top.
+### Monitor geometry and workarea
 
-The tab bar is one override-redirect X window per monitor and is only mapped when that monitor's active workspace is in MONOCLE mode.
+`Monitor.geometry` is the raw Xinerama monitor rectangle.
 
-## Geometry and Presentation State
-
-A monitor has two rectangles:
-
-* `geometry`: the physical Xinerama monitor rectangle;
-* `workarea`: geometry after dock struts are removed.
-
-Most ordinary placement, snap, and maximize operations use the workarea.
-
-Real fullscreen uses the full monitor geometry and removes the client border.
-
-For normal clients, `normal_geometry` is the FREE rectangle preserved before
-snap/maximize, while `geometry` is the current semantic rectangle for the
-FREE/snap/maximize layer. `commit_client_geometry()` updates that semantic
-rectangle and presents it to X11. `present_client_geometry()` only changes the
-X11 presentation and is used for temporary MONOCLE/fullscreen geometry so those
-states cannot overwrite the geometry needed when they unwind.
-
-The presentation priority in `materialize_client_geometry()` is effectively:
+`Monitor.workarea` is computed in this order:
 
 ```text
-real fullscreen
-    >
-MONOCLE
-    >
-maximized
-    >
-snap
-    >
-stored geometry
+raw monitor geometry
+    -> subtract matching external Dock struts
+    -> reserve native bar edge when enabled
+    -> final monitor workarea
 ```
 
-This ordering matters when multiple pieces of state exist at the same time.
+The MONOCLE tab bar does **not** permanently change `Monitor.workarea`. Instead,
+MONOCLE derives a content rectangle from the workarea by temporarily removing
+the configured tab edge when the tab bar materializes.
+
+This separation matters because:
+
+* normal placement uses workarea;
+* snap/maximize use workarea;
+* MONOCLE uses workarea minus its tab strip;
+* real fullscreen uses raw monitor geometry.
+
+`_NET_WORKAREA` exposes the selected monitor's Box2430 workarea as one rectangle;
+it is not a global per-desktop model.
+
+### Semantic geometry vs. presentation
+
+`commit_client_geometry()` changes semantic geometry and presents it.
+`present_client_geometry()` changes only the X window presentation.
+
+Temporary presentations such as MONOCLE and real fullscreen use presentation
+without rewriting restore state.
+
+`client_geometry_is_wm_owned()` is true while MONOCLE, fullscreen, maximize, or
+snap owns the visible geometry. Client `ConfigureRequest` geometry cannot simply
+overwrite a WM-owned presentation state.
+
+### Normal size hints
+
+Box2430 caches and applies ICCCM `WM_NORMAL_HINTS`, including:
+
+* base/minimum/maximum size;
+* resize increments;
+* aspect constraints.
+
+Hints are invalidated on `WM_NORMAL_HINTS` property change and re-read when
+needed. Geometry is then clamped/fit against relevant workarea constraints.
 
 ### Snap and maximize
 
-Snap targets are computed from the monitor workarea. Side and corner sizes come from configuration ratios.
+Snap state is semantic state separate from raw geometry. Side/corner targets are
+computed from the destination monitor workarea and configured ratios.
 
-Entering snap or maximize preserves `normal_geometry` when needed. Clearing the state restores that geometry.
+Maximize is represented independently by `client->maximized` and is reflected as
+both EWMH maximized atoms. It uses the monitor workarea.
 
-EWMH maximize requests reuse this same full-workarea maximize state. Box2430 does not
-introduce independent horizontal/vertical maximize modes: a request involving either
-`_NET_WM_STATE_MAXIMIZED_HORZ` or `_NET_WM_STATE_MAXIMIZED_VERT` maps to the
-single existing maximize state, and an active maximize is advertised with both atoms.
-
-Interactive movement or resizing first leaves snap/maximize and returns the client to normal geometry.
-
-### ICCCM size constraints
-
-For ordinary FREE geometry, Box2430 applies the client's `WM_NORMAL_HINTS`
-base size, minimum/maximum size, resize increments, and aspect constraints.
-Parsed hints are cached on `Client`; a `WM_NORMAL_HINTS` `PropertyNotify`
-invalidates that cache, and the next initial/configure/interactive resize
-calculation refreshes it lazily.
-
-Client-requested initial placement uses the final monitor's workarea for a
-minimal operability check. A window whose outer frame is entirely outside an
-edge is moved back to that edge, while a window that still intersects the
-workarea is left at its requested position. This deliberately allows ordinary
-FREE windows to remain partially off-screen or overlap screen-edge UI.
-
-For managed FREE clients, `ConfigureRequest` commits only requested geometry
-fields and applies size hints when width/height are requested. Managed border
-width is WM-owned: `CWBorderWidth` does not change Box2430's border policy.
-When snap, maximize, MONOCLE, or real fullscreen owns the presentation, client
-geometry requests are acknowledged with the actual presented geometry without
-changing the underlying semantic/restore state.
-
-This managed-client policy applies only to ordinary `Client` objects. If a
-`ConfigureRequest` does not belong to an ordinary client — including requests
-from `SpecialWindow` dock/desktop/notification windows and otherwise unmanaged
-windows — Box2430 passes the request's original `value_mask` through to
-`XConfigureWindow`, including sibling and stacking fields. This is an intentional
-compatibility boundary; do not generalize ordinary-client geometry/stacking
-ownership to special windows without a concrete reason.
+Leaving snap/maximize restores `normal_geometry` rather than treating the target
+rectangle as the permanent normal size.
 
 ### Fullscreen
 
-Box2430 distinguishes three concepts:
-
-* `user_fullscreen`: fullscreen requested through Box2430;
-* `client_fullscreen`: fullscreen requested by the application through EWMH;
-* `fullscreen`: whether real borderless fullscreen is currently materialized.
-
-Application fullscreen is controlled by the configured per-client policy:
-
-* `allow`: honor the request as real fullscreen;
-* `fake`: expose fullscreen state without giving the client real fullscreen geometry;
-* `deny`: reject the client request.
-
-User fullscreen always requests real fullscreen.
-
-## Workareas and Special Windows
-
-Dock, desktop, and notification windows are represented as `SpecialWindow`, not normal `Client` objects.
-
-They do not belong to workspaces and do not participate in normal focus, client/tab ordering, or client geometry behavior.
-
-Dock windows may provide `_NET_WM_STRUT` or `_NET_WM_STRUT_PARTIAL`. Box2430 recomputes each monitor's workarea from these struts and rematerializes affected clients.
-
-The high-level stacking policy is:
+User fullscreen and client-requested fullscreen are tracked separately:
 
 ```text
-desktop windows
-ordinary clients
-MONOCLE tab bars
-dock/notification special windows
-real fullscreen clients
+user_fullscreen
+client_fullscreen
+fullscreen_policy
+    -> should this client receive real fullscreen?
+    -> fullscreen presentation flag
 ```
 
-Within ordinary clients, workspace stack order is preserved.
+User `fullscreen` commands can request real fullscreen directly. Client EWMH
+fullscreen requests pass through the configured/per-rule policy:
 
-## Session Startup and Restart
+* `allow`: may become real fullscreen;
+* `fake`: record/report the client fullscreen request without screen-covering
+  presentation;
+* `deny`: do not retain client fullscreen state.
 
-`main.c` distinguishes a fresh session start from Box2430's own `wm restart`.
-Restart is carried across `exec` with a private environment marker that the new
-process consumes and immediately removes. This keeps restart state out of
-configuration and prevents it from leaking into later spawned applications.
+Real fullscreen uses the raw monitor rectangle and zero border. Exiting it
+rematerializes the appropriate underlying MONOCLE/maximize/snap/normal state.
 
-On a fresh session start, `wm_init()` sets and clears the X root window once with
-`appearance.background`. Box2430 does not retain wallpaper ownership or repaint
-the root later. A wallpaper program can replace the background normally. A WM
-restart skips this root repaint.
+## Native UI
 
-After initialization and startup window discovery are complete, `wm_run()`
-installs its signal policy and, when requested by `-a`/`--autostart`, forks one
-autostart executable before entering the event loop. The child uses the same
-process-launch hygiene as binding-driven spawn: it closes the inherited X
-connection, starts a new session, and restores default `SIGCHLD` behavior before
-`exec`. Unlike `spawn`, autostart uses the supplied path directly and is not
-rerun by `wm restart`.
+### Borders
 
-## Window Management Lifecycle
+Borders are drawn directly on ordinary client windows with X11 border width and
+colors. FREE and MONOCLE have independent width/color configuration. A rule can
+disable WM borders for an individual client.
 
-Startup discovery first adopts special windows, then ordinary clients, and
-finally dialogs/transients. This establishes dock workareas before initial
-client placement and makes an already-managed transient parent available as
-the child's default monitor/workspace affinity. Explicit rules still override
-that default.
+Changing workspace mode rematerializes border width as part of client
+presentation.
 
-When a new window is managed, Box2430:
+### Native bar
 
-1. ignores override-redirect and InputOnly windows;
-2. reads its type, title, class/instance, transient relationship, and attributes;
-3. separates dock/desktop/notification windows into the special-window path;
-4. computes initial policy from global configuration and matching rules;
-5. chooses a monitor and workspace;
-6. computes initial geometry and border policy;
-7. inserts the client into workspace membership, stable client/tab order, and stack order;
-8. selects X11 events and installs mouse grabs;
-9. reads focus hints and focus-related WM protocols;
-10. maps the window if its workspace is visible;
-11. applies raise/focus-on-map policy;
-12. applies any initial client fullscreen request.
+When enabled, Box2430 creates one override-redirect bar window per monitor. The
+bar is laid out from configured left/center/right widget groups.
 
-Rules are evaluated when the window is first managed. Later property changes
-refresh the cached facts Box2430 actually keeps, but cache invalidation is not
-a reactive policy engine. In particular, runtime `WM_TRANSIENT_FOR` and
-`_NET_WM_WINDOW_TYPE` changes update relationship/type metadata without by
-themselves changing focus, workspace/monitor ownership, geometry, or stacking.
-Later title/class changes likewise update metadata without rerunning the initial
-rule-placement process. `WM_HINTS`, `WM_PROTOCOLS`, and `WM_NORMAL_HINTS` have
-their own invalidation paths so focusability and size constraints do not remain
-stuck at manage-time values. Refreshing focus capability does not itself move
-semantic focus; the refreshed capability is used the next time Box2430 makes
-an explicit focus decision.
-
-Unmanaging reverses workspace/global membership, chooses a focus fallback when
-necessary, and, for a still-existing window, stops client event selection,
-restores the application's original border, removes passive button grabs, and
-sets `WM_STATE` to `WithdrawnState` while the X server is grabbed. Destroyed
-windows skip those X11 requests.
-
-On shutdown or restart Box2430 remaps all remaining clients before relinquishing
-them. At that boundary there is no longer an active/inactive workspace owner;
-mapping the windows lets a successor WM discover them normally without
-persisting Box2430-private workspace state. During normal operation, inactive
-workspaces continue to use genuine unmapping.
-
-## Multi-Monitor Behavior
-
-Monitor discovery uses Xinerama. Raw screen records are normalized before they
-reach Box2430 monitor state: geometries with identical x, y, width, and height
-are collapsed to their first occurrence, while partially overlapping monitors
-remain distinct. If Xinerama is unavailable or inactive, its query returns no
-records, temporary normalization storage cannot be allocated, or the unique
-topology exceeds Box2430's monitor capacity, the root screen is treated as one
-monitor.
-
-Root `ConfigureNotify` events trigger topology reconciliation.
-
-Xinerama enumeration position is not treated as durable monitor identity.
-Before changing monitor state, Box2430 matches the old logical monitors to the
-new normalized rectangles. Exact rectangle matches are preferred; remaining
-rectangles are paired by strongest geometric continuity (overlap first, then
-nearest centers) with deterministic index tie-breaking. The resulting logical
-monitor state is then placed in the new Xinerama ordering. This means a pure
-enumeration reorder does not exchange monitor-local active workspaces, client
-membership, or focus history merely because the array order changed.
-
-This is deliberately **logical geometry continuity**, not physical display
-identity. Xinerama does not provide connector names, CRTC identity, or EDID.
-For an ambiguous sequence such as unplugging the old left display while the old
-right display moves into exactly the left display's rectangle, Box2430 cannot
-prove which physical display survived. It applies the same deterministic
-geometry matching rule instead of pretending to know physical identity.
-
-Topology reconciliation is local plan-then-commit work. The plan determines
-continued/added/removed monitors, client migration targets, latent geometry
-adjustments, selected-monitor continuity, and preferred focus. Commit first
-establishes the new logical monitor/workspace ownership, then computes final
-Dock workareas, clamps affected latent client geometry, rematerializes normal,
-snap, maximize, MONOCLE, and fullscreen presentation, reconciles workspace
-mapping, and finally restores focus/stacking/EWMH state. Helpers that assume a
-steady topology are therefore not called while monitor ownership is obviously
-half-updated.
-
-New monitors receive fresh workspace state. If monitors disappear, their
-clients are moved deterministically to new monitor 0 using the same workspace
-index. Box2430 transfers clients rather than an entire removed Workspace object;
-the surviving destination monitor keeps its own active workspace and workspace
-mode.
-
-When a client keeps the same logical monitor but that monitor's origin/size
-changes, or when a client migrates from a removed monitor, both `geometry` and
-`normal_geometry` are translated by the old/new monitor-origin delta and then
-clamped against the final destination workarea. Signed monitor coordinates are
-used directly; no `x >= 0` / `y >= 0` assumption is made. WM-owned presentation
-geometry is not translated blindly: fullscreen uses the new monitor rectangle,
-snap/maximize use the final workarea, and MONOCLE uses the final MONOCLE content
-rectangle.
-
-If the previously focused client survives topology reconciliation, remains on
-an active workspace, and is still focusable, Box2430 keeps semantic focus on
-that same client. Otherwise it falls back through the selected monitor's normal
-workspace focus rules.
-
-Moving a client between monitors can either:
-
-* use the destination monitor's active workspace; or
-* preserve the source workspace number with `--keep-workspace`.
-
-The explicit keyboard monitor-selection command also warps the pointer to the selected monitor's center.
-
-## Mouse Drag and Snap Preview
-
-Interactive move and resize are tracked in `wm->drag`.
-
-At drag start:
-
-* the client is focused;
-* snap/maximize state is cleared if necessary;
-* move warps the pointer to the window center;
-* resize warps the pointer to the lower-right corner.
-
-During move, the pointer position determines the candidate monitor and edge/corner snap target. The top edge away from the corners represents maximize.
-
-Snap preview is drawn with four override-redirect windows forming an outline inside the target outer rectangle. The preview itself does not change client state.
-
-On release, the client may first move to another monitor's active workspace and then receive the selected snap/maximize state.
-
-## Command Path
-
-Bindings do not call arbitrary WM internals directly.
-
-Configuration parses a binding into command arguments and validates them against a command context:
+Supported widgets are:
 
 ```text
-keyboard binding
-mouse binding
-tab-bar binding
+workspaces  mode  title  status  clock  tray
 ```
 
-At runtime the relevant X event produces a `CommandContext`, then `command_run()` dispatches the command.
+The layout records widget rectangles and per-workspace rectangles in `Monitor`.
+Those same rectangles are used for drawing and workspace-label hit testing.
 
-Context-specific commands such as `mouse move-window` and `tab close` are rejected outside their valid input path.
+Widget styles are resolved from bar base style -> widget style -> visual-state
+style. The workspace and mode widgets have state-specific styling; title can
+select title/class/instance metadata.
 
-`spawn`, `spawn-shell`, and session autostart share one child-process launch primitive. `spawn` searches `PATH` for the supplied argv, `spawn-shell` executes `/bin/sh -c <command>`, and autostart executes its supplied path directly. The child closes the inherited X connection file descriptor, starts a new session, and resets `SIGCHLD` to the default disposition before `exec`; the WM itself ignores `SIGCHLD` with `SA_NOCLDWAIT`.
+The bar occupies real workarea space even though its X window is
+override-redirect: Box2430 subtracts its configured edge explicitly rather than
+publishing a Dock strut for its own bar.
 
-## Event Loop
+### Status
 
-Box2430 is single-threaded.
+Status is external text, not an internal command runner. `ui_status_refresh()`
+reads root `_NET_WM_NAME` when it is valid UTF-8 and falls back to `WM_NAME`.
+Root property changes refresh the bar.
 
-After initialization it drains pending X events and then blocks in `poll()` on the X connection file descriptor:
+### Clock and event-loop timeout
+
+Clock text is generated from the configured `strftime()` format. If the bar is
+enabled, the clock widget is configured, and at least one bar has visible
+geometry, the main event loop uses an approximately one-second poll timeout.
+Otherwise it can block indefinitely waiting for X activity.
+
+This keeps periodic work conditional on an actually visible clock.
+
+### MONOCLE tab bar
+
+Each monitor owns a possible tab-bar window, but it maps only when:
+
+* tabs are enabled;
+* the monitor's active workspace is MONOCLE;
+* the workspace contains at least one client.
+
+Tab geometry comes from the monitor workarea, not the native bar rectangle. Its
+edge is configured independently from the native bar edge.
+
+Tab hit testing follows stable `tab_head -> tab_tail` order. The tab-bar binding
+context supplies the clicked client to command dispatch.
+
+### Snap preview
+
+Snap preview uses four Box2430-owned override-redirect windows that draw an
+outline for a candidate snap/maximize target. Preview is temporary UI state and
+does not commit the client snap/maximize state until the drag finishes.
+
+## System tray
+
+The tray is an XEmbed system-tray manager implemented in `tray.c`.
+
+It is enabled only when:
+
+1. the native bar is enabled; and
+2. the `tray` widget is present in one configured bar group.
+
+Box2430 attempts to own `_NET_SYSTEM_TRAY_S<screen>`. The tray has two internal
+X windows:
+
+* an **owner** window that owns the selection and carries tray properties;
+* a **host** window into which XEmbed icons are reparented.
+
+If another tray manager already owns the selection, Box2430 logs the condition,
+keeps running, and leaves its tray inactive. Selection loss at runtime similarly
+disables the tray rather than terminating the WM.
+
+Docked icons are tracked separately from ordinary clients and special windows.
+Their requested geometry is normalized to the current tray slot/bar constraints
+before embedding. XEmbed mapped state controls whether an icon is actually
+mapped inside the host.
+
+There is one X11 tray selection per screen, not one tray manager per monitor.
+Box2430 therefore allocates the tray widget only on `selected_monitor`; selecting
+another monitor moves/reallocates the tray host into that monitor's native bar.
+
+## Stacking model
+
+Box2430 has explicit workspace stack order for ordinary clients and also enforces
+a root-level ordering between categories it owns.
+
+The intended known tiers are approximately:
+
+```text
+bottom
+    Desktop special windows
+    ordinary active-workspace clients
+    Box2430 native UI (bars, tray host, MONOCLE tabs)
+    managed non-Desktop special windows (Dock / managed Notification)
+    real fullscreen clients
+ top among Box2430-managed tiers
+```
+
+This is not implemented by blindly raising every Box2430 UI window to the
+absolute root top. Native UI and higher tiers are ordered relative to known
+siblings. That distinction is important for unrelated override-redirect overlays
+such as dunst: Box2430 should not repeatedly jump its bar over an external
+notification merely because the bar redraws or restacking is enforced.
+
+At startup, discovery also detects an already-visible override-redirect
+Notification window as a one-shot ceiling so newly created native UI does not
+immediately appear above it.
+
+Only active-workspace ordinary clients participate in the ordinary visible
+stack. Workspace switching briefly overlaps incoming/outgoing mapped windows,
+but stacking enforcement follows the newly active workspace so outgoing clients
+are not raised back over the incoming workspace.
+
+## Special windows and workareas
+
+`Dock`, `Desktop`, and managed `Notification` window types are represented as
+`SpecialWindow`, not `Client`.
+
+* Desktop is deliberately kept at the bottom.
+* Dock may publish `_NET_WM_STRUT_PARTIAL` or legacy `_NET_WM_STRUT`; those
+  struts alter monitor workareas.
+* managed non-Desktop special windows occupy the special-window stacking tier.
+
+Override-redirect windows are generally outside normal management. This is why
+external notification overlays can coexist without becoming Box2430 clients.
+
+Dock strut property changes recompute all workareas and rematerialize client/native
+UI geometry.
+
+## Window management lifecycle
+
+### Startup
+
+Initialization follows this broad order:
+
+```text
+load defaults + optional config
+    -> open X display
+    -> acquire WM ownership
+    -> paint fresh-session fallback background (fresh session only)
+    -> initialize atoms/EWMH identity
+    -> discover monitors/workspaces
+    -> compute initial workareas
+    -> initialize native UI resources/windows
+    -> initialize tray selection/host when configured
+    -> draw/update bars
+    -> grab configured keys
+    -> discover existing top-level windows
+```
+
+Autostart runs after `wm_init()` returns successfully and startup discovery is
+complete.
+
+### Existing-window discovery
+
+Startup scans root children in multiple passes:
+
+1. special windows;
+2. ordinary non-transient clients;
+3. transient/dialog clients.
+
+The ordering lets managed transient parents exist before their children are
+assigned default monitor/workspace policy.
+
+A viewable ordinary window is eligible for adoption. An unmapped ordinary
+window can also be adopted when its existing ICCCM `WM_STATE` is `IconicState`.
+Override-redirect/InputOnly windows are not adopted as normal clients.
+
+### Manage pipeline
+
+For a normal/dialog client, the main management path is:
+
+```text
+read X attributes/type
+    -> read title/class/instance/transient metadata
+    -> choose default policy
+       (transient parent monitor/workspace when available,
+        otherwise selected monitor/active workspace)
+    -> apply matching rules in declaration order
+    -> capture original border + initial size hints/geometry
+    -> link client into global/workspace orders
+    -> select client events + passive buttons
+    -> materialize geometry/border
+    -> set adopted WM_STATE = NormalState
+    -> read focus/urgency protocol metadata
+    -> map/hide according to active workspace
+    -> apply raise_on_map / focus_on_map
+    -> process initial client fullscreen request through policy
+    -> refresh UI and EWMH client lists
+```
+
+Rules run after transient-derived defaults, so an explicit matching monitor or
+workspace rule can override the transient default.
+
+Title/class/type/transient properties are cached and refreshed when properties
+change, but metadata refresh is not a general reactive rule engine: changing a
+title or class later does not rerun initial placement/rules and migrate the
+client automatically.
+
+### Unmanage and shutdown
+
+Unmanage first resolves semantic focus while the client still has enough
+workspace-order context for a fallback, then removes it from all workspace/global
+structures.
+
+If the X window still exists (withdrawal rather than destruction), Box2430
+restores client-owned X state as described earlier.
+
+At full WM shutdown/restart boundary, Box2430 remaps remaining managed clients
+before relinquishing ownership. A successor WM should be able to discover all
+live top-level clients without understanding Box2430's private inactive-workspace
+state.
+
+## Workspace transitions
+
+Activating another workspace on one monitor is ordered to avoid visible stale
+geometry/background flashes:
+
+1. choose the incoming workspace focus target;
+2. rematerialize incoming client geometry while still hidden;
+3. switch `active_workspace`;
+4. map/raise incoming clients;
+5. focus the chosen incoming target;
+6. unmap outgoing clients with `ignored_unmaps` bookkeeping;
+7. update native bar and enforce final stacking.
+
+The incoming workspace is therefore prepared before it becomes the visible
+steady state.
+
+## Multi-monitor model
+
+Monitor discovery uses Xinerama rectangles. Box2430 treats those rectangles as
+logical monitor geometry, not durable physical-output identity.
+
+### Normalization
+
+Raw rectangles are normalized before monitor state is created:
+
+* duplicate rectangles collapse to the first occurrence;
+* negative coordinates are valid;
+* partially overlapping rectangles remain distinct;
+* no/invalid topology falls back to the root screen rectangle;
+* topology beyond the fixed monitor capacity also falls back to one root monitor.
+
+### Logical matching
+
+Root `ConfigureNotify` triggers topology reconciliation. Xinerama enumeration
+index is not considered stable identity.
+
+`match_monitor_rects()` first pairs exact old/new rectangles. Remaining pairs are
+chosen greedily by:
+
+1. greater overlap area;
+2. then smaller center distance;
+3. then deterministic old/new index tie breaking.
+
+This preserves monitor-local state across a pure Xinerama enumeration reorder and
+provides deterministic behavior across common geometry changes.
+
+It is deliberately **geometry continuity**, not connector/EDID identity. In an
+ambiguous unplug/replug/move sequence Box2430 cannot know which physical display
+survived if Xinerama exposes only indistinguishable geometry evidence.
+
+### Reconciliation
+
+Topology changes are planned before commit. The plan determines:
+
+* old/new logical monitor matching;
+* added/removed monitor state;
+* client migration targets;
+* selected-monitor continuity;
+* preferred focused client;
+* geometry translation/rematerialization needs.
+
+New monitors receive fresh workspace arrays. Clients from removed monitors move
+deterministically to a surviving target while preserving workspace index where
+possible; the surviving monitor keeps its own workspace modes and active
+workspace rather than inheriting a removed `Workspace` object wholesale.
+
+When a continuing logical monitor changes origin/size, latent FREE geometry is
+translated by the monitor-origin delta and clamped to the final destination
+workarea. WM-owned presentation states are recomputed semantically instead of
+blindly translated:
+
+* fullscreen -> new raw monitor rectangle;
+* snap/maximize -> new workarea;
+* MONOCLE -> new MONOCLE content rectangle.
+
+If the previous focused client still survives, remains visible, and is focusable,
+reconciliation prefers to keep semantic focus on that client. Otherwise normal
+workspace focus fallback applies.
+
+## Moving clients between monitors/workspaces
+
+A client always has one workspace owner. Moving it therefore updates all
+workspace-local ordering structures rather than leaving shared membership.
+
+Cross-monitor moves can target:
+
+* the destination monitor's active workspace; or
+* the same workspace index with `--keep-workspace`.
+
+Geometry is translated/clamped when monitor ownership changes. With `--follow`,
+focus/selection follows the client; without it, source/destination workspaces
+resolve their own visible/focus state.
+
+Workspace-bar `workspace move-window` uses the same lower-level move path and can
+therefore move a focused client to a workspace label on another monitor.
+
+## Interactive move/resize
+
+Interactive client manipulation lives in `wm->drag`.
+
+At drag start, Box2430 focuses the client and clears incompatible snap/maximize
+state when needed. Move/resize then tracks root pointer motion.
+
+During move:
+
+* pointer location determines candidate monitor;
+* configured edge/corner zones determine snap candidates;
+* the top edge away from corners represents maximize preview;
+* snap preview is UI-only until release.
+
+On release, a client may first move to another monitor's active workspace and
+then commit the chosen snap/maximize target.
+
+## Command and binding path
+
+Bindings do not directly call arbitrary WM internals.
+
+Configuration parses a command into argv, validates it for its input context, and
+stores that command in a typed binding table:
+
+```text
+keyboard        -> COMMAND_CONTEXT_KEYBOARD
+client mouse    -> COMMAND_CONTEXT_MOUSE
+tab bar         -> COMMAND_CONTEXT_TABBAR
+workspace bar   -> COMMAND_CONTEXT_WORKSPACEBAR
+```
+
+At runtime, the relevant X event creates a `CommandContext` containing only the
+objects meaningful for that event (clicked client, monitor/workspace label,
+coordinates, timestamp), then `command_run()` dispatches the command.
+
+This is why commands such as `mouse resize-window`, `tab close`, and `workspace
+activate` cannot be copied into arbitrary binding contexts.
+
+`spawn`, `spawn-shell`, and session autostart share the same child-launch
+primitive:
+
+* `spawn` uses `execvp()` with direct argv;
+* `spawn-shell` uses `/bin/sh -c`;
+* autostart uses `execv()` on the supplied path.
+
+The child closes the inherited X connection fd, calls `setsid()`, and restores
+`SIGCHLD` to default before `exec`. The WM process itself ignores `SIGCHLD` with
+`SA_NOCLDWAIT` to avoid child zombies.
+
+## Event loop
+
+Box2430 is single-threaded. Normal state mutation happens in the main loop.
+
+Conceptually:
 
 ```text
 while running:
-    process all pending X events
-    poll(X connection)
+    drain all pending X events
+    refresh clock when relevant
+    poll(X connection, timeout)
 ```
 
-`SIGINT` and `SIGTERM` only request termination; normal state mutation stays in the main event loop.
+The timeout is indefinite unless a visible configured clock requires periodic
+refresh, in which case it is about one second.
 
-Important event families include:
+Tray event handling runs before the ordinary WM event switch so XEmbed/host/icon
+events can be consumed by the tray subsystem.
 
-* `MapRequest`: manage new windows;
-* `ConfigureRequest`: accept normal client geometry requests unless a WM presentation state owns geometry;
-* `DestroyNotify` / `UnmapNotify`: unmanage clients;
-* key/button/motion events: bindings, focus, and drag;
-* `EnterNotify`: sloppy focus;
-* `PropertyNotify`: size-hint invalidation, focus/protocol capability refresh,
-  title/class/transient/type metadata updates, and dock struts;
-* `ClientMessage`: EWMH activation, close, fullscreen, and maximize requests;
-* root `ConfigureNotify`: monitor reconciliation;
-* `Expose`: tab-bar redraw.
+Important ordinary event families include:
 
-`ignored_unmaps` distinguishes unmaps intentionally generated by Box2430, such as hiding an inactive workspace, from a client withdrawing itself.
+* `MapRequest` -> manage/reconcile mapping;
+* `ConfigureRequest` -> client geometry/stack request handling under WM ownership rules;
+* root `ConfigureNotify` -> monitor topology reconciliation;
+* `DestroyNotify` / `UnmapNotify` -> unmanage/withdrawal;
+* `KeyPress` -> keyboard binding dispatch;
+* `MappingNotify` -> rebuild keyboard mapping/grabs and client button grabs;
+* `ButtonPress` -> bar/tab/client mouse contexts;
+* `MotionNotify` / `ButtonRelease` -> interactive drag;
+* `EnterNotify` -> sloppy focus;
+* `FocusIn` -> semantic-focus compatibility enforcement;
+* `PropertyNotify` -> status, hints, protocol capability, metadata, and Dock strut refresh;
+* `ClientMessage` -> EWMH activation, close, fullscreen, and maximize requests;
+* `Expose` and related internal-window events -> native UI redraw/maintenance.
 
-## X11 Boundary
+`SIGINT`/`SIGTERM` request loop termination rather than performing WM state
+mutation inside the signal handler.
 
-`x11.c` contains the small compatibility boundary for ICCCM/EWMH-facing operations.
+## X11 compatibility boundary
 
-The current implementation supports the parts needed by Box2430 rather than attempting to implement every desktop-manager convention. Notable state includes:
+`x11.c` implements the ICCCM/EWMH subset Box2430 currently needs. The goal is
+practical compatibility, not a full desktop-environment model.
 
-* `WM_STATE`
-* `WM_DELETE_WINDOW`
-* `WM_TAKE_FOCUS`
-* `_NET_ACTIVE_WINDOW`
-* `_NET_CLIENT_LIST`
-* `_NET_CLIENT_LIST_STACKING`
-* `_NET_SUPPORTING_WM_CHECK` with a `Box2430` identity window
-* `_NET_WM_STATE_FULLSCREEN`
-* `_NET_WM_STATE_MAXIMIZED_HORZ` / `_NET_WM_STATE_MAXIMIZED_VERT`
-* `_NET_CLOSE_WINDOW`
-* `_NET_WM_WINDOW_TYPE`
-* `_NET_WM_STRUT` / `_NET_WM_STRUT_PARTIAL`
-* `_NET_WORKAREA`
+Notable supported state/protocols include:
 
-Because Box2430's workspaces are per-monitor rather than one global desktop sequence, its internal workspace model should not be assumed to map directly onto conventional EWMH desktop numbering.
+* WM ownership through `SubstructureRedirectMask`;
+* `WM_STATE` adoption/withdrawal;
+* `WM_DELETE_WINDOW`;
+* `WM_TAKE_FOCUS` / `WM_HINTS` input + urgency;
+* `WM_NORMAL_HINTS`;
+* `_NET_SUPPORTING_WM_CHECK` and `_NET_SUPPORTED`;
+* `_NET_ACTIVE_WINDOW`;
+* `_NET_CLIENT_LIST` / `_NET_CLIENT_LIST_STACKING`;
+* `_NET_CLOSE_WINDOW`;
+* `_NET_WM_NAME` and legacy title/status fallbacks;
+* `_NET_WM_WINDOW_TYPE` for normal/dialog/dock/desktop/notification;
+* `_NET_WM_STATE_FULLSCREEN`;
+* `_NET_WM_STATE_MAXIMIZED_HORZ` / `_NET_WM_STATE_MAXIMIZED_VERT`;
+* `_NET_WM_STRUT` / `_NET_WM_STRUT_PARTIAL`;
+* `_NET_WORKAREA`.
 
-WM ownership is acquired through `SubstructureRedirectMask`. A `BadAccess` during this step means another WM already owns the display.
+Box2430's workspace model is intentionally per-monitor, so it should not be
+silently translated into a conventional single global `_NET_CURRENT_DESKTOP` /
+`_NET_WM_DESKTOP` model.
 
-During normal operation, ordinary `BadWindow` errors are ignored because races with disappearing X clients are expected in a window manager. Other X11 errors are logged. Internal bookkeeping correctness should be protected by clear invariants and regression tests rather than by turning expected X11 lifetime races into a large error-scoping framework.
+WM ownership failure is detected as `BadAccess`. During normal runtime,
+`BadWindow` is ignored because disappearing-client races are routine in X11;
+other X11 errors are logged. Internal bookkeeping bugs should be caught through
+state invariants and regression tests rather than by serializing every X request.
 
-## Architectural Invariants
+## Architectural invariants
 
-A few distinctions are structural rather than incidental implementation details:
+The following distinctions are structural and should not be collapsed as an
+incidental refactor:
 
-* semantic client state and temporary X presentation are not the same thing;
+* ordinary clients are non-reparented; tray icons are protocol-specific embedded children;
+* workspaces are per-monitor, not one global desktop list;
+* selected monitor and focused client are distinct state;
 * monitor geometry and workarea are distinct;
-* workspaces are per-monitor;
-* workspace membership, stable client/tab order, and stack order are distinct structures;
-* focus and stacking are independent except where a mode such as MONOCLE explicitly couples them;
-* WM-generated unmaps must not be confused with client withdrawal.
+* native bar reservation and MONOCLE tab reservation occur at different geometry layers;
+* semantic client geometry and temporary X presentation are distinct;
+* `normal_geometry` is a restore point, not the current fullscreen/MONOCLE rectangle;
+* membership order, stable tab/client order, stack order, and focus-history order are distinct;
+* focus and stacking are independent except where explicit policy/mode couples them;
+* WM-generated unmaps and client withdrawal are distinct;
+* metadata refresh is not automatic rule reapplication;
+* the single XEmbed tray follows the selected monitor rather than creating one tray manager per monitor;
+* Box2430 native UI should be ordered within known WM tiers, not blindly raised above unrelated override-redirect overlays.
 
-Changes that intentionally alter one of these properties should be treated as architectural changes rather than local refactors.
+A change that intentionally alters one of these properties is architectural and
+should update this document and the relevant regression coverage.
 
-For commands and configuration, see `docs/REFERENCE.md`. For engineering principles, see `docs/IMPLEMENTATION_STYLE.md`. For build, testing, and debugging guidance, see `DEVELOPMENT.md`.
+For user-facing commands/configuration see `docs/REFERENCE.md`. For stable
+engineering principles see `docs/IMPLEMENTATION_STYLE.md`. For build/testing and
+verification see `DEVELOPMENT.md`.
