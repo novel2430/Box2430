@@ -5,6 +5,9 @@ It keeps a traditional mouse-friendly stacking model while providing per-monitor
 workspaces, a MONOCLE mode, a lightweight native UI, snapping, configurable
 bindings, and practical ICCCM/EWMH compatibility.
 
+![img](https://github.com/novel2430/Box2430/blob/main/res/01.png?raw=true)
+![img](https://github.com/novel2430/Box2430/blob/main/res/02.png?raw=true)
+
 ## Current state
 
 The repository is an actively developed working baseline rather than a frozen
