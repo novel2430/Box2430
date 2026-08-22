@@ -329,17 +329,47 @@ static CommandStatus command_mouse(WM *wm, const CommandContext *context,
     return COMMAND_OK;
 }
 
+static bool parse_positive_number(const char *text, unsigned long *number)
+{
+    char *end = NULL;
+    errno = 0;
+    unsigned long value = strtoul(text, &end, 10);
+    if (errno || !end || *end || value < 1) return false;
+    if (number) *number = value;
+    return true;
+}
+
 static CommandStatus command_tab(WM *wm, const CommandContext *context,
                                  int argc, const char *const *argv)
 {
-    if (!context || context->type != COMMAND_CONTEXT_TABBAR || !context->client ||
-        argc != 1) return COMMAND_INVALID;
-    if (strcmp(argv[0], "focus") == 0) {
-        client_focus_tab_target(wm, context->client, context->time);
-    } else if (strcmp(argv[0], "close") == 0) {
-        client_close(wm, context->client);
-    } else return COMMAND_INVALID;
-    return COMMAND_OK;
+    if (!context) return COMMAND_INVALID;
+
+    if (context->type == COMMAND_CONTEXT_TABBAR) {
+        if (!context->client || argc != 1) return COMMAND_INVALID;
+        if (strcmp(argv[0], "focus") == 0) {
+            client_focus_tab_target(wm, context->client, context->time);
+        } else if (strcmp(argv[0], "close") == 0) {
+            client_close(wm, context->client);
+        } else return COMMAND_INVALID;
+        return COMMAND_OK;
+    }
+
+    if (context->type == COMMAND_CONTEXT_KEYBOARD && argc == 2 &&
+        strcmp(argv[0], "focus") == 0) {
+        unsigned long number;
+        if (!parse_positive_number(argv[1], &number)) return COMMAND_INVALID;
+        Workspace *workspace = wm->selected_monitor->active_workspace;
+        if (workspace->mode != WORKSPACE_MONOCLE) return COMMAND_OK;
+        Client *client = workspace->tab_head;
+        while (client && number > 1) {
+            client = client->tab_next;
+            --number;
+        }
+        if (client) client_focus_tab_target(wm, client, context->time);
+        return COMMAND_OK;
+    }
+
+    return COMMAND_INVALID;
 }
 
 CommandStatus command_run(WM *wm, const CommandContext *context, int argc,
@@ -374,9 +404,13 @@ bool command_validate(const Config *config, CommandContextType context, int argc
         return context == COMMAND_CONTEXT_MOUSE && argc == 2 &&
                (strcmp(argv[1], "move-window") == 0 ||
                 strcmp(argv[1], "resize-window") == 0);
-    if (strcmp(argv[0], "tab") == 0)
-        return context == COMMAND_CONTEXT_TABBAR && argc == 2 &&
-               (strcmp(argv[1], "focus") == 0 || strcmp(argv[1], "close") == 0);
+    if (strcmp(argv[0], "tab") == 0) {
+        if (context == COMMAND_CONTEXT_TABBAR)
+            return argc == 2 &&
+                   (strcmp(argv[1], "focus") == 0 || strcmp(argv[1], "close") == 0);
+        return context == COMMAND_CONTEXT_KEYBOARD && argc == 3 &&
+               strcmp(argv[1], "focus") == 0 && parse_positive_number(argv[2], NULL);
+    }
     if (strcmp(argv[0], "wm") == 0)
         return argc == 2 && (strcmp(argv[1], "quit") == 0 ||
                              strcmp(argv[1], "restart") == 0);

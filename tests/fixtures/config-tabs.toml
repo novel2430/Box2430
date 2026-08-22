@@ -30,6 +30,9 @@ inherit_defaults = true
 
 [bindings.keys]
 "Super+m" = "mode monocle toggle"
+"Alt+1" = "tab focus 1"
+"Alt+2" = "tab focus 2"
+"Alt+4" = "tab focus 4"
 
 [bindings.tabbar]
 "Button1" = "tab focus"

@@ -60,6 +60,16 @@ wait_for "DISPLAY=$display xdotool search --name TabThree >/dev/null 2>&1" ||
     fail "MONOCLE-time client missing"
 three=$(DISPLAY=$display xdotool search --name TabThree | head -n 1)
 wait_active "$three" || fail "MONOCLE-time client did not focus"
+
+# Keyboard tab selection uses the same stable visual tab order. An out-of-range
+# index is a deliberate no-op rather than a command error or fallback focus.
+DISPLAY=$display xdotool key alt+1
+wait_active "$one" || fail "Alt+1 did not focus first MONOCLE tab"
+DISPLAY=$display xdotool key alt+2
+wait_active "$two" || fail "Alt+2 did not focus second MONOCLE tab"
+DISPLAY=$display xdotool key alt+4
+wait_active "$two" || fail "out-of-range keyboard tab focus was not a no-op"
+
 [ "$(DISPLAY=$display xwininfo -id "$three" | awk '/Absolute upper-left Y:/ {print $4; exit}')" = 31 ] ||
     fail "MONOCLE-time client used FREE y geometry"
 [ "$(DISPLAY=$display xwininfo -id "$three" | awk '/Height:/ {print $2; exit}')" = 569 ] ||
@@ -90,6 +100,8 @@ one_pid=
 DISPLAY=$display xdotool key super+m
 wait_for "DISPLAY=$display xwininfo -id $bar | grep -q 'Map State: IsUnMapped'" ||
     fail "tab bar remained mapped outside MONOCLE"
+DISPLAY=$display xdotool key alt+1
+wait_active "$two" || fail "keyboard tab focus was not a no-op in FREE mode"
 three_width=$(DISPLAY=$display xwininfo -id "$three" | awk '/Width:/ {print $2; exit}')
 three_height=$(DISPLAY=$display xwininfo -id "$three" | awk '/Height:/ {print $2; exit}')
 [ "$(DISPLAY=$display xwininfo -id "$three" | awk '/Absolute upper-left X:/ {print $4; exit}')" = $(((800 - three_width) / 2)) ] ||
