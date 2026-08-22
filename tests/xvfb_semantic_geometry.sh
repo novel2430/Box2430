@@ -107,15 +107,15 @@ free_w=$(field "$monocle" 'Width:')
 free_h=$(field "$monocle" 'Height:')
 DISPLAY=$display xdotool key super+m
 wait_for "test \"\$(DISPLAY=$display xwininfo -id $monocle | awk '/Absolute upper-left Y:/ {print \$4; exit}')\" = 24" || fail "MONOCLE entry failed"
-assert_geometry "$monocle" 0 24 796 572 "MONOCLE initial presentation"
+assert_geometry "$monocle" 0 24 800 576 "MONOCLE initial presentation"
 
 DISPLAY=$display "$fixture_bin" DOCK SemanticMonocleDock30 0 0 800 30 30 >"$tmp_dir/monocle-dock30.log" 2>&1 & dock_pid=$!
 wait_for "DISPLAY=$display xprop -root _NET_WORKAREA | grep -q '0, 30, 800, 570'" || fail "MONOCLE 30px strut missing"
-assert_geometry "$monocle" 0 54 796 542 "MONOCLE first workarea rematerialization"
+assert_geometry "$monocle" 0 54 800 546 "MONOCLE first workarea rematerialization"
 kill "$dock_pid" 2>/dev/null || true; dock_pid=
 DISPLAY=$display "$fixture_bin" DOCK SemanticMonocleDock50 0 0 800 50 50 >"$tmp_dir/monocle-dock50.log" 2>&1 & next_dock_pid=$!
 wait_for "DISPLAY=$display xprop -root _NET_WORKAREA | grep -q '0, 50, 800, 550'" || fail "MONOCLE 50px strut missing"
-assert_geometry "$monocle" 0 74 796 522 "MONOCLE second workarea rematerialization"
+assert_geometry "$monocle" 0 74 800 526 "MONOCLE second workarea rematerialization"
 DISPLAY=$display xdotool key super+m
 wait_for "test \"\$(DISPLAY=$display xwininfo -id $monocle | awk '/Width:/ {print \$2; exit}')\" = $free_w" || fail "MONOCLE exit did not restore FREE geometry"
 assert_geometry "$monocle" "$free_x" "$free_y" "$free_w" "$free_h" "MONOCLE FREE restore after workarea changes"
@@ -133,7 +133,7 @@ wait_for "DISPLAY=$display xprop -root _NET_WORKAREA | grep -q '0, 20, 800, 580'
 assert_geometry "$monocle" 0 0 800 600 "fullscreen ignores workarea presentation"
 DISPLAY=$display xdotool key super+f
 wait_for "test \"\$(DISPLAY=$display xwininfo -id $monocle | awk '/Absolute upper-left Y:/ {print \$4; exit}')\" = 44" || fail "fullscreen exit did not rematerialize MONOCLE"
-assert_geometry "$monocle" 0 44 796 552 "fullscreen unwind to MONOCLE"
+assert_geometry "$monocle" 0 44 800 556 "fullscreen unwind to MONOCLE"
 DISPLAY=$display xdotool key super+m
 wait_for "test \"\$(DISPLAY=$display xwininfo -id $monocle | awk '/Width:/ {print \$2; exit}')\" = $free_w" || fail "nested MONOCLE exit did not restore FREE geometry"
 assert_geometry "$monocle" "$free_x" "$free_y" "$free_w" "$free_h" "nested FREE restore"

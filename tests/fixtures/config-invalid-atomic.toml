@@ -1,7 +1,13 @@
 [placement]
 normal = "client"
 
-[appearance.border]
+[appearance.border.free]
+width = 9
+focused = "#112233"
+unfocused = "#445566"
+urgent = "#778899"
+
+[appearance.border.monocle]
 width = 9
 focused = "#112233"
 unfocused = "#445566"

@@ -1,7 +1,10 @@
 [workspaces]
 count = 3
 
-[appearance.border]
+[appearance.border.free]
+width = 4
+
+[appearance.border.monocle]
 width = 4
 
 [bindings]

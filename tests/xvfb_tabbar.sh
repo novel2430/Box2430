@@ -48,7 +48,7 @@ bar=$(DISPLAY=$display xdotool search --name box2430-tabbar-0 | head -n 1)
     fail "configured tab bar height was not applied"
 [ "$(DISPLAY=$display xwininfo -id "$two" | awk '/Absolute upper-left Y:/ {print $4; exit}')" = 31 ] ||
     fail "MONOCLE client did not start below tab bar"
-[ "$(DISPLAY=$display xwininfo -id "$two" | awk '/Height:/ {print $2; exit}')" = 565 ] ||
+[ "$(DISPLAY=$display xwininfo -id "$two" | awk '/Height:/ {print $2; exit}')" = 569 ] ||
     fail "MONOCLE client did not use tab-excluded content height"
 DISPLAY=$display xprop -root _NET_CLIENT_LIST | grep -qi "$(printf '0x%x' "$bar")" &&
     fail "WM-owned tab bar leaked into client list"
@@ -62,7 +62,7 @@ three=$(DISPLAY=$display xdotool search --name TabThree | head -n 1)
 wait_active "$three" || fail "MONOCLE-time client did not focus"
 [ "$(DISPLAY=$display xwininfo -id "$three" | awk '/Absolute upper-left Y:/ {print $4; exit}')" = 31 ] ||
     fail "MONOCLE-time client used FREE y geometry"
-[ "$(DISPLAY=$display xwininfo -id "$three" | awk '/Height:/ {print $2; exit}')" = 565 ] ||
+[ "$(DISPLAY=$display xwininfo -id "$three" | awk '/Height:/ {print $2; exit}')" = 569 ] ||
     fail "MONOCLE-time client used FREE height"
 
 # Stable tab order begins One, Two, Three. Button1 selects the clicked first

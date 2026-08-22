@@ -112,7 +112,7 @@ wait_for "DISPLAY=$display xdotool search --name '^box2430-tabbar-0$' >/dev/null
 tab=$(DISPLAY=$display xdotool search --name '^box2430-tabbar-0$' | head -n 1)
 wait_for "DISPLAY=$display xwininfo -id $tab | grep -q 'Map State: IsViewable'" || fail "bottom tab bar did not map"
 assert_geometry "$tab" 0 569 800 31 "bottom tab bar after top strut + bar"
-assert_geometry "$client" 0 54 796 511 "bottom-tab MONOCLE content"
+assert_geometry "$client" 0 54 800 515 "bottom-tab MONOCLE content"
 assert_below "$bar" "$tab" "native bar is not below MONOCLE tabs"
 assert_below "$tab" "$dock" "MONOCLE tabs are not below external dock"
 
@@ -157,7 +157,7 @@ wait_for "DISPLAY=$display xdotool search --name '^box2430-tabbar-0$' >/dev/null
 tab=$(DISPLAY=$display xdotool search --name '^box2430-tabbar-0$' | head -n 1)
 wait_for "DISPLAY=$display xwininfo -id $tab | grep -q 'Map State: IsViewable'" || fail "top tab bar did not map"
 assert_geometry "$tab" 0 0 800 31 "top tab bar with bottom native bar"
-assert_geometry "$client" 0 31 796 541 "top-tab MONOCLE content"
+assert_geometry "$client" 0 31 800 545 "top-tab MONOCLE content"
 assert_below "$client" "$bar" "bottom MONOCLE client is not below native bar"
 assert_below "$bar" "$tab" "bottom native bar is not below MONOCLE tabs"
 stop_client
@@ -180,7 +180,7 @@ wait_for "DISPLAY=$display xdotool search --name '^box2430-tabbar-0$' >/dev/null
 tab=$(DISPLAY=$display xdotool search --name '^box2430-tabbar-0$' | head -n 1)
 wait_for "DISPLAY=$display xwininfo -id $tab | grep -q 'Map State: IsViewable'" || fail "disabled-bar bottom tabs did not map"
 assert_geometry "$tab" 0 569 800 31 "bottom tabs with native bar disabled"
-assert_geometry "$client" 0 0 796 565 "bottom MONOCLE content with native bar disabled"
+assert_geometry "$client" 0 0 800 569 "bottom MONOCLE content with native bar disabled"
 stop_client
 stop_wm
 

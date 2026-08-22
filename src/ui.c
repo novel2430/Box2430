@@ -985,7 +985,7 @@ void ui_bar_update(WM *wm)
 
 unsigned int ui_tab_height(const WM *wm, const Monitor *monitor)
 {
-    int minimum_content_height = 2 * (int)wm->config.border_width + 1;
+    int minimum_content_height = 2 * (int)wm->config.border.monocle.width + 1;
     if (!wm->config.tabs.enabled ||
         monitor->workarea.height <= minimum_content_height) return 0;
     int available = monitor->workarea.height - minimum_content_height;
@@ -1230,17 +1230,24 @@ static unsigned long allocate_border_color(WM *wm, const char *name,
     return fallback;
 }
 
+static void init_border_pixels(WM *wm, UIBorderPixels *pixels,
+                               const BorderStyleConfig *style)
+{
+    pixels->focused = allocate_border_color(
+        wm, style->focused, WhitePixel(wm->display, wm->screen),
+        &pixels->focused_allocated);
+    pixels->unfocused = allocate_border_color(
+        wm, style->unfocused, BlackPixel(wm->display, wm->screen),
+        &pixels->unfocused_allocated);
+    pixels->urgent = allocate_border_color(
+        wm, style->urgent, WhitePixel(wm->display, wm->screen),
+        &pixels->urgent_allocated);
+}
+
 static void init_border_resources(WM *wm)
 {
-    wm->focused_border = allocate_border_color(
-        wm, wm->config.border_focused, WhitePixel(wm->display, wm->screen),
-        &wm->focused_border_allocated);
-    wm->unfocused_border = allocate_border_color(
-        wm, wm->config.border_unfocused, BlackPixel(wm->display, wm->screen),
-        &wm->unfocused_border_allocated);
-    wm->urgent_border = allocate_border_color(
-        wm, wm->config.border_urgent, WhitePixel(wm->display, wm->screen),
-        &wm->urgent_border_allocated);
+    init_border_pixels(wm, &wm->free_border, &wm->config.border.free);
+    init_border_pixels(wm, &wm->monocle_border, &wm->config.border.monocle);
 }
 
 static void free_border_pixel(WM *wm, unsigned long pixel, bool *allocated)
@@ -1251,18 +1258,26 @@ static void free_border_pixel(WM *wm, unsigned long pixel, bool *allocated)
     *allocated = false;
 }
 
+static void free_border_pixels(WM *wm, UIBorderPixels *pixels)
+{
+    free_border_pixel(wm, pixels->focused, &pixels->focused_allocated);
+    free_border_pixel(wm, pixels->unfocused, &pixels->unfocused_allocated);
+    free_border_pixel(wm, pixels->urgent, &pixels->urgent_allocated);
+}
+
 static void free_border_resources(WM *wm)
 {
-    free_border_pixel(wm, wm->focused_border, &wm->focused_border_allocated);
-    free_border_pixel(wm, wm->unfocused_border, &wm->unfocused_border_allocated);
-    free_border_pixel(wm, wm->urgent_border, &wm->urgent_border_allocated);
+    free_border_pixels(wm, &wm->free_border);
+    free_border_pixels(wm, &wm->monocle_border);
 }
 
 void ui_client_border_refresh(WM *wm, Client *client)
 {
     if (!wm || !client) return;
-    unsigned long pixel = client == wm->focused_client ? wm->focused_border
-        : client->urgent ? wm->urgent_border : wm->unfocused_border;
+    UIBorderPixels *pixels = client->workspace->mode == WORKSPACE_MONOCLE
+        ? &wm->monocle_border : &wm->free_border;
+    unsigned long pixel = client == wm->focused_client ? pixels->focused
+        : client->urgent ? pixels->urgent : pixels->unfocused;
     XSetWindowBorder(wm->display, client->window, pixel);
 }
 

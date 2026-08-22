@@ -7,6 +7,7 @@ for scenario in \
     xvfb_workspace_transition.sh \
     xvfb_config.sh \
     xvfb_v2_config.sh \
+    xvfb_border_modes.sh \
     xvfb_rules.sh \
     xvfb_special_windows.sh \
     xvfb_native_bar.sh \

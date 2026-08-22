@@ -18,8 +18,14 @@ client_policy = "fake"
 [appearance]
 background = "#000000"
 
-[appearance.border]
+[appearance.border.free]
 width = 2
+focused = "#89b4fa"
+unfocused = "#45475a"
+urgent = "#f38ba8"
+
+[appearance.border.monocle]
+width = 0
 focused = "#89b4fa"
 unfocused = "#45475a"
 urgent = "#f38ba8"

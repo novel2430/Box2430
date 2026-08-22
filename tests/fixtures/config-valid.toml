@@ -14,7 +14,13 @@ normal = "client"
 [fullscreen]
 client_policy = "deny"
 
-[appearance.border]
+[appearance.border.free]
+width = 7
+focused = "#112233"
+unfocused = "#445566"
+urgent = "#778899"
+
+[appearance.border.monocle]
 width = 7
 focused = "#112233"
 unfocused = "#445566"

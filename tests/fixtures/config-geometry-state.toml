@@ -4,7 +4,10 @@ normal = "client"
 [fullscreen]
 client_policy = "fake"
 
-[appearance.border]
+[appearance.border.free]
+width = 4
+
+[appearance.border.monocle]
 width = 4
 
 [bindings]

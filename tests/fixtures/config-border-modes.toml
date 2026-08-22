@@ -1,0 +1,28 @@
+[placement]
+normal = "client"
+
+[appearance.border.free]
+width = 3
+focused = "#112233"
+unfocused = "#445566"
+urgent = "#778899"
+
+[appearance.border.monocle]
+width = 5
+focused = "#aa1122"
+unfocused = "#22aa11"
+urgent = "#1122aa"
+
+[appearance.bar]
+enabled = false
+
+[bindings]
+inherit_defaults = true
+
+[bindings.keys]
+"Super+l" = "window lower"
+"Super+r" = "window raise"
+
+[[rules]]
+title = "BorderNone"
+border = false

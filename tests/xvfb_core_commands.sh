@@ -95,15 +95,17 @@ wait_for "test \"\$(DISPLAY=$display xwininfo -id $two | awk '/Border width:/ {p
 assert_geometry "$two" "$original_x" "$original_y" "$original_w" "$original_h"
 
 DISPLAY=$display xdotool key super+m
-wait_for "test \"\$(DISPLAY=$display xwininfo -id $two | awk '/Width:/ {print \$2; exit}')\" = 796" || fail "MONOCLE presentation missing"
-assert_geometry "$one" 0 24 796 572
-assert_geometry "$two" 0 24 796 572
+wait_for "test \"\$(DISPLAY=$display xwininfo -id $two | awk '/Width:/ {print \$2; exit}')\" = 800" || fail "MONOCLE presentation missing"
+wait_for "test \"\$(DISPLAY=$display xwininfo -id $two | awk '/Border width:/ {print \$3; exit}')\" = 0" || fail "default MONOCLE border width was not applied"
+assert_geometry "$one" 0 24 800 576
+assert_geometry "$two" 0 24 800 576
 DISPLAY=$display xdotool key super+Left
-assert_geometry "$two" 0 24 796 572
+assert_geometry "$two" 0 24 800 576
 DISPLAY=$display xdotool key super+j
 wait_for "DISPLAY=$display xprop -root _NET_ACTIVE_WINDOW | grep -qi $(printf '0x%x' "$one")" || fail "tab-order focus did not cycle"
 DISPLAY=$display xdotool key super+m
 wait_for "test \"\$(DISPLAY=$display xwininfo -id $two | awk '/Width:/ {print \$2; exit}')\" = $original_w" || fail "FREE geometry did not restore"
+wait_for "test \"\$(DISPLAY=$display xwininfo -id $two | awk '/Border width:/ {print \$3; exit}')\" = 2" || fail "FREE border width did not restore"
 
 DISPLAY=$display xdotool key super+shift+2
 wait_for "DISPLAY=$display xwininfo -id $one | grep -q 'Map State: IsUnMapped'" || fail "move-workspace did not hide client"

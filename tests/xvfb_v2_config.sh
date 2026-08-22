@@ -57,6 +57,8 @@ run_invalid config-v2-invalid-duplicate-widget \
     "duplicate bar widget title"
 run_invalid config-v2-invalid-tab-state \
     "unknown config option appearance.tabs.hover"
+run_invalid config-v2-invalid-old-border \
+    "unknown config option appearance.border.width"
 run_invalid config-v2-invalid-workspace-state \
     "unknown config option appearance.bar.widgets.workspaces.selected"
 run_invalid config-v2-invalid-mode-state \

@@ -1,4 +1,7 @@
-[appearance.border]
+[appearance.border.free]
+width = 7
+
+[appearance.border.monocle]
 width = 7
 
 [appearance.bar.widgets.title]

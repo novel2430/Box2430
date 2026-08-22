@@ -406,10 +406,29 @@ static void commit_client_geometry(WM *wm, Client *client, Rect geometry)
     present_client_geometry(wm, client, geometry);
 }
 
+static unsigned int client_border_width_for_mode(const WM *wm,
+                                                 const Client *client,
+                                                 WorkspaceMode mode)
+{
+    if (!client->border_enabled) return 0;
+    return mode == WORKSPACE_MONOCLE
+        ? wm->config.border.monocle.width : wm->config.border.free.width;
+}
+
+static unsigned int client_free_border_width(const WM *wm, const Client *client)
+{
+    return client_border_width_for_mode(wm, client, WORKSPACE_FREE);
+}
+
+static unsigned int client_border_width(const WM *wm, const Client *client)
+{
+    if (client->fullscreen) return 0;
+    return client_border_width_for_mode(wm, client, client->workspace->mode);
+}
+
 static Rect fit_workarea(WM *wm, const Client *client, Rect area)
 {
-    (void)wm;
-    int border = client->fullscreen ? 0 : (int)client->border_width;
+    int border = (int)client_border_width(wm, client);
     int width = area.width - 2 * border;
     int height = area.height - 2 * border;
     if (width < 1) width = 1;
@@ -564,6 +583,9 @@ static Rect snap_geometry(WM *wm, Client *client, SnapState state)
 static void materialize_client_geometry(WM *wm, Client *client)
 {
     Monitor *monitor = client->workspace->monitor;
+    XSetWindowBorderWidth(wm->display, client->window,
+                          client_border_width(wm, client));
+    ui_client_border_refresh(wm, client);
     if (client->fullscreen) {
         present_client_geometry(wm, client, monitor->geometry);
     } else if (client->workspace->mode == WORKSPACE_MONOCLE) {
@@ -697,7 +719,7 @@ static Rect snap_preview_outer_target(WM *wm, Client *client, Monitor *monitor,
 {
     if (maximize) return monitor->workarea;
     Rect inner = snap_geometry_on(wm, client, monitor, state);
-    int border = (int)client->border_width;
+    int border = (int)client_border_width(wm, client);
     inner.width += 2 * border;
     inner.height += 2 * border;
     return inner;
@@ -739,13 +761,12 @@ void mouse_begin_drag(WM *wm, Client *client, bool resize, int root_x, int root_
     wm->drag.preview_monitor = NULL;
     wm->drag.preview_maximized = false;
     if (resize) {
-        root_x = client->geometry.x + client->geometry.width +
-                 2 * (int)client->border_width - 1;
-        root_y = client->geometry.y + client->geometry.height +
-                 2 * (int)client->border_width - 1;
+        int border = (int)client_border_width(wm, client);
+        root_x = client->geometry.x + client->geometry.width + 2 * border - 1;
+        root_y = client->geometry.y + client->geometry.height + 2 * border - 1;
         XWarpPointer(wm->display, None, wm->root, 0, 0, 0, 0, root_x, root_y);
     } else {
-        int border = (int)client->border_width;
+        int border = (int)client_border_width(wm, client);
         root_x = client->geometry.x + (client->geometry.width + 2 * border) / 2;
         root_y = client->geometry.y + (client->geometry.height + 2 * border) / 2;
         XWarpPointer(wm->display, None, wm->root, 0, 0, 0, 0, root_x, root_y);
@@ -865,8 +886,6 @@ static void apply_real_fullscreen(WM *wm, Client *client, bool fullscreen)
 {
     if (!client || client->fullscreen == fullscreen) return;
     client->fullscreen = fullscreen;
-    XSetWindowBorderWidth(wm->display, client->window,
-                          fullscreen ? 0 : client->border_width);
     materialize_client_geometry(wm, client);
     enforce_stacking(wm);
     update_fullscreen_property(wm, client);
@@ -985,10 +1004,11 @@ void client_move_to_workspace(WM *wm, Client *client, Workspace *workspace,
         client->geometry.y += dy;
         client->normal_geometry.x += dx;
         client->normal_geometry.y += dy;
+        unsigned int border_width = client_free_border_width(wm, client);
         client->geometry = clamp_to_workarea(client->geometry, new_monitor->workarea,
-                                              client->border_width);
+                                              border_width);
         client->normal_geometry = clamp_to_workarea(
-            client->normal_geometry, new_monitor->workarea, client->border_width);
+            client->normal_geometry, new_monitor->workarea, border_width);
     }
     client->workspace = workspace;
     client->workspace_next = NULL;
@@ -1368,11 +1388,12 @@ static void manage_window(WM *wm, Window window, bool map_window)
     Client *transient_parent = find_client(wm, client->transient_for);
     InitialPolicy policy = initial_policy(wm, client, transient_parent);
     client->workspace = &policy.monitor->workspaces[policy.workspace_index];
-    client->border_width = policy.border ? wm->config.border_width : 0;
+    client->border_enabled = policy.border;
     client->original_border_width = (unsigned int)attrs.border_width;
     client->fullscreen_policy = policy.fullscreen_policy;
+    unsigned int border_width = client_free_border_width(wm, client);
     client->geometry = initial_geometry(wm, client, policy.monitor, &attrs,
-                                        policy.placement, client->border_width);
+                                        policy.placement, border_width);
     client->normal_geometry = client->geometry;
     client->next = wm->clients;
     wm->clients = client;
@@ -1381,8 +1402,6 @@ static void manage_window(WM *wm, Window window, bool map_window)
     XSelectInput(wm->display, window,
                  EnterWindowMask | FocusChangeMask | PropertyChangeMask);
     grab_client_buttons(wm, client, false);
-    XSetWindowBorderWidth(wm->display, window, client->border_width);
-    ui_client_border_refresh(wm, client);
     materialize_client_geometry(wm, client);
     x11_set_wm_state(wm, window, NormalState);
     read_wm_hints(wm, client);
@@ -1579,12 +1598,12 @@ static void translate_client_latent_geometry(Client *client, Rect old_monitor,
     client->normal_geometry.y += dy;
 }
 
-static void clamp_client_latent_geometry(Client *client, Rect workarea)
+static void clamp_client_latent_geometry(WM *wm, Client *client, Rect workarea)
 {
-    client->geometry = clamp_to_workarea(client->geometry, workarea,
-                                          client->border_width);
+    unsigned int border_width = client_free_border_width(wm, client);
+    client->geometry = clamp_to_workarea(client->geometry, workarea, border_width);
     client->normal_geometry = clamp_to_workarea(client->normal_geometry, workarea,
-                                                 client->border_width);
+                                                 border_width);
 }
 
 static void retarget_monitor_workspaces(WM *wm, Monitor *monitor)
@@ -1727,7 +1746,7 @@ static void reconcile_monitors(WM *wm)
         TopologyClientPlan *client_plan = &plan.clients[i];
         if (!client_plan->adjust_geometry) continue;
         clamp_client_latent_geometry(
-            client_plan->client,
+            wm, client_plan->client,
             wm->monitors[client_plan->new_monitor_index].workarea);
     }
     rematerialize_all_clients(wm);

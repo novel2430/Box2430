@@ -115,6 +115,18 @@ typedef struct UIStyleOverride {
     UILabelFormat format;
 } UIStyleOverride;
 
+typedef struct BorderStyleConfig {
+    unsigned int width;
+    char focused[8];
+    char unfocused[8];
+    char urgent[8];
+} BorderStyleConfig;
+
+typedef struct BorderConfig {
+    BorderStyleConfig free;
+    BorderStyleConfig monocle;
+} BorderConfig;
+
 typedef struct TabConfig {
     bool enabled;
     UIEdge position;
@@ -228,11 +240,8 @@ typedef struct Config {
     PlacementPolicy normal_placement;
     PlacementPolicy dialog_placement;
     ClientFullscreenPolicy client_fullscreen_policy;
-    unsigned int border_width;
+    BorderConfig border;
     char background[8];
-    char border_focused[8];
-    char border_unfocused[8];
-    char border_urgent[8];
     char snap_preview_color[8];
     unsigned int snap_preview_width;
     bool snap_enabled;
@@ -325,7 +334,7 @@ struct Client {
     char *instance;
     WindowType window_type;
     Window transient_for;
-    unsigned int border_width;
+    bool border_enabled;
     unsigned int original_border_width;
     bool size_hints_valid;
     int base_width;
@@ -394,6 +403,15 @@ typedef struct Atoms {
     Atom net_workarea;
 } Atoms;
 
+typedef struct UIBorderPixels {
+    unsigned long focused;
+    unsigned long unfocused;
+    unsigned long urgent;
+    bool focused_allocated;
+    bool unfocused_allocated;
+    bool urgent_allocated;
+} UIBorderPixels;
+
 typedef struct WM {
     Display *display;
     int screen;
@@ -408,12 +426,8 @@ typedef struct WM {
     Client *focused_client;
     SpecialWindow *special_windows;
     Tray *tray;
-    unsigned long focused_border;
-    unsigned long unfocused_border;
-    unsigned long urgent_border;
-    bool focused_border_allocated;
-    bool unfocused_border_allocated;
-    bool urgent_border_allocated;
+    UIBorderPixels free_border;
+    UIBorderPixels monocle_border;
     unsigned int numlock_mask;
     bool running;
     bool restart_requested;

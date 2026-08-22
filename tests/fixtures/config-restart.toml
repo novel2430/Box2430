@@ -1,7 +1,10 @@
 [appearance]
 background = "#123456"
 
-[appearance.border]
+[appearance.border.free]
+width = 2
+
+[appearance.border.monocle]
 width = 2
 
 [bindings]

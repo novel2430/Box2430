@@ -121,7 +121,10 @@ void config_set_defaults(Config *config)
         .normal_placement = PLACEMENT_CENTER,
         .dialog_placement = PLACEMENT_CENTER,
         .client_fullscreen_policy = CLIENT_FULLSCREEN_FAKE,
-        .border_width = 2,
+        .border = {
+            .free = {.width = 2},
+            .monocle = {.width = 0},
+        },
         .snap_preview_width = 2,
         .snap_enabled = true,
         .snap_edge_zone = 16,
@@ -153,9 +156,12 @@ void config_set_defaults(Config *config)
         .inherit_default_bindings = true,
     };
     memcpy(config->background, "#000000", 8);
-    memcpy(config->border_focused, "#89b4fa", 8);
-    memcpy(config->border_unfocused, "#45475a", 8);
-    memcpy(config->border_urgent, "#f38ba8", 8);
+    memcpy(config->border.free.focused, "#89b4fa", 8);
+    memcpy(config->border.free.unfocused, "#45475a", 8);
+    memcpy(config->border.free.urgent, "#f38ba8", 8);
+    memcpy(config->border.monocle.focused, "#89b4fa", 8);
+    memcpy(config->border.monocle.unfocused, "#45475a", 8);
+    memcpy(config->border.monocle.urgent, "#f38ba8", 8);
     memcpy(config->snap_preview_color, "#89b4fa", 8);
 
     snprintf(config->tabs.font, sizeof(config->tabs.font), "monospace:size=10");
@@ -1085,13 +1091,30 @@ static bool parse_supported_config(Config *candidate, toml_datum_t root)
         !read_color(appearance, "appearance", "background", candidate->background))
         return false;
     toml_datum_t border = toml_get(appearance, "border");
-    static const char *border_keys[] = {"width", "focused", "unfocused", "urgent"};
-    if (!validate_keys(border, "appearance.border", border_keys, 4) ||
-        !read_uint(border, "appearance.border", "width", 0, 64,
-                   &candidate->border_width) ||
-        !read_color(border, "appearance.border", "focused", candidate->border_focused) ||
-        !read_color(border, "appearance.border", "unfocused", candidate->border_unfocused) ||
-        !read_color(border, "appearance.border", "urgent", candidate->border_urgent)) return false;
+    static const char *border_keys[] = {"free", "monocle"};
+    static const char *border_style_keys[] = {"width", "focused", "unfocused", "urgent"};
+    if (!validate_keys(border, "appearance.border", border_keys, 2)) return false;
+    toml_datum_t free_border = toml_get(border, "free");
+    if (!validate_keys(free_border, "appearance.border.free", border_style_keys, 4) ||
+        !read_uint(free_border, "appearance.border.free", "width", 0, 64,
+                   &candidate->border.free.width) ||
+        !read_color(free_border, "appearance.border.free", "focused",
+                    candidate->border.free.focused) ||
+        !read_color(free_border, "appearance.border.free", "unfocused",
+                    candidate->border.free.unfocused) ||
+        !read_color(free_border, "appearance.border.free", "urgent",
+                    candidate->border.free.urgent)) return false;
+    toml_datum_t monocle_border = toml_get(border, "monocle");
+    if (!validate_keys(monocle_border, "appearance.border.monocle",
+                       border_style_keys, 4) ||
+        !read_uint(monocle_border, "appearance.border.monocle", "width", 0, 64,
+                   &candidate->border.monocle.width) ||
+        !read_color(monocle_border, "appearance.border.monocle", "focused",
+                    candidate->border.monocle.focused) ||
+        !read_color(monocle_border, "appearance.border.monocle", "unfocused",
+                    candidate->border.monocle.unfocused) ||
+        !read_color(monocle_border, "appearance.border.monocle", "urgent",
+                    candidate->border.monocle.urgent)) return false;
     toml_datum_t preview = toml_get(appearance, "snap_preview");
     static const char *preview_keys[] = {"color", "width"};
     if (!validate_keys(preview, "appearance.snap_preview", preview_keys, 2) ||
