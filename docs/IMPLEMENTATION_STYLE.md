@@ -17,6 +17,24 @@ Prefer:
 
 Avoid introducing generic object systems, callback frameworks, abstraction layers, or dependencies unless they solve a concrete problem that the existing structure cannot solve cleanly.
 
+## Converge inputs on semantic transitions
+
+Different X11/UI inputs that express the same user intent should converge on the
+same state transition before authoritative WM state is changed.
+
+For example, monitor selection may originate from a key command or from pointer
+hit testing, while workspace activation may originate from a keyboard command or
+a workspace label. Do not give each input path its own copy of focus repair,
+selected-monitor bookkeeping, or workspace-state cleanup. Put those semantics in
+the shared monitor/workspace/client transition and keep only genuinely
+source-specific effects, such as pointer warping, near the input/projection path.
+
+Use the Transition / Authority / Projection distinction described in
+`docs/ARCHITECTURE.md` as a responsibility guide, not as a reason to introduce a
+transaction framework. The desired shape is a small number of explicit semantic
+helpers with clear model ownership, followed by correctly ordered X11/UI
+projection.
+
 ## Follow established X11 practice
 
 X11 clients can disappear between requests, so ordinary lifetime races such as `BadWindow` are expected in a window manager.

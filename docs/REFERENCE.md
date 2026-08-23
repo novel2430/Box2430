@@ -129,6 +129,27 @@ context.
 `workspace move-window` can cross monitors when the workspace label belongs to a
 different monitor's bar. Client geometry is translated/clamped for that move.
 
+### Monitor/workspace selection behavior
+
+Monitor selection and client focus are related but not identical. Box2430 has
+one selected monitor even when that monitor's active workspace has no focusable
+client.
+
+* `monitor next` / `monitor prev` select the target monitor, keep that monitor's
+  current active workspace, focus that workspace's fallback client when one is
+  available, and warp the pointer to the target monitor center.
+* Clicking a workspace label acts on the monitor that owns that label. It
+  selects that monitor and activates the clicked workspace, but does not warp
+  the pointer away from the bar.
+* Clicking `Button1` on exposed root background selects the monitor under the
+  pointer without changing that monitor's active workspace and without moving
+  the pointer.
+
+After any of these operations, if the resulting active workspace has no
+focusable client, Box2430 leaves that monitor selected and gives X input focus
+to the root. A click over any root child, including a `Desktop` special window,
+is not treated as exposed root background.
+
 ## Session startup and restart
 
 Box2430 can launch one executable after WM initialization and startup discovery:
@@ -548,11 +569,9 @@ binding tables.
 | Tab `WheelUp` / `WheelDown` | `focus prev` / `focus next` |
 | Workspace `Button1` | `workspace activate` |
 
-Clicking `Button1` on exposed root background selects the monitor under the
-pointer without moving the pointer. It then focuses that monitor's active
-workspace fallback client, or the root when that workspace is empty. A
-click over any root child, including a `Desktop` special window, is not treated
-as root background.
+Exposed-root `Button1` monitor selection is built in rather than configured in
+the binding tables. See **Monitor/workspace selection behavior** above for its
+focus and pointer semantics.
 
 When `workspaces.count` is lower than a built-in numbered workspace binding, the
 invalid default binding is pruned during configuration validation.

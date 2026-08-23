@@ -34,7 +34,7 @@ The implementation deliberately stays close to one X11 event loop and explicit C
 state transitions. See `docs/IMPLEMENTATION_STYLE.md` for the long-lived
 engineering rationale.
 
-## Transition, Authority, and Projection responsibilities
+## Transition, Authority, and Projection (TAP)
 
 Box2430 organizes state-heavy paths using three responsibility categories:
 
@@ -45,15 +45,43 @@ input / X observation
     -> ordered X11 / ICCCM / EWMH / native-UI projection
 ```
 
-This is a control-flow discipline, not a generic transaction engine or separate
-render pass. Protocol ordering remains next to the transition when it is part of
-observable behavior, as it is for workspace switching and WM-generated unmaps.
+**Transition** means the semantic intent or protocol observation being handled,
+not a required `Transaction` object. **Authority** is the coherent in-memory
+state Box2430 accepts as true after that intent. **Projection** is the ordered
+X11/ICCCM/EWMH/native-UI work used to make that authority observable.
+
+This is a control-flow discipline, not a generic transaction engine, reducer, or
+separate render pass. Protocol ordering remains next to the transition when it
+is part of observable behavior, as it is for workspace switching and
+WM-generated unmaps. Authority and projection may therefore be deliberately
+interleaved inside one transition when X11 ordering is itself user-visible.
+
+Different input paths should converge on the same semantic transition before
+they mutate authoritative state. A keyboard monitor command, an exposed-root
+click, and a workspace-label click must not each grow independent "repair the
+focus" logic merely because they originate from different X events. Source-
+specific behavior such as pointer warping belongs to projection around the
+shared transition.
 
 The main interaction transitions are monitor activation, workspace activation,
-and client activation. Client activation owns semantic focus, selected-monitor
-coherence, workspace focus history, and urgency clearing. X input-focus
-projection is a separate operation: `FocusIn` compatibility can re-project the
-already chosen semantic focus without becoming another semantic focus path.
+and client activation:
+
+* **monitor activation** changes the selected monitor, preserves that monitor's
+  active workspace, and resolves semantic client focus from that workspace;
+* **workspace activation** selects the workspace's monitor, changes that
+  monitor's active workspace when necessary, and resolves semantic client focus
+  from the newly active workspace;
+* **client activation** chooses a specific focusable client, aligns selected
+  monitor authority with that client's monitor, updates workspace focus history,
+  and clears urgency. It does not implicitly activate a hidden workspace.
+
+Resolving focus may legitimately produce no client. `selected_monitor` remains
+authoritative even when its active workspace has no focusable target, in which
+case `focused_client == NULL` and X input focus is projected to the root.
+
+X input-focus projection is a separate operation: `FocusIn` compatibility can
+re-project the already chosen semantic focus without becoming another semantic
+focus path.
 
 Client movement has a smaller ownership-only boundary that changes the sole
 workspace owner and all membership/stable/stack/focus links without performing
@@ -146,6 +174,12 @@ ordinary client to be visible.
 
 `selected_monitor` is not just an alias for the focused client's monitor.
 
+It is the authoritative interaction context used by monitor/workspace/mode
+commands. `focused_client` is the single semantic client focus for the X11 seat.
+The two are related by an invariant, not by identity: when `focused_client` is
+non-NULL it belongs to the selected monitor's active workspace, but a selected
+monitor may legitimately have no focused client.
+
 * client-specific focus normally selects that client's monitor;
 * monitor/workspace/mode commands use `selected_monitor` as their target;
 * `monitor next|prev` can select another monitor and then focus that monitor's
@@ -157,6 +191,20 @@ ordinary client to be visible.
 
 This separation is what makes workspaces per-monitor rather than a single global
 desktop index.
+
+Common user inputs therefore normalize as follows:
+
+| Input | Semantic transition | Authority result | Source-specific projection |
+| --- | --- | --- | --- |
+| `monitor next` / `monitor prev` | activate monitor | select target monitor; keep its active workspace; resolve that workspace's focus target | warp pointer to the target monitor center |
+| click a workspace label | activate workspace | select that label's monitor; activate the clicked workspace if needed; resolve its focus target | keep pointer at the clicked UI location; map/unmap when the workspace changes |
+| click exposed root background | activate monitor | select the monitor under the pointer; keep its active workspace; resolve that workspace's focus target | keep pointer at the click location |
+
+If the resolved workspace has no focusable client, the authority result is still
+well-defined: the monitor stays selected, `focused_client` becomes `NULL`, and
+projection puts X input focus on the root. These are not three separate focus
+implementations; they are different inputs into the monitor/workspace activation
+transitions.
 
 ## Core state model
 

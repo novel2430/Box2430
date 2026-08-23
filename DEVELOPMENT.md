@@ -133,6 +133,11 @@ Likewise:
 
 * use `xdotool`/X events for binding behavior rather than calling a command
   helper directly;
+* when multiple inputs converge on one semantic transition, verify both the
+  shared authoritative result and any intentional source-specific projection
+  difference; for example, keyboard monitor navigation and pointer-driven
+  monitor/workspace selection should agree on selected monitor/focus while only
+  the explicit monitor command warps the pointer;
 * spawn tests should cover binding dispatch, `fork`/`exec`, and the resulting
   window/process behavior together;
 * focus-cycle tests should verify that ordinary focus/raise operations do not
@@ -348,6 +353,8 @@ They cover behavior such as:
 * per-monitor workspaces and client movement;
 * cross-monitor drag;
 * Xinerama monitor selection and logical monitor continuity;
+* keyboard, workspace-bar, and exposed-root monitor-selection behavior,
+  including their intended pointer-warp differences;
 * topology reconciliation across resolution/origin changes;
 * preservation/rematerialization of latent FREE geometry, snap, maximize,
   MONOCLE, and fullscreen state;

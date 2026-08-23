@@ -73,6 +73,13 @@ In particular:
 
 * keep the implementation direct and readable;
 * prefer explicit C state transitions over generic frameworks;
+* treat `WMModel` as the authoritative desktop-state root and preserve the
+  distinction between semantic transition, model authority, and X11/UI
+  projection described in `docs/ARCHITECTURE.md`;
+* when several input paths express the same intent, route them through the same
+  monitor/workspace/client transition instead of adding per-event focus or
+  selection repair branches; keep only genuinely source-specific projection
+  behavior local to the input path;
 * preserve semantic distinctions such as focus vs. stacking, monitor geometry
   vs. workarea, semantic geometry vs. temporary presentation, and stable tab
   order vs. stack/focus order;
