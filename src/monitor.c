@@ -1,6 +1,7 @@
 #include "box2430.h"
 
 #include <stdint.h>
+#include <string.h>
 
 static bool rect_equal(Rect left, Rect right)
 {
@@ -8,37 +9,58 @@ static bool rect_equal(Rect left, Rect right)
            left.width == right.width && left.height == right.height;
 }
 
-unsigned int normalize_monitor_rects(const Rect *raw_rects,
-                                     unsigned int raw_count, Rect fallback,
-                                     Rect *normalized, unsigned int capacity)
+static bool nullable_string_equal(const char *left, const char *right)
 {
-    if (!capacity) return 0;
-    if (!raw_rects || !raw_count) {
-        normalized[0] = fallback;
-        return 1;
-    }
+    if (!left || !right) return left == right;
+    return strcmp(left, right) == 0;
+}
 
-    unsigned int count = 0;
-    for (unsigned int i = 0; i < raw_count; ++i) {
-        bool unique = true;
-        for (unsigned int j = 0; j < count; ++j) {
-            if (rect_equal(normalized[j], raw_rects[i])) {
-                unique = false;
+static bool output_ids_equal_as_sets(const RandRMonitorObservation *left,
+                                     const RandRMonitorObservation *right)
+{
+    if (!left->output_count || left->output_count != right->output_count)
+        return false;
+    for (unsigned int i = 0; i < left->output_count; ++i) {
+        bool found = false;
+        for (unsigned int j = 0; j < right->output_count; ++j) {
+            if (left->outputs[i].id == right->outputs[j].id) {
+                found = true;
                 break;
             }
         }
-        if (!unique) continue;
-        if (count == capacity) {
-            normalized[0] = fallback;
-            return 1;
+        if (!found) return false;
+    }
+    return true;
+}
+
+static bool output_metadata_equal_as_sets(
+    const RandRMonitorObservation *left,
+    const RandRMonitorObservation *right)
+{
+    if (left->output_count != right->output_count) return false;
+    for (unsigned int i = 0; i < left->output_count; ++i) {
+        bool found = false;
+        for (unsigned int j = 0; j < right->output_count; ++j) {
+            if (left->outputs[i].id == right->outputs[j].id &&
+                nullable_string_equal(left->outputs[i].name,
+                                      right->outputs[j].name)) {
+                found = true;
+                break;
+            }
         }
-        normalized[count++] = raw_rects[i];
+        if (!found) return false;
     }
-    if (!count) {
-        normalized[0] = fallback;
-        return 1;
-    }
-    return count;
+    return true;
+}
+
+static int identity_score(const RandRMonitorObservation *old_monitor,
+                          const RandRMonitorObservation *new_monitor)
+{
+    int score = 0;
+    if (output_ids_equal_as_sets(old_monitor, new_monitor)) score += 2;
+    if (old_monitor->name != None && old_monitor->name == new_monitor->name)
+        score += 1;
+    return score;
 }
 
 static int64_t overlap_area(Rect left, Rect right)
@@ -66,51 +88,78 @@ static int64_t center_distance_squared(Rect left, Rect right)
     return dx * dx + dy * dy;
 }
 
-void match_monitor_rects(const Rect *old_rects, unsigned int old_count,
-                         const Rect *new_rects, unsigned int new_count,
-                         int old_for_new[BOX2430_MAX_MONITORS],
-                         int new_for_old[BOX2430_MAX_MONITORS])
+void match_monitor_observations(
+    const RandRMonitorObservation *old_monitors, unsigned int old_count,
+    const RandRMonitorObservation *new_monitors, unsigned int new_count,
+    int old_for_new[BOX2430_MAX_MONITORS],
+    int new_for_old[BOX2430_MAX_MONITORS])
 {
     for (unsigned int i = 0; i < BOX2430_MAX_MONITORS; ++i) {
         old_for_new[i] = -1;
         new_for_old[i] = -1;
     }
 
-    /* Exact geometry is the strongest continuity signal and handles a pure
-     * Xinerama enumeration reorder without moving monitor-local state. */
-    for (unsigned int old_index = 0; old_index < old_count; ++old_index) {
-        for (unsigned int new_index = 0; new_index < new_count; ++new_index) {
-            if (old_for_new[new_index] >= 0 ||
-                !rect_equal(old_rects[old_index], new_rects[new_index])) {
-                continue;
+    /* Exact geometry remains the strongest continuity evidence. Metadata can
+     * only choose between otherwise equal exact-geometry candidates. */
+    for (;;) {
+        bool found = false;
+        unsigned int best_old = 0;
+        unsigned int best_new = 0;
+        int best_identity = -1;
+        for (unsigned int old_index = 0; old_index < old_count; ++old_index) {
+            if (new_for_old[old_index] >= 0) continue;
+            for (unsigned int new_index = 0; new_index < new_count; ++new_index) {
+                if (old_for_new[new_index] >= 0 ||
+                    !rect_equal(old_monitors[old_index].geometry,
+                                new_monitors[new_index].geometry)) {
+                    continue;
+                }
+                int identity = identity_score(&old_monitors[old_index],
+                                              &new_monitors[new_index]);
+                bool better = !found || identity > best_identity ||
+                    (identity == best_identity &&
+                     (old_index < best_old ||
+                      (old_index == best_old && new_index < best_new)));
+                if (!better) continue;
+                found = true;
+                best_old = old_index;
+                best_new = new_index;
+                best_identity = identity;
             }
-            new_for_old[old_index] = (int)new_index;
-            old_for_new[new_index] = (int)old_index;
-            break;
         }
+        if (!found) break;
+        new_for_old[best_old] = (int)best_new;
+        old_for_new[best_new] = (int)best_old;
     }
 
-    /* Match all remaining possible pairs greedily. Positive overlap wins over
-     * non-overlap; otherwise nearest centers win. Old/new array positions are
-     * used only as deterministic tie-breakers, never as identity. */
+    /* For non-exact candidates, overlap and center distance remain
+     * authoritative. Metadata is consulted only after both geometry scores
+     * tie; array positions are the final deterministic fallback. */
     for (;;) {
         bool found = false;
         unsigned int best_old = 0;
         unsigned int best_new = 0;
         int64_t best_overlap = -1;
         int64_t best_distance = 0;
+        int best_identity = -1;
 
         for (unsigned int old_index = 0; old_index < old_count; ++old_index) {
             if (new_for_old[old_index] >= 0) continue;
             for (unsigned int new_index = 0; new_index < new_count; ++new_index) {
                 if (old_for_new[new_index] >= 0) continue;
-                int64_t overlap = overlap_area(old_rects[old_index],
-                                               new_rects[new_index]);
-                int64_t distance = center_distance_squared(old_rects[old_index],
-                                                           new_rects[new_index]);
+                int64_t overlap = overlap_area(old_monitors[old_index].geometry,
+                                               new_monitors[new_index].geometry);
+                int64_t distance = center_distance_squared(
+                    old_monitors[old_index].geometry,
+                    new_monitors[new_index].geometry);
+                int identity = identity_score(&old_monitors[old_index],
+                                              &new_monitors[new_index]);
                 bool better = !found || overlap > best_overlap ||
                     (overlap == best_overlap && distance < best_distance) ||
                     (overlap == best_overlap && distance == best_distance &&
+                     identity > best_identity) ||
+                    (overlap == best_overlap && distance == best_distance &&
+                     identity == best_identity &&
                      (old_index < best_old ||
                       (old_index == best_old && new_index < best_new)));
                 if (!better) continue;
@@ -119,6 +168,7 @@ void match_monitor_rects(const Rect *old_rects, unsigned int old_count,
                 best_new = new_index;
                 best_overlap = overlap;
                 best_distance = distance;
+                best_identity = identity;
             }
         }
 
@@ -126,4 +176,25 @@ void match_monitor_rects(const Rect *old_rects, unsigned int old_count,
         new_for_old[best_old] = (int)best_new;
         old_for_new[best_new] = (int)best_old;
     }
+}
+
+bool randr_monitor_snapshots_equal(const RandRMonitorSnapshot *left,
+                                   const RandRMonitorSnapshot *right)
+{
+    if (left->count != right->count) return false;
+    for (unsigned int i = 0; i < left->count; ++i) {
+        const RandRMonitorObservation *left_monitor = &left->monitors[i];
+        const RandRMonitorObservation *right_monitor = &right->monitors[i];
+        if (!rect_equal(left_monitor->geometry, right_monitor->geometry) ||
+            left_monitor->name != right_monitor->name ||
+            !nullable_string_equal(left_monitor->name_string,
+                                   right_monitor->name_string) ||
+            left_monitor->primary != right_monitor->primary ||
+            left_monitor->automatic != right_monitor->automatic ||
+            left_monitor->synthetic != right_monitor->synthetic ||
+            !output_metadata_equal_as_sets(left_monitor, right_monitor)) {
+            return false;
+        }
+    }
+    return true;
 }

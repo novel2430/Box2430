@@ -111,7 +111,7 @@ DISPLAY=$display xrandr -s 640x480
 wait_for "test \"\$(DISPLAY=$display xwininfo -root | awk '/Width:/ {print \$2; exit}')\" = 640" ||
     fail "Xephyr root did not resize"
 wait_for "test \"\$(DISPLAY=$display xwininfo -id $bar | awk '/Width:/ {print \$2; exit}')\" = 640" ||
-    fail "Box2430 did not reconcile changed Xinerama/root geometry"
+    fail "Box2430 did not reconcile changed RandR/root geometry"
 wait_active "$active" || fail "resolution change disturbed semantic focus"
 
 DISPLAY=$display xdotool key super+2

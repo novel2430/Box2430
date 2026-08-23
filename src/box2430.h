@@ -277,13 +277,34 @@ typedef struct Rect {
     int height;
 } Rect;
 
-unsigned int normalize_monitor_rects(const Rect *raw_rects,
-                                     unsigned int raw_count, Rect fallback,
-                                     Rect *normalized, unsigned int capacity);
-void match_monitor_rects(const Rect *old_rects, unsigned int old_count,
-                         const Rect *new_rects, unsigned int new_count,
-                         int old_for_new[BOX2430_MAX_MONITORS],
-                         int new_for_old[BOX2430_MAX_MONITORS]);
+typedef struct RandROutputObservation {
+    unsigned long id;
+    char *name;
+} RandROutputObservation;
+
+typedef struct RandRMonitorObservation {
+    Rect geometry;
+    Atom name;
+    char *name_string;
+    bool primary;
+    bool automatic;
+    bool synthetic;
+    RandROutputObservation *outputs;
+    unsigned int output_count;
+} RandRMonitorObservation;
+
+typedef struct RandRMonitorSnapshot {
+    RandRMonitorObservation *monitors;
+    unsigned int count;
+} RandRMonitorSnapshot;
+
+void match_monitor_observations(
+    const RandRMonitorObservation *old_monitors, unsigned int old_count,
+    const RandRMonitorObservation *new_monitors, unsigned int new_count,
+    int old_for_new[BOX2430_MAX_MONITORS],
+    int new_for_old[BOX2430_MAX_MONITORS]);
+bool randr_monitor_snapshots_equal(const RandRMonitorSnapshot *left,
+                                   const RandRMonitorSnapshot *right);
 
 typedef enum WorkspaceMode {
     WORKSPACE_FREE,
@@ -443,6 +464,7 @@ typedef struct WM {
     Atoms atoms;
     Config config;
     WMModel model;
+    RandRMonitorSnapshot monitor_snapshot;
     Tray *tray;
     UIBorderPixels free_border;
     UIBorderPixels monocle_border;
@@ -494,6 +516,10 @@ typedef struct WM {
     bool tab_resources_ready;
     bool bar_resources_ready;
 } WM;
+
+bool randr_check_version(WM *wm);
+bool randr_query_monitor_snapshot(WM *wm, RandRMonitorSnapshot *snapshot);
+void randr_free_monitor_snapshot(RandRMonitorSnapshot *snapshot);
 
 bool wm_init(WM *wm, const char *display_name, const char *config_path,
              bool session_start);

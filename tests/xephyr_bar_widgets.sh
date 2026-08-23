@@ -4,11 +4,13 @@ set -eu
 display=${BOX2430_TEST_DISPLAY:-:139}
 box2430_bin=${BOX2430_BIN:-./build/debug/box2430}
 color_bin=${BOX2430_COLOR_BIN:-./build/debug/x11-window-color}
+monitor_bin=${BOX2430_RANDR_MONITOR_BIN:-./build/debug/x11-randr-monitor}
 tmp_dir=$(mktemp -d)
-xephyr_pid= wm_pid= left_pid= right_pid=
+xephyr_pid= left_monitor_pid= right_monitor_pid= wm_pid= left_pid= right_pid=
 
 cleanup() {
-    for pid in "$right_pid" "$left_pid" "$wm_pid" "$xephyr_pid"; do
+    for pid in "$right_pid" "$left_pid" "$wm_pid" "$right_monitor_pid" \
+        "$left_monitor_pid" "$xephyr_pid"; do
         if [ -n "$pid" ]; then kill "$pid" 2>/dev/null || true; fi
     done
     rm -rf "$tmp_dir"
@@ -52,11 +54,20 @@ workspace_x() {
     echo $((($1 + $3) / 2))
 }
 
-DISPLAY=${DISPLAY:-:0} Xephyr "$display" \
-    -screen 800x600+0+0 -screen 640x480+800+0 +xinerama -nolisten tcp \
+DISPLAY=${DISPLAY:-:0} Xephyr "$display" -screen 1440x600 -nolisten tcp \
     >"$tmp_dir/xephyr.log" 2>&1 &
 xephyr_pid=$!
 wait_for "DISPLAY=$display xdpyinfo >/dev/null 2>&1" || fail "Xephyr did not start"
+DISPLAY=$display "$monitor_bin" set left 0 0 800 600 default hold \
+    >"$tmp_dir/left-monitor.log" 2>&1 &
+left_monitor_pid=$!
+wait_for "DISPLAY=$display xrandr --listmonitors 2>/dev/null | grep -q 'left'" ||
+    fail "left RandR logical monitor was not created"
+DISPLAY=$display "$monitor_bin" set right 800 0 640 480 none hold \
+    >"$tmp_dir/right-monitor.log" 2>&1 &
+right_monitor_pid=$!
+wait_for "test \"\$(DISPLAY=$display xrandr --listmonitors 2>/dev/null | awk '/Monitors:/ {print \$2}')\" = 2" ||
+    fail "right RandR logical monitor was not created"
 DISPLAY=$display "$box2430_bin" -c tests/fixtures/config-bar-widgets-multimon.toml >"$tmp_dir/wm.log" 2>&1 &
 wm_pid=$!
 wait_for "DISPLAY=$display xprop -root _NET_SUPPORTED >/dev/null 2>&1" || fail "WM did not start"

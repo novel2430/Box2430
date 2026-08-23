@@ -3,7 +3,6 @@
 #include "tray.h"
 
 #include <X11/Xatom.h>
-#include <X11/extensions/Xinerama.h>
 #include <X11/keysym.h>
 #include <errno.h>
 #include <fnmatch.h>
@@ -218,21 +217,31 @@ static void check_workspace_invariants(const WMModel *model,
         invariant_failure("workspace focus-history tail is inconsistent");
 }
 
-static void model_check_invariants(const WMModel *model,
-                                   unsigned int workspace_count)
+static void wm_check_invariants(const WM *wm)
 {
+    const WMModel *model = &wm->model;
+    unsigned int workspace_count = wm->config.workspace_count;
     if (!model->monitors || model->monitor_count == 0)
         invariant_failure("WM has no monitor authority");
+    if (!wm->monitor_snapshot.monitors ||
+        wm->monitor_snapshot.count != model->monitor_count)
+        invariant_failure("RandR snapshot and monitor authority counts differ");
     if (!monitor_belongs_to_model(model, model->selected_monitor))
         invariant_failure("selected monitor is outside WM monitor authority");
 
     unsigned int global_count = checked_global_client_count(model);
     for (unsigned int i = 0; i < model->monitor_count; ++i) {
         const Monitor *monitor = &model->monitors[i];
+        const Rect observed = wm->monitor_snapshot.monitors[i].geometry;
         if (!monitor->workspaces)
             invariant_failure("monitor has no workspace authority");
         if (monitor->index != i)
             invariant_failure("monitor index does not match its authority slot");
+        if (monitor->geometry.x != observed.x ||
+            monitor->geometry.y != observed.y ||
+            monitor->geometry.width != observed.width ||
+            monitor->geometry.height != observed.height)
+            invariant_failure("RandR snapshot geometry differs from monitor authority");
         if (!workspace_belongs_to_model(model, workspace_count,
                                         monitor->active_workspace) ||
             monitor->active_workspace->monitor != monitor)
@@ -268,8 +277,7 @@ static void model_check_invariants(const WMModel *model,
     }
 }
 
-#define WM_CHECK_INVARIANTS(wm) \
-    model_check_invariants(&(wm)->model, (wm)->config.workspace_count)
+#define WM_CHECK_INVARIANTS(wm) wm_check_invariants(wm)
 #else
 #define WM_CHECK_INVARIANTS(wm) ((void)0)
 #endif
@@ -289,39 +297,6 @@ static unsigned long named_color(WM *wm, const char *name, unsigned long fallbac
         return color.pixel;
     }
     return fallback;
-}
-
-static bool query_monitor_rects(WM *wm, Rect rects[BOX2430_MAX_MONITORS],
-                                unsigned int *count_return)
-{
-    Rect fallback = {
-        0, 0,
-        DisplayWidth(wm->display, wm->screen),
-        DisplayHeight(wm->display, wm->screen),
-    };
-    int raw_count = 0;
-    XineramaScreenInfo *screens = NULL;
-    if (XineramaIsActive(wm->display)) {
-        screens = XineramaQueryScreens(wm->display, &raw_count);
-    }
-    Rect *raw_rects = NULL;
-    if (screens && raw_count > 0) {
-        raw_rects = calloc((size_t)raw_count, sizeof(*raw_rects));
-        if (raw_rects) {
-            for (int i = 0; i < raw_count; ++i) {
-                raw_rects[i] = (Rect){
-                    screens[i].x_org, screens[i].y_org,
-                    screens[i].width, screens[i].height,
-                };
-            }
-        }
-    }
-    *count_return = normalize_monitor_rects(
-        raw_rects, raw_rects ? (unsigned int)raw_count : 0, fallback,
-        rects, BOX2430_MAX_MONITORS);
-    free(raw_rects);
-    if (screens) XFree(screens);
-    return true;
 }
 
 static bool init_monitor_state(WM *wm, Monitor *monitor, unsigned int index,
@@ -345,26 +320,29 @@ static bool init_monitor_state(WM *wm, Monitor *monitor, unsigned int index,
 
 static bool init_monitors(WM *wm)
 {
-    Rect rects[BOX2430_MAX_MONITORS];
-    unsigned int count;
-    if (!query_monitor_rects(wm, rects, &count)) return false;
+    RandRMonitorSnapshot snapshot = {0};
+    if (!randr_query_monitor_snapshot(wm, &snapshot)) return false;
     wm->model.monitors = calloc(BOX2430_MAX_MONITORS, sizeof(*wm->model.monitors));
     if (!wm->model.monitors) {
         fprintf(stderr, "box2430: out of memory creating monitor state\n");
+        randr_free_monitor_snapshot(&snapshot);
         return false;
     }
-    wm->model.monitor_count = count;
-    for (unsigned int i = 0; i < count; ++i) {
-        if (!init_monitor_state(wm, &wm->model.monitors[i], i, rects[i])) {
+    wm->model.monitor_count = snapshot.count;
+    for (unsigned int i = 0; i < snapshot.count; ++i) {
+        if (!init_monitor_state(wm, &wm->model.monitors[i], i,
+                                snapshot.monitors[i].geometry)) {
             fprintf(stderr, "box2430: out of memory creating workspace state\n");
             for (unsigned int j = 0; j < i; ++j) free(wm->model.monitors[j].workspaces);
             free(wm->model.monitors);
             wm->model.monitors = NULL;
             wm->model.monitor_count = 0;
+            randr_free_monitor_snapshot(&snapshot);
             return false;
         }
     }
     wm->model.selected_monitor = &wm->model.monitors[0];
+    wm->monitor_snapshot = snapshot;
     return true;
 }
 
@@ -1877,6 +1855,13 @@ typedef struct MonitorTopologyPlan {
     unsigned int client_count;
 } MonitorTopologyPlan;
 
+typedef enum MonitorTopologyPlanResult {
+    MONITOR_TOPOLOGY_PLAN_FAILED,
+    MONITOR_TOPOLOGY_NO_CHANGE,
+    MONITOR_TOPOLOGY_METADATA_ONLY,
+    MONITOR_TOPOLOGY_SEMANTIC_CHANGE,
+} MonitorTopologyPlanResult;
+
 static void free_topology_plan(MonitorTopologyPlan *plan)
 {
     free(plan->clients);
@@ -1884,21 +1869,31 @@ static void free_topology_plan(MonitorTopologyPlan *plan)
     plan->client_count = 0;
 }
 
-static bool plan_monitor_topology(WM *wm, const Rect *new_rects,
-                                  unsigned int new_count,
-                                  MonitorTopologyPlan *plan)
+static MonitorTopologyPlanResult plan_monitor_topology(
+    WM *wm, const RandRMonitorSnapshot *new_snapshot,
+    MonitorTopologyPlan *plan)
 {
     memset(plan, 0, sizeof(*plan));
+    if (wm->monitor_snapshot.count != wm->model.monitor_count ||
+        !new_snapshot->count ||
+        new_snapshot->count > BOX2430_MAX_MONITORS) {
+        fprintf(stderr, "box2430: cannot plan invalid RandR monitor snapshot\n");
+        return MONITOR_TOPOLOGY_PLAN_FAILED;
+    }
+    if (randr_monitor_snapshots_equal(&wm->monitor_snapshot, new_snapshot))
+        return MONITOR_TOPOLOGY_NO_CHANGE;
+
     plan->old_count = wm->model.monitor_count;
-    plan->new_count = new_count;
+    plan->new_count = new_snapshot->count;
     for (unsigned int i = 0; i < plan->old_count; ++i)
         plan->old_rects[i] = wm->model.monitors[i].geometry;
-    for (unsigned int i = 0; i < new_count; ++i)
-        plan->new_rects[i] = new_rects[i];
+    for (unsigned int i = 0; i < plan->new_count; ++i)
+        plan->new_rects[i] = new_snapshot->monitors[i].geometry;
 
-    match_monitor_rects(plan->old_rects, plan->old_count,
-                        plan->new_rects, plan->new_count,
-                        plan->old_for_new, plan->new_for_old);
+    match_monitor_observations(
+        wm->monitor_snapshot.monitors, plan->old_count,
+        new_snapshot->monitors, plan->new_count,
+        plan->old_for_new, plan->new_for_old);
 
     bool changed = plan->old_count != plan->new_count;
     for (unsigned int new_index = 0; new_index < plan->new_count; ++new_index) {
@@ -1908,7 +1903,7 @@ static bool plan_monitor_topology(WM *wm, const Rect *new_rects,
             changed = true;
         }
     }
-    if (!changed) return false;
+    if (!changed) return MONITOR_TOPOLOGY_METADATA_ONLY;
 
     plan->fallback_new_index = 0;
     unsigned int selected_old_index = wm->model.selected_monitor
@@ -1929,13 +1924,12 @@ static bool plan_monitor_topology(WM *wm, const Rect *new_rects,
     unsigned int client_count = 0;
     for (Client *client = wm->model.clients; client; client = client->next)
         ++client_count;
-    if (!client_count) return true;
+    if (!client_count) return MONITOR_TOPOLOGY_SEMANTIC_CHANGE;
 
     plan->clients = calloc(client_count, sizeof(*plan->clients));
     if (!plan->clients) {
         fprintf(stderr, "box2430: out of memory planning monitor topology\n");
-        wm->running = false;
-        return false;
+        return MONITOR_TOPOLOGY_PLAN_FAILED;
     }
     plan->client_count = client_count;
 
@@ -1955,7 +1949,7 @@ static bool plan_monitor_topology(WM *wm, const Rect *new_rects,
         client_plan->adjust_geometry = client_plan->migrate ||
             !rect_equal(plan->old_rects[old_index], plan->new_rects[new_index]);
     }
-    return true;
+    return MONITOR_TOPOLOGY_SEMANTIC_CHANGE;
 }
 
 static void translate_client_latent_geometry(Client *client, Rect old_monitor,
@@ -2012,16 +2006,33 @@ static void destroy_removed_monitor_resources(WM *wm, Monitor *old_monitors,
     }
 }
 
+static void accept_monitor_snapshot(WM *wm,
+                                    RandRMonitorSnapshot *new_snapshot)
+{
+    RandRMonitorSnapshot old_snapshot = wm->monitor_snapshot;
+    wm->monitor_snapshot = *new_snapshot;
+    memset(new_snapshot, 0, sizeof(*new_snapshot));
+    randr_free_monitor_snapshot(&old_snapshot);
+}
+
 static void reconcile_monitors(WM *wm)
 {
-    Rect rects[BOX2430_MAX_MONITORS];
-    unsigned int new_count;
-    if (!query_monitor_rects(wm, rects, &new_count)) return;
+    RandRMonitorSnapshot new_snapshot = {0};
+    if (!randr_query_monitor_snapshot(wm, &new_snapshot)) return;
 
     MonitorTopologyPlan plan;
-    if (!plan_monitor_topology(wm, rects, new_count, &plan)) return;
-    if (!wm->running) {
-        free_topology_plan(&plan);
+    MonitorTopologyPlanResult result = plan_monitor_topology(
+        wm, &new_snapshot, &plan);
+    if (result == MONITOR_TOPOLOGY_NO_CHANGE) {
+        randr_free_monitor_snapshot(&new_snapshot);
+        return;
+    }
+    if (result == MONITOR_TOPOLOGY_METADATA_ONLY) {
+        accept_monitor_snapshot(wm, &new_snapshot);
+        return;
+    }
+    if (result == MONITOR_TOPOLOGY_PLAN_FAILED) {
+        randr_free_monitor_snapshot(&new_snapshot);
         return;
     }
 
@@ -2046,7 +2057,7 @@ static void reconcile_monitors(WM *wm)
                 for (unsigned int j = 0; j < new_index; ++j)
                     if (added[j]) free(staged[j].workspaces);
                 free_topology_plan(&plan);
-                wm->running = false;
+                randr_free_monitor_snapshot(&new_snapshot);
                 return;
             }
             added[new_index] = true;
@@ -2082,6 +2093,7 @@ static void reconcile_monitors(WM *wm)
     }
     set_selected_monitor_authority(
         &wm->model, &wm->model.monitors[plan.selected_new_index]);
+    accept_monitor_snapshot(wm, &new_snapshot);
 
     ui_snap_preview_hide(wm);
     wm->drag.preview_monitor = plan.preview_new_index >= 0
@@ -2553,6 +2565,7 @@ bool wm_init(WM *wm, const char *display_name, const char *config_path,
     wm->root = RootWindow(wm->display, wm->screen);
     wm->x_fd = ConnectionNumber(wm->display);
     wm->running = true;
+    if (!randr_check_version(wm)) return false;
     if (!x11_acquire_wm_ownership(wm)) return false;
     if (session_start) {
         unsigned long background = named_color(
@@ -2612,11 +2625,13 @@ void wm_destroy(WM *wm)
 {
     if (!wm->display) return;
     XSync(wm->display, False);
-    while (XPending(wm->display)) {
-        XEvent event;
-        XNextEvent(wm->display, &event);
-        if (event.type == DestroyNotify || event.type == UnmapNotify)
-            handle_event(wm, &event);
+    if (wm->model.monitors && wm->model.monitor_count > 0) {
+        while (XPending(wm->display)) {
+            XEvent event;
+            XNextEvent(wm->display, &event);
+            if (event.type == DestroyNotify || event.type == UnmapNotify)
+                handle_event(wm, &event);
+        }
     }
     /* Once the WM relinquishes ownership there is no inactive workspace to
        keep clients hidden.  Remap them so a successor WM can discover every
@@ -2628,12 +2643,20 @@ void wm_destroy(WM *wm)
     }
     while (wm->model.special_windows)
         unmanage_special_window(wm, wm->model.special_windows, true);
-    XDeleteProperty(wm->display, wm->root, wm->atoms.net_active_window);
-    XDeleteProperty(wm->display, wm->root, wm->atoms.net_client_list);
-    XDeleteProperty(wm->display, wm->root, wm->atoms.net_client_list_stacking);
-    XDeleteProperty(wm->display, wm->root, wm->atoms.net_supporting_wm_check);
-    XDeleteProperty(wm->display, wm->root, wm->atoms.net_supported);
-    XDeleteProperty(wm->display, wm->root, wm->atoms.net_workarea);
+    if (wm->atoms.net_active_window != None)
+        XDeleteProperty(wm->display, wm->root, wm->atoms.net_active_window);
+    if (wm->atoms.net_client_list != None)
+        XDeleteProperty(wm->display, wm->root, wm->atoms.net_client_list);
+    if (wm->atoms.net_client_list_stacking != None)
+        XDeleteProperty(wm->display, wm->root,
+                        wm->atoms.net_client_list_stacking);
+    if (wm->atoms.net_supporting_wm_check != None)
+        XDeleteProperty(wm->display, wm->root,
+                        wm->atoms.net_supporting_wm_check);
+    if (wm->atoms.net_supported != None)
+        XDeleteProperty(wm->display, wm->root, wm->atoms.net_supported);
+    if (wm->atoms.net_workarea != None)
+        XDeleteProperty(wm->display, wm->root, wm->atoms.net_workarea);
     if (wm->wm_check_window) {
         XDestroyWindow(wm->display, wm->wm_check_window);
         wm->wm_check_window = None;
@@ -2644,6 +2667,10 @@ void wm_destroy(WM *wm)
     for (unsigned int i = 0; i < wm->model.monitor_count; ++i)
         free(wm->model.monitors[i].workspaces);
     free(wm->model.monitors);
+    wm->model.monitors = NULL;
+    wm->model.monitor_count = 0;
+    wm->model.selected_monitor = NULL;
+    randr_free_monitor_snapshot(&wm->monitor_snapshot);
     XCloseDisplay(wm->display);
     wm->display = NULL;
 }

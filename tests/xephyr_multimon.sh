@@ -4,11 +4,13 @@ set -eu
 display=${BOX2430_TEST_DISPLAY:-:138}
 box2430_bin=${BOX2430_BIN:-./build/debug/box2430}
 lifecycle_bin=${BOX2430_LIFECYCLE_BIN:-./build/debug/x11-lifecycle-client}
+monitor_bin=${BOX2430_RANDR_MONITOR_BIN:-./build/debug/x11-randr-monitor}
 tmp_dir=$(mktemp -d)
-xephyr_pid= wm_pid= transient_pid= one_pid= two_pid= drag_pid=
+xephyr_pid= left_monitor_pid= right_monitor_pid= wm_pid= transient_pid= one_pid= two_pid= drag_pid=
 
 cleanup() {
-    for pid in "$drag_pid" "$two_pid" "$one_pid" "$transient_pid" "$wm_pid" "$xephyr_pid"; do
+    for pid in "$drag_pid" "$two_pid" "$one_pid" "$transient_pid" "$wm_pid" \
+        "$right_monitor_pid" "$left_monitor_pid" "$xephyr_pid"; do
         if [ -n "$pid" ]; then kill "$pid" 2>/dev/null || true; fi
     done
     rm -rf "$tmp_dir"
@@ -54,11 +56,20 @@ wait_active() {
     wait_for "DISPLAY=$display xprop -root _NET_ACTIVE_WINDOW | grep -qi $wanted"
 }
 
-DISPLAY=${DISPLAY:-:0} Xephyr "$display" \
-    -screen 800x600+0+0 -screen 640x480+800+0 +xinerama -nolisten tcp \
+DISPLAY=${DISPLAY:-:0} Xephyr "$display" -screen 1440x600 -nolisten tcp \
     >"$tmp_dir/xephyr.log" 2>&1 &
 xephyr_pid=$!
 wait_for "DISPLAY=$display xdpyinfo >/dev/null 2>&1" || fail "Xephyr did not start"
+DISPLAY=$display "$monitor_bin" set left 0 0 800 600 default hold \
+    >"$tmp_dir/left-monitor.log" 2>&1 &
+left_monitor_pid=$!
+wait_for "DISPLAY=$display xrandr --listmonitors 2>/dev/null | grep -q 'left'" ||
+    fail "left RandR logical monitor was not created"
+DISPLAY=$display "$monitor_bin" set right 800 0 640 480 none hold \
+    >"$tmp_dir/right-monitor.log" 2>&1 &
+right_monitor_pid=$!
+wait_for "test \"\$(DISPLAY=$display xrandr --listmonitors 2>/dev/null | awk '/Monitors:/ {print \$2}')\" = 2" ||
+    fail "right RandR logical monitor was not created"
 
 # Startup discovery must manage this dialog after its parent, then inherit the
 # parent's rule-selected monitor and workspace.
@@ -72,8 +83,17 @@ wm_pid=$!
 wait_for "DISPLAY=$display xprop -root _NET_SUPPORTED >/dev/null 2>&1" || fail "WM did not start"
 wait_for "DISPLAY=$display xwininfo -id $transient_parent | grep -q 'Map State: IsUnMapped'" || fail "startup parent was not placed on monitor 2 workspace 2"
 wait_for "DISPLAY=$display xwininfo -id $transient_dialog | grep -q 'Map State: IsUnMapped'" || fail "startup transient did not inherit hidden workspace"
+DISPLAY=$display xdotool mousemove --sync 400 300 click 1
+wait_pointer_lt 800 || {
+    echo "pointer after left root click: $(pointer_x)" >&2
+    fail "monitor 1 could not be selected for transient test"
+}
 DISPLAY=$display xdotool key super+ctrl+Right
-wait_pointer_ge 800 || fail "monitor 2 could not be selected for transient test"
+wait_pointer_ge 800 || {
+    DISPLAY=$display xrandr --listmonitors >&2 || true
+    sed -n '1,120p' "$tmp_dir/wm.log" >&2
+    fail "monitor 2 could not be selected for transient test"
+}
 DISPLAY=$display xdotool key super+2
 wait_for "DISPLAY=$display xwininfo -id $transient_parent | grep -q 'Map State: IsViewable'" || fail "startup parent did not appear on monitor 2 workspace 2"
 wait_for "DISPLAY=$display xwininfo -id $transient_dialog | grep -q 'Map State: IsViewable'" || fail "startup transient did not follow parent workspace"
@@ -93,7 +113,11 @@ one=$(DISPLAY=$display xdotool search --name MonitorOne | head -n 1)
 # Explicit monitor navigation selects an empty monitor and warps into it; the
 # independent workspace on monitor 0 remains mapped.
 DISPLAY=$display xdotool key super+ctrl+Right
-wait_pointer_ge 800 || fail "empty monitor was not selected"
+wait_pointer_ge 800 || {
+    DISPLAY=$display xrandr --listmonitors >&2 || true
+    sed -n '1,120p' "$tmp_dir/wm.log" >&2
+    fail "empty monitor was not selected"
+}
 DISPLAY=$display xwininfo -id "$one" | grep -q 'Map State: IsViewable' ||
     fail "selecting another monitor changed source workspace visibility"
 

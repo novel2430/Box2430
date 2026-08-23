@@ -24,7 +24,8 @@ The main source layout is:
 | `src/wm.c` | Main state machine: events, clients, workspaces, focus, stacking, geometry, monitor reconciliation, dragging, ICCCM/EWMH reactions |
 | `src/ui.c` / `src/ui.h` | Borders, native bars, widget layout/drawing, status/clock text, MONOCLE tabs, snap preview |
 | `src/tray.c` / `src/tray.h` | XEmbed system-tray selection, owner/host windows, icon lifecycle and geometry |
-| `src/monitor.c` | Monitor rectangle normalization and logical topology matching |
+| `src/monitor.c` | Pure geometry-first logical-monitor continuity matching and metadata comparison |
+| `src/monitor_randr.c` | RandR 1.5 version preflight and owned logical-monitor/output snapshot capture |
 | `src/command.c` | Command validation/dispatch and child-process launch paths |
 | `src/config.c` | Built-in defaults and strict atomic TOML configuration loading |
 | `src/x11.c` | WM ownership, atoms, window metadata, struts, client lists, workarea, and ICCCM/EWMH helpers |
@@ -226,6 +227,7 @@ WM
 │   └── focused Client
 ├── Config                      <- policy / style
 ├── X11 connection + atoms     <- runtime / projection mechanism
+├── accepted RandR snapshot    <- owned platform observation metadata
 ├── Tray
 ├── native UI resources / cached status + clock text
 └── interactive drag / snap-preview state
@@ -399,7 +401,7 @@ geometry, and temporary presentation geometry.
 
 ### Monitor geometry and workarea
 
-`Monitor.geometry` is the raw Xinerama monitor rectangle.
+`Monitor.geometry` is the accepted RandR logical-monitor rectangle.
 
 `Monitor.workarea` is computed in this order:
 
@@ -727,37 +729,63 @@ steady state.
 
 ## Multi-monitor model
 
-Monitor discovery uses Xinerama rectangles. Box2430 treats those rectangles as
-logical monitor geometry, not durable physical-output identity.
+Monitor discovery uses the active RandR 1.5 Monitor API. Every active
+`XRRMonitorInfo` is one observed Box logical monitor, including when two logical
+monitors have identical rectangles. A logical monitor may report zero, one, or
+many associated physical outputs; those output IDs and connector names are
+retained truthfully rather than converted into additional Box monitors.
 
-### Normalization
+The runtime `WM` owns a deep-copied RandR snapshot next to `WMModel`. Each
+observation retains geometry, logical-monitor Atom/name, `primary`, `automatic`,
+and the complete output ID/name list. No pointers returned by libXrandr survive
+the query, and the snapshot is replaced only after a complete observation is
+accepted. Snapshot index and `Monitor.index` then describe the same current
+observed position. Debug invariants enforce equal snapshot/model counts and
+equal geometry at every index, including for the synthetic root observation.
 
-Raw rectangles are normalized before monitor state is created:
+This metadata is platform observation, not semantic Authority. Connector names,
+logical-monitor names, `primary`, and `automatic` do not own workspaces, select
+monitors, reorder the monitor array, or define client continuity.
 
-* duplicate rectangles collapse to the first occurrence;
-* negative coordinates are valid;
-* partially overlapping rectangles remain distinct;
-* no/invalid topology falls back to the root screen rectangle;
-* topology beyond the fixed monitor capacity also falls back to one root monitor.
+### Query validity and synthetic root
+
+RandR 1.5 or newer is checked before WM startup continues. Query failure,
+invalid geometry, incomplete metadata capture, allocation failure, or a monitor
+count above `BOX2430_MAX_MONITORS` rejects the new observation. Startup fails
+clearly; at runtime the previous model and accepted snapshot remain untouched.
+
+A successful query returning zero active logical monitors is the sole fallback
+case. Box2430 records one explicitly synthetic root-sized observation with no
+logical-monitor/output identity. It does not invent connector metadata or use a
+root rectangle to hide another query failure.
 
 ### Logical matching
 
-Root `ConfigureNotify` triggers topology reconciliation. Xinerama enumeration
+Root `ConfigureNotify` remains the runtime topology trigger. RandR enumeration
 index is not considered stable identity.
 
-`match_monitor_rects()` first pairs exact old/new rectangles. Remaining pairs are
-chosen greedily by:
+`match_monitor_observations()` first pairs exact old/new rectangles. Remaining
+pairs are chosen greedily by:
 
 1. greater overlap area;
 2. then smaller center distance;
-3. then deterministic old/new index tie breaking.
+3. only after equal geometry scores, matching output sets or logical-monitor
+   identity;
+4. then deterministic old/new index tie breaking.
 
-This preserves monitor-local state across a pure Xinerama enumeration reorder and
-provides deterministic behavior across common geometry changes.
+Output association is compared as a set, not by returned array order. This
+preserves monitor-local state across enumeration reorder while ensuring RandR
+identity never defeats better spatial continuity. When both geometry and
+metadata are indistinguishable, array indices remain the deterministic fallback.
 
-It is deliberately **geometry continuity**, not connector/EDID identity. In an
-ambiguous unplug/replug/move sequence Box2430 cannot know which physical display
-survived if Xinerama exposes only indistinguishable geometry evidence.
+### Observation policy
+
+RandR is the query backend, not the hotplug policy. Box2430 queries at startup
+and from its existing root `ConfigureNotify` reconciliation path. It does not
+select RandR output/CRTC/screen-change events, poll topology, or introduce a
+detached-monitor state. A physical connection change that produces no existing
+accepted trigger therefore leaves `WMModel` and the last accepted snapshot
+untouched.
 
 ### Reconciliation
 
@@ -769,6 +797,12 @@ Topology changes are planned before commit. The plan determines:
 * selected-monitor continuity;
 * preferred focused client;
 * geometry translation/rematerialization needs.
+
+An accepted query is classified before projection. An identical observation is
+discarded. If monitor count, order/continuity, and geometry are unchanged but
+RandR metadata differs, only the owned snapshot is replaced; workspace/client
+Authority and all X11/UI projection remain untouched. A semantic topology change
+continues through the staged monitor-array transition below.
 
 New monitors receive fresh workspace arrays. Clients from removed monitors move
 deterministically to a surviving target while preserving workspace index where
@@ -938,6 +972,10 @@ incidental refactor:
 * ordinary clients are non-reparented; tray icons are protocol-specific embedded children;
 * workspaces are per-monitor, not one global desktop list;
 * selected monitor and focused client are distinct state;
+* RandR logical/output identity is accepted platform metadata, not semantic
+  workspace/client continuity authority;
+* topology query source and topology reaction policy are distinct; RandR event
+  subscription is not part of the passive reconciliation model;
 * semantic client focus decisions and X input-focus reassertion are distinct;
 * monitor geometry and workarea are distinct;
 * native bar reservation and MONOCLE tab reservation occur at different geometry layers;

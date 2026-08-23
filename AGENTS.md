@@ -44,7 +44,8 @@ deliberately rather than incidentally.
 In particular, do not introduce compatibility machinery or product concepts only
 for theoretical completeness. Examples that require an explicit product decision
 include minimize semantics, a single global EWMH desktop model, output identity
-machinery beyond the current monitor model, or framework-scale abstractions.
+as semantic workspace authority, reactive hotplug/detached-monitor behavior, or
+framework-scale abstractions.
 
 New features are allowed when requested. Keep them consistent with the existing
 state model and make their public/architectural effects explicit.

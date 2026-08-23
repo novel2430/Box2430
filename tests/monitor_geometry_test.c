@@ -2,42 +2,28 @@
 
 #include <stdio.h>
 
-static bool rect_equal(Rect left, Rect right)
+static RandRMonitorObservation observation(Rect geometry, Atom name,
+                                            RandROutputObservation *outputs,
+                                            unsigned int output_count)
 {
-    return left.x == right.x && left.y == right.y &&
-           left.width == right.width && left.height == right.height;
+    return (RandRMonitorObservation){
+        .geometry = geometry,
+        .name = name,
+        .outputs = outputs,
+        .output_count = output_count,
+    };
 }
 
-static bool expect_topology(const char *name, const Rect *raw,
-                            unsigned int raw_count, Rect fallback,
-                            const Rect *expected, unsigned int expected_count)
-{
-    Rect normalized[BOX2430_MAX_MONITORS];
-    unsigned int count = normalize_monitor_rects(
-        raw, raw_count, fallback, normalized, BOX2430_MAX_MONITORS);
-    if (count != expected_count) {
-        fprintf(stderr, "FAIL: %s returned %u monitors, expected %u\n",
-                name, count, expected_count);
-        return false;
-    }
-    for (unsigned int i = 0; i < count; ++i) {
-        if (!rect_equal(normalized[i], expected[i])) {
-            fprintf(stderr, "FAIL: %s monitor %u has wrong geometry\n", name, i);
-            return false;
-        }
-    }
-    return true;
-}
-
-static bool expect_matches(const char *name, const Rect *old_rects,
-                           unsigned int old_count, const Rect *new_rects,
-                           unsigned int new_count, const int *expected_old_for_new,
-                           const int *expected_new_for_old)
+static bool expect_matches(
+    const char *name, const RandRMonitorObservation *old_monitors,
+    unsigned int old_count, const RandRMonitorObservation *new_monitors,
+    unsigned int new_count, const int *expected_old_for_new,
+    const int *expected_new_for_old)
 {
     int old_for_new[BOX2430_MAX_MONITORS];
     int new_for_old[BOX2430_MAX_MONITORS];
-    match_monitor_rects(old_rects, old_count, new_rects, new_count,
-                        old_for_new, new_for_old);
+    match_monitor_observations(old_monitors, old_count, new_monitors, new_count,
+                               old_for_new, new_for_old);
     for (unsigned int i = 0; i < new_count; ++i) {
         if (old_for_new[i] != expected_old_for_new[i]) {
             fprintf(stderr,
@@ -59,58 +45,22 @@ static bool expect_matches(const char *name, const Rect *old_rects,
 
 int main(void)
 {
-    Rect fallback = {0, 0, 1366, 768};
-    Rect duplicate[] = {
-        {0, 0, 1920, 1080},
-        {0, 0, 1920, 1080},
+    RandRMonitorObservation old_pair[] = {
+        observation((Rect){0, 0, 1920, 1080}, 0, NULL, 0),
+        observation((Rect){1920, 0, 1920, 1080}, 0, NULL, 0),
     };
-    Rect one[] = {{0, 0, 1920, 1080}};
-    if (!expect_topology("duplicate", duplicate, 2, fallback, one, 1)) return 1;
-
-    Rect mixed[] = {
-        {0, 0, 1920, 1080},
-        {0, 0, 1920, 1080},
-        {1920, 0, 1920, 1080},
-    };
-    Rect two[] = {
-        {0, 0, 1920, 1080},
-        {1920, 0, 1920, 1080},
-    };
-    if (!expect_topology("mixed duplicate", mixed, 3, fallback, two, 2)) return 1;
-
-    Rect non_overlapping[] = {
-        {0, 0, 1920, 1080},
-        {1920, 0, 1920, 1080},
-        {0, 1080, 1920, 1080},
-    };
-    if (!expect_topology("non-overlapping", non_overlapping, 3, fallback,
-                         non_overlapping, 3)) return 1;
-
-    Rect partially_overlapping[] = {
-        {0, 0, 1920, 1080},
-        {1600, 0, 1920, 1080},
-    };
-    if (!expect_topology("partially overlapping", partially_overlapping, 2,
-                         fallback, partially_overlapping, 2)) return 1;
-
-    if (!expect_topology("fallback", NULL, 0, fallback, &fallback, 1)) return 1;
-
-    Rect old_pair[] = {
-        {0, 0, 1920, 1080},
-        {1920, 0, 1920, 1080},
-    };
-    Rect reordered_pair[] = {
-        {1920, 0, 1920, 1080},
-        {0, 0, 1920, 1080},
+    RandRMonitorObservation reordered_pair[] = {
+        observation((Rect){1920, 0, 1920, 1080}, 0, NULL, 0),
+        observation((Rect){0, 0, 1920, 1080}, 0, NULL, 0),
     };
     int reorder_old_for_new[] = {1, 0};
     int reorder_new_for_old[] = {1, 0};
     if (!expect_matches("enumeration reorder", old_pair, 2, reordered_pair, 2,
                         reorder_old_for_new, reorder_new_for_old)) return 1;
 
-    Rect inserted_before[] = {
-        {-1280, 0, 1280, 1024},
-        {0, 0, 1920, 1080},
+    RandRMonitorObservation inserted_before[] = {
+        observation((Rect){-1280, 0, 1280, 1024}, 0, NULL, 0),
+        observation((Rect){0, 0, 1920, 1080}, 0, NULL, 0),
     };
     int insertion_old_for_new[] = {-1, 0};
     int insertion_new_for_old[] = {1};
@@ -118,52 +68,159 @@ int main(void)
                         inserted_before, 2, insertion_old_for_new,
                         insertion_new_for_old)) return 1;
 
-    Rect appended_after[] = {
-        {0, 0, 1920, 1080},
-        {1920, 0, 1280, 1024},
+    RandRMonitorObservation appended_after[] = {
+        observation((Rect){0, 0, 1920, 1080}, 0, NULL, 0),
+        observation((Rect){1920, 0, 1280, 1024}, 0, NULL, 0),
     };
     int append_old_for_new[] = {0, -1};
     int append_new_for_old[] = {0};
     if (!expect_matches("append after existing", old_pair, 1, appended_after, 2,
                         append_old_for_new, append_new_for_old)) return 1;
 
-    Rect keep_right[] = {{1920, 0, 1920, 1080}};
+    RandRMonitorObservation keep_right[] = {
+        observation((Rect){1920, 0, 1920, 1080}, 0, NULL, 0),
+    };
     int removal_old_for_new[] = {1};
     int removal_new_for_old[] = {-1, 0};
     if (!expect_matches("remove left", old_pair, 2, keep_right, 1,
                         removal_old_for_new, removal_new_for_old)) return 1;
 
-    Rect moved_resized[] = {{-1600, -200, 2560, 1440}};
+    RandRMonitorObservation moved_resized[] = {
+        observation((Rect){-1600, -200, 2560, 1440}, 0, NULL, 0),
+    };
     int moved_old_for_new[] = {0};
     int moved_new_for_old[] = {0};
     if (!expect_matches("origin and resolution change", old_pair, 1,
                         moved_resized, 1, moved_old_for_new,
                         moved_new_for_old)) return 1;
 
-    Rect old_negative_pair[] = {
-        {-1920, -1080, 1920, 1080},
-        {0, -1080, 1920, 1080},
+    RandRMonitorObservation old_negative_pair[] = {
+        observation((Rect){-1920, -1080, 1920, 1080}, 0, NULL, 0),
+        observation((Rect){0, -1080, 1920, 1080}, 0, NULL, 0),
     };
-    Rect shifted_pair[] = {
-        {-1700, -1080, 1600, 900},
-        {100, -1080, 1920, 1080},
+    RandRMonitorObservation shifted_pair[] = {
+        observation((Rect){-1700, -1080, 1600, 900}, 0, NULL, 0),
+        observation((Rect){100, -1080, 1920, 1080}, 0, NULL, 0),
     };
     int shifted_old_for_new[] = {0, 1};
     int shifted_new_for_old[] = {0, 1};
-    if (!expect_matches("negative nearest continuity", old_negative_pair, 2,
+    if (!expect_matches("negative overlap continuity", old_negative_pair, 2,
                         shifted_pair, 2, shifted_old_for_new,
                         shifted_new_for_old)) return 1;
 
-    /* Pure Xinerama cannot prove that this new x=0 rectangle is a moved old
-     * right-hand physical display. Exact geometry continuity deterministically
-     * keeps the old x=0 logical monitor instead. */
-    Rect ambiguous_one[] = {{0, 0, 1920, 1080}};
-    int ambiguous_old_for_new[] = {0};
-    int ambiguous_new_for_old[] = {0, -1};
-    if (!expect_matches("ambiguous physical identity", old_pair, 2,
-                        ambiguous_one, 1, ambiguous_old_for_new,
-                        ambiguous_new_for_old)) return 1;
+    RandRMonitorObservation same_geometry_old[] = {
+        observation((Rect){0, 0, 1920, 1080}, 0, NULL, 0),
+        observation((Rect){0, 0, 1920, 1080}, 0, NULL, 0),
+    };
+    RandRMonitorObservation same_geometry_new[] = {
+        observation((Rect){0, 0, 1920, 1080}, 0, NULL, 0),
+        observation((Rect){0, 0, 1920, 1080}, 0, NULL, 0),
+    };
+    int same_old_for_new[] = {0, 1};
+    int same_new_for_old[] = {0, 1};
+    if (!expect_matches("distinct same-geometry monitors", same_geometry_old, 2,
+                        same_geometry_new, 2, same_old_for_new,
+                        same_new_for_old)) return 1;
 
-    puts("PASS: monitor geometry normalization and logical matching");
+    RandROutputObservation output_a_ordered[] = {{11, "DP-1"}, {12, "DP-2"}};
+    RandROutputObservation output_a_reversed[] = {{12, "DP-2"}, {11, "DP-1"}};
+    RandROutputObservation output_b[] = {{21, "HDMI-1"}};
+    RandRMonitorObservation identified_old[] = {
+        observation((Rect){0, 0, 1920, 1080}, 101,
+                    output_a_ordered, 2),
+        observation((Rect){0, 0, 1920, 1080}, 102, output_b, 1),
+    };
+    RandRMonitorObservation identified_reordered[] = {
+        observation((Rect){0, 0, 1920, 1080}, 102, output_b, 1),
+        observation((Rect){0, 0, 1920, 1080}, 101,
+                    output_a_reversed, 2),
+    };
+    int identified_old_for_new[] = {1, 0};
+    int identified_new_for_old[] = {1, 0};
+    if (!expect_matches("same-geometry identity reorder", identified_old, 2,
+                        identified_reordered, 2, identified_old_for_new,
+                        identified_new_for_old)) return 1;
+
+    RandROutputObservation output_one[] = {{1, "one"}};
+    RandROutputObservation output_two[] = {{2, "two"}};
+    RandRMonitorObservation geometry_wins_old[] = {
+        observation((Rect){0, 0, 800, 600}, 0, output_one, 1),
+        observation((Rect){800, 0, 800, 600}, 0, output_two, 1),
+    };
+    RandRMonitorObservation geometry_wins_new[] = {
+        observation((Rect){0, 0, 800, 600}, 0, output_two, 1),
+        observation((Rect){800, 0, 800, 600}, 0, output_one, 1),
+    };
+    int geometry_old_for_new[] = {0, 1};
+    int geometry_new_for_old[] = {0, 1};
+    if (!expect_matches("identity cannot beat exact geometry", geometry_wins_old,
+                        2, geometry_wins_new, 2, geometry_old_for_new,
+                        geometry_new_for_old)) return 1;
+
+    RandRMonitorObservation nonexact_geometry_new[] = {
+        observation((Rect){100, 0, 800, 600}, 0, output_two, 1),
+        observation((Rect){700, 0, 800, 600}, 0, output_one, 1),
+    };
+    if (!expect_matches("identity cannot beat overlap", geometry_wins_old, 2,
+                        nonexact_geometry_new, 2, geometry_old_for_new,
+                        geometry_new_for_old)) return 1;
+
+    RandRMonitorObservation tied_old[] = {
+        observation((Rect){-100, 0, 100, 100}, 0, output_one, 1),
+        observation((Rect){100, 0, 100, 100}, 0, output_two, 1),
+    };
+    RandRMonitorObservation tied_new[] = {
+        observation((Rect){0, 0, 100, 100}, 0, output_two, 1),
+    };
+    int tied_old_for_new[] = {1};
+    int tied_new_for_old[] = {-1, 0};
+    if (!expect_matches("identity breaks equal geometry score", tied_old, 2,
+                        tied_new, 1, tied_old_for_new,
+                        tied_new_for_old)) return 1;
+
+    RandRMonitorObservation logical_name_old[] = {
+        observation((Rect){-100, 0, 100, 100}, 301, NULL, 0),
+        observation((Rect){100, 0, 100, 100}, 302, NULL, 0),
+    };
+    RandRMonitorObservation logical_name_new[] = {
+        observation((Rect){0, 0, 100, 100}, 302, NULL, 0),
+    };
+    if (!expect_matches("logical name breaks equal geometry score",
+                        logical_name_old, 2, logical_name_new, 1,
+                        tied_old_for_new, tied_new_for_old)) return 1;
+
+    RandRMonitorObservation synthetic_old[] = {
+        {.geometry = {0, 0, 1366, 768}, .synthetic = true},
+    };
+    RandRMonitorObservation synthetic_new[] = {
+        {.geometry = {0, 0, 1280, 720}, .synthetic = true},
+    };
+    int synthetic_old_for_new[] = {0};
+    int synthetic_new_for_old[] = {0};
+    if (!expect_matches("synthetic monitor continuity", synthetic_old, 1,
+                        synthetic_new, 1, synthetic_old_for_new,
+                        synthetic_new_for_old)) return 1;
+
+    RandRMonitorSnapshot ordered_snapshot = {
+        .monitors = &identified_old[0], .count = 1,
+    };
+    RandRMonitorObservation reordered_outputs_monitor = observation(
+        (Rect){0, 0, 1920, 1080}, 101, output_a_reversed, 2);
+    RandRMonitorSnapshot reordered_outputs_snapshot = {
+        .monitors = &reordered_outputs_monitor, .count = 1,
+    };
+    if (!randr_monitor_snapshots_equal(&ordered_snapshot,
+                                       &reordered_outputs_snapshot)) {
+        fputs("FAIL: output array order changed snapshot equality\n", stderr);
+        return 1;
+    }
+    reordered_outputs_monitor.primary = true;
+    if (randr_monitor_snapshots_equal(&ordered_snapshot,
+                                      &reordered_outputs_snapshot)) {
+        fputs("FAIL: metadata change was not detected\n", stderr);
+        return 1;
+    }
+
+    puts("PASS: RandR logical-monitor continuity and metadata matching");
     return 0;
 }

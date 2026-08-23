@@ -2,6 +2,8 @@
 set -eu
 
 for scenario in \
+    xvfb_randr_monitor.sh \
+    xvfb_randr_metadata.sh \
     xvfb_bootstrap.sh \
     xvfb_core_commands.sh \
     xvfb_workspace_transition.sh \

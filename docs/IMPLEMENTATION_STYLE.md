@@ -43,6 +43,11 @@ Judge X11 error handling against established mature WM practice before adding de
 
 Do not turn every asynchronous X11 operation into a synchronous or heavily scoped error-handling protocol merely for theoretical completeness.
 
+Treat topology observation and topology reaction policy as separate concerns.
+A richer display query backend may improve the facts retained by Box2430
+without adding event subscriptions, polling, or new monitor/workspace
+semantics.
+
 ## Preserve semantic distinctions
 
 Do not merge concepts simply because they currently contain similar data or often change together.

@@ -39,7 +39,7 @@ and multi-monitor topology reconciliation.
 * Startup discovery of existing windows
 * Practical ICCCM/EWMH support for focus, window state, docks/struts, active window,
   client lists, maximize/fullscreen, and special window types
-* Xinerama-based monitor discovery and topology reconciliation
+* RandR 1.5 logical-monitor discovery and topology reconciliation
 
 Box2430 intentionally has no minimize workflow and does not model workspaces as a
 single global EWMH desktop set. Workspaces belong to monitors.
@@ -52,7 +52,7 @@ Required development packages:
 * GNU Make
 * `pkg-config`
 * X11
-* Xinerama
+* XRandR 1.5 or newer
 * Xft
 
 Build a debug binary:

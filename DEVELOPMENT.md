@@ -14,13 +14,13 @@ For runtime semantics see `docs/ARCHITECTURE.md`. For commands/configuration see
 * `pkg-config`
 * X11 development libraries:
   * `x11`
-  * `xinerama`
+  * `xrandr >= 1.5`
   * `xft`
 
 Verify the required libraries with:
 
 ```sh
-pkg-config --exists x11 xinerama xft
+pkg-config --exists x11 'xrandr >= 1.5' xft
 ```
 
 Useful X11 test/debug tools include:
@@ -102,7 +102,7 @@ as a WM bug.
 
 At minimum:
 
-1. `pkg-config --exists x11 xinerama xft` succeeds;
+1. `pkg-config --exists x11 'xrandr >= 1.5' xft` succeeds;
 2. `make` succeeds;
 3. `make test-tools` succeeds;
 4. an Xvfb display can start and accept `xdpyinfo` connections;
@@ -165,7 +165,8 @@ fails on the buggy behavior and passes for the intended reason.
 The debug profile checks Box2430's in-memory semantic invariants after startup
 and completed X event handling. The checker validates monitor/workspace/client
 ownership, workspace-local order coherence, selected-monitor/focused-client
-coherence, and snap/maximize exclusion without querying X.
+coherence, accepted RandR snapshot count/geometry correspondence, and
+snap/maximize exclusion without querying X.
 
 The full Xvfb suite therefore exercises these checks through real management,
 focus, workspace, movement, lifecycle, and protocol paths. A failure reported as
@@ -198,14 +199,15 @@ suite.
 `tests/monitor_geometry_test.c` checks the pure monitor-topology helpers in
 `src/monitor.c`, including:
 
-* duplicate rectangle normalization;
-* fallback behavior;
 * negative coordinates;
-* exact matching across Xinerama enumeration reorder;
+* exact matching across RandR monitor enumeration reorder;
 * insertion/removal;
 * resolution/origin changes;
 * overlap/center-distance continuity;
-* deterministic ambiguous geometry matching.
+* distinct same-geometry logical monitors;
+* output-set/logical-name tie breaking;
+* output identity never overriding better geometry;
+* deterministic matching without usable identity metadata.
 
 This test verifies the geometry matching primitive. Xephyr topology scenarios
 verify that the same model is integrated correctly with live X11 monitor/client
@@ -227,9 +229,11 @@ directly:
 tests/run_xvfb.sh
 ```
 
-The current runner executes 36 scenarios:
+The current runner executes 38 scenarios:
 
 ```text
+xvfb_randr_monitor.sh
+xvfb_randr_metadata.sh
 xvfb_bootstrap.sh
 xvfb_core_commands.sh
 xvfb_workspace_transition.sh
@@ -274,6 +278,10 @@ configuration is part of the current repository behavior.
 
 The Xvfb suite currently covers areas including:
 
+* RandR 1.5 version preflight, owned snapshot capture, same-geometry logical
+  monitors, metadata-only live replacement, passive-query policy,
+  over-capacity startup rejection, and runtime invalid-observation fail-closed
+  behavior;
 * WM ownership and startup discovery, including adopted `IconicState` windows;
 * manage/unmanage and original-border restoration;
 * inactive-workspace unmapping vs. genuine client withdrawal;
@@ -331,7 +339,7 @@ profile.
 ## Xephyr scenarios
 
 Xephyr is used when nested visual behavior, multi-monitor rendering, or live
-Xinerama topology changes matter.
+RandR logical-monitor topology changes matter.
 
 Current scenarios are:
 
@@ -352,7 +360,7 @@ They cover behavior such as:
 * MONOCLE tab rendering, including non-ASCII titles;
 * per-monitor workspaces and client movement;
 * cross-monitor drag;
-* Xinerama monitor selection and logical monitor continuity;
+* RandR logical-monitor selection and geometry-first continuity;
 * keyboard, workspace-bar, and exposed-root monitor-selection behavior,
   including their intended pointer-warp differences;
 * topology reconciliation across resolution/origin changes;
@@ -362,6 +370,10 @@ They cover behavior such as:
 * native bar placement across topology changes;
 * tray rendering/embedding in a nested server;
 * tray relocation/reallocation as selected monitor/topology changes.
+
+The multi-monitor fixtures create explicit RandR 1.5 logical monitors on one
+nested framebuffer. This keeps monitor count and geometry under test control
+without relying on implicit nested-server screen enumeration.
 
 Some Xephyr scenarios capture visual evidence under:
 
