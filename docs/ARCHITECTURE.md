@@ -60,8 +60,21 @@ workspace owner and all membership/stable/stack/focus links without performing
 focus, mapping, geometry, EWMH, or UI work. The surrounding move or topology
 transition retains responsibility for geometry and ordered projection.
 
-Debug builds check the in-memory authority after startup and completed X event
-handling. These checks cover monitor/workspace ownership, global and
+The authoritative root is represented explicitly by `WMModel`. It owns the
+monitor/workspace graph, global managed-client and special-window lists, selected
+monitor, and semantic focused client. `WM` remains the process/runtime
+coordinator around that model: configuration, X11 connection state, native-UI
+resources, tray state, and transient drag state stay outside the model root.
+
+`WMModel` is an authority boundary, not a claim that every entity below it is
+backend-independent. Existing `Monitor` and `Client` objects still carry X11/UI
+attachments and cached protocol metadata. Separating those attachments is not
+required for the current TAP model. Pure model helpers take `WMModel *` (or
+`const WMModel *`) where practical, while transitions that coordinate policy and
+ordered projection continue to take the full `WM *`.
+
+Debug builds check the in-memory model authority after startup and completed X
+event handling. These checks cover monitor/workspace ownership, global and
 workspace-local client ownership, list coherence, interaction coherence, and
 snap/maximize exclusion. They do not query X or assert transient mappedness.
 
@@ -110,7 +123,7 @@ Focus and stacking are separate semantics.
 
 **Focus** changes the client that receives keyboard focus and updates:
 
-* `wm->focused_client`;
+* `wm->model.focused_client`;
 * the workspace focus-history list;
 * urgency state;
 * focused/unfocused/urgent border presentation;
@@ -147,25 +160,33 @@ desktop index.
 
 ## Core state model
 
-The top-level `WM` object owns the process-wide runtime state:
+The top-level `WM` object is the running-process coordinator. Its `WMModel`
+member makes the authoritative modeled desktop state explicit:
 
 ```text
 WM
-├── Config
-├── Monitor[]
-│   ├── geometry / workarea / bar_geometry
-│   ├── Workspace[]
-│   ├── active_workspace
-│   ├── native bar window + Xft draw state
-│   └── MONOCLE tab-bar window + Xft draw state
-├── global Client list
-├── SpecialWindow list
-├── selected Monitor
-├── focused Client
+├── WMModel                     <- authoritative modeled desktop root
+│   ├── Monitor[]
+│   │   ├── geometry / workarea / bar_geometry
+│   │   ├── Workspace[]
+│   │   ├── active_workspace
+│   │   ├── native bar window + Xft draw state
+│   │   └── MONOCLE tab-bar window + Xft draw state
+│   ├── global Client list
+│   ├── SpecialWindow list
+│   ├── selected Monitor
+│   └── focused Client
+├── Config                      <- policy / style
+├── X11 connection + atoms     <- runtime / projection mechanism
 ├── Tray
 ├── native UI resources / cached status + clock text
 └── interactive drag / snap-preview state
 ```
+
+The `WMModel` boundary deliberately stops at the authoritative root. `Monitor`
+and `Client` are not split into separate semantic/runtime objects, so this is not
+a backend-neutral model rewrite. The boundary exists to make model ownership and
+mutation visible in code without obscuring the direct C control flow.
 
 ### Monitors and workspaces
 

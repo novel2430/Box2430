@@ -104,19 +104,19 @@ static CommandStatus command_workspace(WM *wm, const CommandContext *context,
         if (!context || context->type != COMMAND_CONTEXT_WORKSPACEBAR ||
             !context->monitor || !context->workspace ||
             context->workspace->monitor != context->monitor ||
-            !wm->focused_client ||
+            !wm->model.focused_client ||
             (argc == 2 && !follow)) {
             return COMMAND_INVALID;
         }
         bool translate_monitor_geometry =
-            wm->focused_client->workspace->monitor != context->monitor;
-        client_move_to_workspace(wm, wm->focused_client, context->workspace,
+            wm->model.focused_client->workspace->monitor != context->monitor;
+        client_move_to_workspace(wm, wm->model.focused_client, context->workspace,
                                  follow, translate_monitor_geometry);
         return COMMAND_OK;
     }
 
     if (argc != 1) return COMMAND_INVALID;
-    Monitor *monitor = wm->selected_monitor;
+    Monitor *monitor = wm->model.selected_monitor;
     if (context && context->type == COMMAND_CONTEXT_WORKSPACEBAR &&
         context->monitor) {
         monitor = context->monitor;
@@ -144,9 +144,9 @@ static CommandStatus command_workspace(WM *wm, const CommandContext *context,
 static Monitor *relative_monitor(WM *wm, Monitor *monitor, bool forward)
 {
     unsigned int index = monitor->index;
-    index = forward ? (index + 1) % wm->monitor_count
-                    : (index + wm->monitor_count - 1) % wm->monitor_count;
-    return &wm->monitors[index];
+    index = forward ? (index + 1) % wm->model.monitor_count
+                    : (index + wm->model.monitor_count - 1) % wm->model.monitor_count;
+    return &wm->model.monitors[index];
 }
 
 static CommandStatus command_monitor(WM *wm, const CommandContext *context,
@@ -158,7 +158,7 @@ static CommandStatus command_monitor(WM *wm, const CommandContext *context,
     if (strcmp(argv[0], "next") == 0) forward = true;
     else if (strcmp(argv[0], "prev") == 0) forward = false;
     else return COMMAND_INVALID;
-    monitor_select(wm, relative_monitor(wm, wm->selected_monitor, forward));
+    monitor_select(wm, relative_monitor(wm, wm->model.selected_monitor, forward));
     return COMMAND_OK;
 }
 
@@ -169,7 +169,7 @@ static bool parse_workspace(WM *wm, const char *text, Workspace **workspace)
     unsigned long number = strtoul(text, &end, 10);
     if (errno || !end || *end || number < 1 || number > wm->config.workspace_count)
         return false;
-    *workspace = &wm->selected_monitor->workspaces[number - 1];
+    *workspace = &wm->model.selected_monitor->workspaces[number - 1];
     return true;
 }
 
@@ -177,7 +177,7 @@ static CommandStatus command_window(WM *wm, const CommandContext *context,
                                     int argc, const char *const *argv)
 {
     (void)context;
-    Client *client = wm->focused_client;
+    Client *client = wm->model.focused_client;
     if (argc == 1 && strcmp(argv[0], "close") == 0) {
         if (!client) return COMMAND_INVALID;
         client_close(wm, client);
@@ -233,7 +233,7 @@ static CommandStatus command_mode(WM *wm, const CommandContext *context,
                                   int argc, const char *const *argv)
 {
     (void)context;
-    Workspace *workspace = wm->selected_monitor->active_workspace;
+    Workspace *workspace = wm->model.selected_monitor->active_workspace;
     WorkspaceMode mode;
     if (argc == 1 && strcmp(argv[0], "free") == 0) mode = WORKSPACE_FREE;
     else if (argc == 1 && strcmp(argv[0], "monocle") == 0) mode = WORKSPACE_MONOCLE;
@@ -265,14 +265,14 @@ static CommandStatus command_snap(WM *wm, const CommandContext *context,
                                   int argc, const char *const *argv)
 {
     (void)context;
-    if (argc != 1 || !wm->focused_client) return COMMAND_INVALID;
+    if (argc != 1 || !wm->model.focused_client) return COMMAND_INVALID;
     if (strcmp(argv[0], "maximize") == 0) {
-        client_set_maximized(wm, wm->focused_client, true);
+        client_set_maximized(wm, wm->model.focused_client, true);
         return COMMAND_OK;
     }
     SnapState state;
     if (!parse_snap(argv[0], &state)) return COMMAND_INVALID;
-    client_snap(wm, wm->focused_client, state);
+    client_snap(wm, wm->model.focused_client, state);
     return COMMAND_OK;
 }
 
@@ -280,12 +280,12 @@ static CommandStatus command_maximize(WM *wm, const CommandContext *context,
                                       int argc, const char *const *argv)
 {
     (void)context;
-    if (!wm->focused_client || argc > 1) return COMMAND_INVALID;
+    if (!wm->model.focused_client || argc > 1) return COMMAND_INVALID;
     bool target;
     if (argc == 0) target = true;
-    else if (strcmp(argv[0], "toggle") == 0) target = !wm->focused_client->maximized;
+    else if (strcmp(argv[0], "toggle") == 0) target = !wm->model.focused_client->maximized;
     else return COMMAND_INVALID;
-    client_set_maximized(wm, wm->focused_client, target);
+    client_set_maximized(wm, wm->model.focused_client, target);
     return COMMAND_OK;
 }
 
@@ -293,12 +293,12 @@ static CommandStatus command_fullscreen(WM *wm, const CommandContext *context,
                                         int argc, const char *const *argv)
 {
     (void)context;
-    if (!wm->focused_client || argc > 1) return COMMAND_INVALID;
+    if (!wm->model.focused_client || argc > 1) return COMMAND_INVALID;
     bool target;
     if (argc == 0) target = true;
-    else if (strcmp(argv[0], "toggle") == 0) target = !wm->focused_client->user_fullscreen;
+    else if (strcmp(argv[0], "toggle") == 0) target = !wm->model.focused_client->user_fullscreen;
     else return COMMAND_INVALID;
-    client_set_fullscreen(wm, wm->focused_client, target);
+    client_set_fullscreen(wm, wm->model.focused_client, target);
     return COMMAND_OK;
 }
 
@@ -358,7 +358,7 @@ static CommandStatus command_tab(WM *wm, const CommandContext *context,
         strcmp(argv[0], "focus") == 0) {
         unsigned long number;
         if (!parse_positive_number(argv[1], &number)) return COMMAND_INVALID;
-        Workspace *workspace = wm->selected_monitor->active_workspace;
+        Workspace *workspace = wm->model.selected_monitor->active_workspace;
         if (workspace->mode != WORKSPACE_MONOCLE) return COMMAND_OK;
         Client *client = workspace->tab_head;
         while (client && number > 1) {

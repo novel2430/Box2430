@@ -326,7 +326,8 @@ bool x11_read_strut(WM *wm, Window window, unsigned long strut[12])
 
 void x11_update_workarea(WM *wm)
 {
-    Monitor *monitor = wm->selected_monitor ? wm->selected_monitor : &wm->monitors[0];
+    Monitor *monitor = wm->model.selected_monitor
+        ? wm->model.selected_monitor : &wm->model.monitors[0];
     unsigned long values[4] = {
         (unsigned long)monitor->workarea.x, (unsigned long)monitor->workarea.y,
         (unsigned long)monitor->workarea.width, (unsigned long)monitor->workarea.height,
@@ -365,10 +366,10 @@ bool x11_window_is_iconic(WM *wm, Window window)
 void x11_update_client_lists(WM *wm)
 {
     unsigned long count = 0;
-    for (Client *client = wm->clients; client; client = client->next) {
+    for (Client *client = wm->model.clients; client; client = client->next) {
         ++count;
     }
-    for (SpecialWindow *special = wm->special_windows; special; special = special->next)
+    for (SpecialWindow *special = wm->model.special_windows; special; special = special->next)
         ++count;
 
     Window *windows = NULL;
@@ -384,29 +385,29 @@ void x11_update_client_lists(WM *wm)
             return;
         }
         unsigned long i = 0;
-        for (Client *client = wm->clients; client; client = client->next) {
+        for (Client *client = wm->model.clients; client; client = client->next) {
             windows[i++] = client->window;
         }
-        for (SpecialWindow *special = wm->special_windows; special; special = special->next)
+        for (SpecialWindow *special = wm->model.special_windows; special; special = special->next)
             windows[i++] = special->window;
         i = 0;
-        for (SpecialWindow *special = wm->special_windows; special; special = special->next)
+        for (SpecialWindow *special = wm->model.special_windows; special; special = special->next)
             if (special->type == WINDOW_TYPE_DESKTOP) stacking[i++] = special->window;
-        for (unsigned int monitor = 0; monitor < wm->monitor_count; ++monitor) {
+        for (unsigned int monitor = 0; monitor < wm->model.monitor_count; ++monitor) {
             for (unsigned int workspace = 0; workspace < wm->config.workspace_count;
                  ++workspace) {
-                for (Client *client = wm->monitors[monitor].workspaces[workspace].stack_head;
+                for (Client *client = wm->model.monitors[monitor].workspaces[workspace].stack_head;
                      client; client = client->stack_next) {
                     if (!client->fullscreen) stacking[i++] = client->window;
                 }
             }
         }
-        for (SpecialWindow *special = wm->special_windows; special; special = special->next)
+        for (SpecialWindow *special = wm->model.special_windows; special; special = special->next)
             if (special->type != WINDOW_TYPE_DESKTOP) stacking[i++] = special->window;
-        for (unsigned int monitor = 0; monitor < wm->monitor_count; ++monitor)
+        for (unsigned int monitor = 0; monitor < wm->model.monitor_count; ++monitor)
             for (unsigned int workspace = 0; workspace < wm->config.workspace_count;
                  ++workspace)
-                for (Client *client = wm->monitors[monitor].workspaces[workspace].stack_head;
+                for (Client *client = wm->model.monitors[monitor].workspaces[workspace].stack_head;
                      client; client = client->stack_next)
                     if (client->fullscreen) stacking[i++] = client->window;
     }
@@ -423,7 +424,7 @@ void x11_update_client_lists(WM *wm)
 
 void x11_update_active_window(WM *wm)
 {
-    Window active = wm->focused_client ? wm->focused_client->window : None;
+    Window active = wm->model.focused_client ? wm->model.focused_client->window : None;
     XChangeProperty(wm->display, wm->root, wm->atoms.net_active_window,
                     XA_WINDOW, 32, PropModeReplace, (unsigned char *)&active, 1);
 }

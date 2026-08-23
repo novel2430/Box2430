@@ -422,6 +422,18 @@ typedef struct UIBorderPixels {
     bool urgent_allocated;
 } UIBorderPixels;
 
+/* Authoritative root of Box2430's modeled desktop world.  Existing Monitor
+ * and Client entities intentionally remain X11-aware; this boundary makes the
+ * model root explicit without introducing a backend-neutral object graph. */
+typedef struct WMModel {
+    Monitor *monitors;
+    unsigned int monitor_count;
+    Monitor *selected_monitor;
+    Client *clients;
+    Client *focused_client;
+    SpecialWindow *special_windows;
+} WMModel;
+
 typedef struct WM {
     Display *display;
     int screen;
@@ -430,12 +442,7 @@ typedef struct WM {
     int x_fd;
     Atoms atoms;
     Config config;
-    Monitor *monitors;
-    unsigned int monitor_count;
-    Monitor *selected_monitor;
-    Client *clients;
-    Client *focused_client;
-    SpecialWindow *special_windows;
+    WMModel model;
     Tray *tray;
     UIBorderPixels free_border;
     UIBorderPixels monocle_border;

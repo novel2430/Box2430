@@ -712,7 +712,7 @@ to investigate; it is not permission to rewrite all of them at once.
 
 Current responsibilities include both Authority and Projection:
 
-- mutate `wm->focused_client`;
+- mutate `wm->model.focused_client`;
 - implicitly select the focused client's monitor;
 - update workspace focus history;
 - clear urgency;

@@ -341,9 +341,9 @@ bool ui_clock_visible(const WM *wm)
 {
     if (!wm || !wm->config.bar.enabled ||
         !configured_bar_widget(wm, UI_WIDGET_CLOCK)) return false;
-    for (unsigned int i = 0; i < wm->monitor_count; ++i)
-        if (wm->monitors[i].bar_geometry.width > 0 &&
-            wm->monitors[i].bar_geometry.height > 0) return true;
+    for (unsigned int i = 0; i < wm->model.monitor_count; ++i)
+        if (wm->model.monitors[i].bar_geometry.width > 0 &&
+            wm->model.monitors[i].bar_geometry.height > 0) return true;
     return false;
 }
 
@@ -896,8 +896,8 @@ void ui_bar_draw(WM *wm, Monitor *monitor)
 
 Monitor *ui_bar_monitor_for_window(WM *wm, Window window)
 {
-    for (unsigned int i = 0; i < wm->monitor_count; ++i)
-        if (wm->monitors[i].bar == window) return &wm->monitors[i];
+    for (unsigned int i = 0; i < wm->model.monitor_count; ++i)
+        if (wm->model.monitors[i].bar == window) return &wm->model.monitors[i];
     return NULL;
 }
 
@@ -964,8 +964,8 @@ void ui_bar_name_monitor(WM *wm, Monitor *monitor)
 void ui_bar_update(WM *wm)
 {
     if (!wm->bar_resources_ready || !wm->config.bar.enabled) return;
-    for (unsigned int i = 0; i < wm->monitor_count; ++i) {
-        Monitor *monitor = &wm->monitors[i];
+    for (unsigned int i = 0; i < wm->model.monitor_count; ++i) {
+        Monitor *monitor = &wm->model.monitors[i];
         if (!monitor->bar) continue;
         Rect geometry = monitor->bar_geometry;
         bool visible = geometry.width > 0 && geometry.height > 0;
@@ -1001,8 +1001,8 @@ unsigned int ui_tab_height(const WM *wm, const Monitor *monitor)
 
 Monitor *ui_tab_monitor_for_window(WM *wm, Window window)
 {
-    for (unsigned int i = 0; i < wm->monitor_count; ++i)
-        if (wm->monitors[i].tab_bar == window) return &wm->monitors[i];
+    for (unsigned int i = 0; i < wm->model.monitor_count; ++i)
+        if (wm->model.monitors[i].tab_bar == window) return &wm->model.monitors[i];
     return NULL;
 }
 
@@ -1061,8 +1061,8 @@ static int tab_window_y(const WM *wm, const Monitor *monitor,
 void ui_tab_update(WM *wm)
 {
     if (!wm->tab_resources_ready) return;
-    for (unsigned int i = 0; i < wm->monitor_count; ++i) {
-        Monitor *monitor = &wm->monitors[i];
+    for (unsigned int i = 0; i < wm->model.monitor_count; ++i) {
+        Monitor *monitor = &wm->model.monitors[i];
         unsigned int height = ui_tab_height(wm, monitor);
         bool visible = ui_tabs_should_materialize(
             wm, monitor->active_workspace) && height;
@@ -1283,7 +1283,7 @@ void ui_client_border_refresh(WM *wm, Client *client)
     if (!wm || !client) return;
     UIBorderPixels *pixels = client->workspace->mode == WORKSPACE_MONOCLE
         ? &wm->monocle_border : &wm->free_border;
-    unsigned long pixel = client == wm->focused_client ? pixels->focused
+    unsigned long pixel = client == wm->model.focused_client ? pixels->focused
         : client->urgent ? pixels->urgent : pixels->unfocused;
     XSetWindowBorder(wm->display, client->window, pixel);
 }
@@ -1381,8 +1381,8 @@ static void destroy_snap_preview_windows(WM *wm)
 bool ui_is_internal_window(const WM *wm, Window window)
 {
     if (!wm || !window) return false;
-    for (unsigned int i = 0; i < wm->monitor_count; ++i)
-        if (wm->monitors[i].bar == window || wm->monitors[i].tab_bar == window)
+    for (unsigned int i = 0; i < wm->model.monitor_count; ++i)
+        if (wm->model.monitors[i].bar == window || wm->model.monitors[i].tab_bar == window)
             return true;
     for (size_t i = 0; i < 4; ++i)
         if (wm->ui_snap_preview_windows[i] == window) return true;
@@ -1525,11 +1525,11 @@ bool ui_init(WM *wm)
 
     if (wm->config.bar.enabled) {
         unsigned int created = 0;
-        for (; created < wm->monitor_count; ++created) {
-            if (!ui_bar_create_monitor(wm, &wm->monitors[created])) {
+        for (; created < wm->model.monitor_count; ++created) {
+            if (!ui_bar_create_monitor(wm, &wm->model.monitors[created])) {
                 fprintf(stderr, "box2430: cannot create native bar window\n");
                 for (unsigned int i = 0; i < created; ++i)
-                    ui_bar_destroy_monitor(wm, &wm->monitors[i]);
+                    ui_bar_destroy_monitor(wm, &wm->model.monitors[i]);
                 free_bar_colors(wm);
                 close_bar_fonts(wm);
                 free_tab_colors(wm);
@@ -1545,14 +1545,14 @@ bool ui_init(WM *wm)
     }
 
     unsigned int created = 0;
-    for (; created < wm->monitor_count; ++created) {
-        if (!ui_tab_create_monitor(wm, &wm->monitors[created])) {
+    for (; created < wm->model.monitor_count; ++created) {
+        if (!ui_tab_create_monitor(wm, &wm->model.monitors[created])) {
             fprintf(stderr, "box2430: cannot create tab bar drawing context\n");
             for (unsigned int i = 0; i < created; ++i)
-                ui_tab_destroy_monitor(wm, &wm->monitors[i]);
+                ui_tab_destroy_monitor(wm, &wm->model.monitors[i]);
             if (wm->bar_resources_ready) {
-                for (unsigned int i = 0; i < wm->monitor_count; ++i)
-                    ui_bar_destroy_monitor(wm, &wm->monitors[i]);
+                for (unsigned int i = 0; i < wm->model.monitor_count; ++i)
+                    ui_bar_destroy_monitor(wm, &wm->model.monitors[i]);
                 wm->bar_resources_ready = false;
                 free_bar_colors(wm);
                 close_bar_fonts(wm);
@@ -1580,9 +1580,9 @@ void ui_update(WM *wm)
 void ui_destroy(WM *wm)
 {
     if (!wm->display) return;
-    for (unsigned int i = 0; i < wm->monitor_count; ++i) {
-        ui_bar_destroy_monitor(wm, &wm->monitors[i]);
-        ui_tab_destroy_monitor(wm, &wm->monitors[i]);
+    for (unsigned int i = 0; i < wm->model.monitor_count; ++i) {
+        ui_bar_destroy_monitor(wm, &wm->model.monitors[i]);
+        ui_tab_destroy_monitor(wm, &wm->model.monitors[i]);
     }
     if (wm->bar_resources_ready) {
         free_bar_colors(wm);

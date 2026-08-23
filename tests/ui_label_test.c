@@ -115,8 +115,8 @@ int main(void)
         .bar = (Window)101,
         .tab_bar = (Window)102,
     };
-    wm.monitors = &clock_monitor;
-    wm.monitor_count = 1;
+    wm.model.monitors = &clock_monitor;
+    wm.model.monitor_count = 1;
     wm.ui_snap_preview_windows[0] = (Window)103;
     if (!ui_is_internal_window(&wm, (Window)101) ||
         !ui_is_internal_window(&wm, (Window)102) ||
