@@ -867,12 +867,13 @@ void client_close(WM *wm, Client *client)
     }
 }
 
-void client_focus_relative(WM *wm, bool forward)
+void workspace_focus_relative(WM *wm, Workspace *workspace, bool forward)
 {
-    Workspace *workspace = wm->model.selected_monitor->active_workspace;
+    if (!workspace || workspace != workspace->monitor->active_workspace) return;
     Client *target = NULL;
-    Client *cursor = wm->model.focused_client && wm->model.focused_client->workspace == workspace
-        ? wm->model.focused_client : NULL;
+    Client *cursor = wm->model.focused_client &&
+        wm->model.focused_client->workspace == workspace
+        ? wm->model.focused_client : workspace_focus_target(workspace);
     unsigned int count = tab_count(workspace);
     for (unsigned int i = 0; i < count; ++i) {
         cursor = cursor ? (forward ? cursor->tab_next : cursor->tab_prev) : NULL;
@@ -885,8 +886,9 @@ void client_focus_relative(WM *wm, bool forward)
 
 void client_focus_tab_target(WM *wm, Client *client, Time time)
 {
-    Workspace *workspace = wm->model.selected_monitor->active_workspace;
-    if (!client || client->workspace != workspace) return;
+    if (!client) return;
+    Workspace *workspace = client->workspace;
+    if (workspace != workspace->monitor->active_workspace) return;
     client_activate(wm, client, time);
     if (workspace->mode == WORKSPACE_MONOCLE) client_raise(wm, client);
 }
@@ -2323,6 +2325,8 @@ static void handle_event(WM *wm, XEvent *event)
                 CommandContext context = {
                     .type = COMMAND_CONTEXT_TABBAR,
                     .client = ui_tab_hit_test(wm, tab_monitor, event->xbutton.x),
+                    .monitor = tab_monitor,
+                    .workspace = tab_monitor->active_workspace,
                     .root_x = event->xbutton.x_root,
                     .root_y = event->xbutton.y_root,
                     .time = event->xbutton.time,

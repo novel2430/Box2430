@@ -229,7 +229,7 @@ directly:
 tests/run_xvfb.sh
 ```
 
-The current runner executes 38 scenarios:
+The current runner executes 39 scenarios:
 
 ```text
 xvfb_randr_monitor.sh
@@ -260,6 +260,7 @@ xvfb_keymap.sh
 xvfb_normal_hints.sh
 xvfb_focus_cycle.sh
 xvfb_tabbar.sh
+xvfb_tabbar_multimon.sh
 xvfb_tabbar_empty.sh
 xvfb_lifecycle.sh
 xvfb_visibility_withdrawal.sh

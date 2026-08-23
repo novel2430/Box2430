@@ -108,9 +108,9 @@ tab:
 
 | Command | Meaning |
 | --- | --- |
-| `tab focus` | Focus the clicked tab/client |
+| `tab focus` | Focus the clicked tab/client and select its monitor |
 | `tab close` | Close the clicked tab/client |
-| `focus next` / `focus prev` | Cycle the active workspace in stable tab order |
+| `focus next` / `focus prev` | Cycle the clicked tab bar's active workspace in stable tab order |
 
 ### Workspace-bar commands
 

@@ -221,10 +221,20 @@ static CommandStatus command_window(WM *wm, const CommandContext *context,
 static CommandStatus command_focus(WM *wm, const CommandContext *context,
                                    int argc, const char *const *argv)
 {
-    (void)context;
     if (argc != 1) return COMMAND_INVALID;
-    if (strcmp(argv[0], "next") == 0) client_focus_relative(wm, true);
-    else if (strcmp(argv[0], "prev") == 0) client_focus_relative(wm, false);
+    Workspace *workspace = wm->model.selected_monitor->active_workspace;
+    if (context && context->type == COMMAND_CONTEXT_TABBAR) {
+        if (!context->monitor || !context->workspace ||
+            context->workspace->monitor != context->monitor ||
+            context->monitor->active_workspace != context->workspace) {
+            return COMMAND_INVALID;
+        }
+        workspace = context->workspace;
+    }
+    if (strcmp(argv[0], "next") == 0)
+        workspace_focus_relative(wm, workspace, true);
+    else if (strcmp(argv[0], "prev") == 0)
+        workspace_focus_relative(wm, workspace, false);
     else return COMMAND_INVALID;
     return COMMAND_OK;
 }

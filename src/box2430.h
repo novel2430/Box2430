@@ -529,7 +529,7 @@ Client *workspace_focus_target(Workspace *workspace);
 void workspace_activate(WM *wm, Monitor *monitor, Workspace *workspace);
 void monitor_select(WM *wm, Monitor *monitor);
 void client_close(WM *wm, Client *client);
-void client_focus_relative(WM *wm, bool forward);
+void workspace_focus_relative(WM *wm, Workspace *workspace, bool forward);
 void client_focus_tab_target(WM *wm, Client *client, Time time);
 void client_raise(WM *wm, Client *client);
 void client_lower(WM *wm, Client *client);

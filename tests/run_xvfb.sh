@@ -30,6 +30,7 @@ for scenario in \
     xvfb_normal_hints.sh \
     xvfb_focus_cycle.sh \
     xvfb_tabbar.sh \
+    xvfb_tabbar_multimon.sh \
     xvfb_tabbar_empty.sh \
     xvfb_lifecycle.sh \
     xvfb_visibility_withdrawal.sh \
