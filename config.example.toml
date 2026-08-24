@@ -1,6 +1,9 @@
 [workspaces]
 count = 9
 
+[bspwm_compat]
+enabled = false
+
 [focus]
 mode = "click"
 active_window = "urgent"

@@ -40,6 +40,7 @@ for scenario in \
     xvfb_focus_protocol.sh \
     xvfb_property_cache.sh \
     xvfb_focus_compat.sh \
+    xvfb_bspwm_compat.sh \
     xvfb_spawn.sh
 do
     "$(dirname "$0")/$scenario"

@@ -1,0 +1,11 @@
+[workspaces]
+count = 4
+
+[appearance.bar]
+enabled = false
+
+[bspwm_compat]
+enabled = true
+
+[bindings.keys]
+"Super+x" = "spawn tests/check_bspwm_compat_cloexec.sh"

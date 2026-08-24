@@ -1,4 +1,5 @@
 #include "box2430.h"
+#include "bspwm_compat.h"
 #include "ui.h"
 #include "tray.h"
 
@@ -2589,6 +2590,8 @@ bool wm_init(WM *wm, const char *display_name, const char *config_path,
     discover_existing_windows(wm);
     XSync(wm->display, False);
     WM_CHECK_INVARIANTS(wm);
+    if (wm->config.bspwm_compat.enabled)
+        wm->bspwm_compat = bspwm_compat_create(wm);
     return true;
 }
 
@@ -2607,7 +2610,7 @@ void wm_run(WM *wm, const char *autostart_path)
 
     if (autostart_path) spawn_autostart(wm, autostart_path);
 
-    struct pollfd descriptor = {.fd = wm->x_fd, .events = POLLIN};
+    struct pollfd descriptors[1 + BSPWM_COMPAT_MAX_POLL_FDS];
     while (wm->running && !stop_requested) {
         while (XPending(wm->display)) {
             XEvent event;
@@ -2615,12 +2618,22 @@ void wm_run(WM *wm, const char *autostart_path)
             handle_event(wm, &event);
         }
         if (!wm->running || stop_requested) break;
+        bspwm_compat_publish(wm);
         ui_clock_tick(wm);
         int timeout = ui_clock_visible(wm) ? 1000 : -1;
-        int result = poll(&descriptor, 1, timeout);
+        descriptors[0] = (struct pollfd){.fd = wm->x_fd, .events = POLLIN};
+        size_t compat_count = bspwm_compat_pollfds(
+            wm->bspwm_compat, descriptors + 1, BSPWM_COMPAT_MAX_POLL_FDS);
+        int result = poll(descriptors, 1 + compat_count, timeout);
         if (result < 0 && errno != EINTR) {
             fprintf(stderr, "box2430: poll: %s\n", strerror(errno));
             break;
+        }
+        if (result > 0 && compat_count > 0) {
+            bool transitioned = bspwm_compat_dispatch(
+                wm, descriptors + 1, compat_count);
+            if (transitioned) WM_CHECK_INVARIANTS(wm);
+            bspwm_compat_publish(wm);
         }
     }
 }
@@ -2628,6 +2641,8 @@ void wm_run(WM *wm, const char *autostart_path)
 void wm_destroy(WM *wm)
 {
     if (!wm->display) return;
+    bspwm_compat_destroy(wm->bspwm_compat);
+    wm->bspwm_compat = NULL;
     XSync(wm->display, False);
     if (wm->model.monitors && wm->model.monitor_count > 0) {
         while (XPending(wm->display)) {

@@ -202,6 +202,10 @@ typedef struct BarConfig {
     TrayWidgetConfig tray;
 } BarConfig;
 
+typedef struct BspwmCompatConfig {
+    bool enabled;
+} BspwmCompatConfig;
+
 typedef enum WindowType {
     WINDOW_TYPE_NORMAL,
     WINDOW_TYPE_DIALOG,
@@ -257,6 +261,7 @@ typedef struct Config {
     double snap_corner_height_ratio;
     TabConfig tabs;
     BarConfig bar;
+    BspwmCompatConfig bspwm_compat;
     bool inherit_default_bindings;
     unsigned int key_binding_count;
     KeyBinding key_bindings[BOX2430_MAX_KEY_BINDINGS];
@@ -326,6 +331,7 @@ typedef struct Workspace Workspace;
 typedef struct Monitor Monitor;
 typedef struct SpecialWindow SpecialWindow;
 typedef struct Tray Tray;
+typedef struct BspwmCompat BspwmCompat;
 
 struct SpecialWindow {
     Window window;
@@ -466,6 +472,7 @@ typedef struct WM {
     WMModel model;
     RandRMonitorSnapshot monitor_snapshot;
     Tray *tray;
+    BspwmCompat *bspwm_compat;
     UIBorderPixels free_border;
     UIBorderPixels monocle_border;
     unsigned int numlock_mask;

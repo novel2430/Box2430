@@ -40,9 +40,14 @@ and multi-monitor topology reconciliation.
 * Practical ICCCM/EWMH support for focus, window state, docks/struts, active window,
   client lists, maximize/fullscreen, and special window types
 * RandR 1.5 logical-monitor discovery and topology reconciliation
+* Optional Polybar workspace integration through Polybar's built-in bspwm module
 
 Box2430 intentionally has no minimize workflow and does not model workspaces as a
 single global EWMH desktop set. Workspaces belong to monitors.
+
+Polybar integration is an optional, disabled-by-default compatibility adapter
+for the small bspwm IPC subset used by `internal/bspwm`. It is not general bspwm
+or `bspc` compatibility. See `docs/REFERENCE.md` for setup.
 
 ## Build
 

@@ -24,6 +24,7 @@ The main source layout is:
 | `src/wm.c` | Main state machine: events, clients, workspaces, focus, stacking, geometry, monitor reconciliation, dragging, ICCCM/EWMH reactions |
 | `src/ui.c` / `src/ui.h` | Borders, native bars, widget layout/drawing, status/clock text, MONOCLE tabs, snap preview |
 | `src/tray.c` / `src/tray.h` | XEmbed system-tray selection, owner/host windows, icon lifecycle and geometry |
+| `src/bspwm_compat.c` / `src/bspwm_compat.h` | Optional Polybar `internal/bspwm` wire adapter, Unix socket lifecycle, bounded clients, command parsing, and report projection |
 | `src/monitor.c` | Pure geometry-first logical-monitor continuity matching and metadata comparison |
 | `src/monitor_randr.c` | RandR 1.5 version preflight and owned logical-monitor/output snapshot capture |
 | `src/command.c` | Command validation/dispatch and child-process launch paths |
@@ -229,6 +230,7 @@ WM
 ├── X11 connection + atoms     <- runtime / projection mechanism
 ├── accepted RandR snapshot    <- owned platform observation metadata
 ├── Tray
+├── BspwmCompat                <- optional bounded interoperability runtime
 ├── native UI resources / cached status + clock text
 └── interactive drag / snap-preview state
 ```
@@ -237,6 +239,41 @@ The `WMModel` boundary deliberately stops at the authoritative root. `Monitor`
 and `Client` are not split into separate semantic/runtime objects, so this is not
 a backend-neutral model rewrite. The boundary exists to make model ownership and
 mutation visible in code without obscuring the direct C control flow.
+
+### Polybar bspwm-module compatibility
+
+The optional `BspwmCompat` runtime is an interoperability boundary outside
+`WMModel`:
+
+```text
+Polybar internal/bspwm
+    -> bspwm_compat command adapter
+    -> existing monitor/workspace Transition
+    -> WMModel Authority
+    -> bspwm report Projection
+    -> Polybar subscriber
+```
+
+It owns only Unix listener/client state, bounded wire buffers, and the last
+serialized full report. It does not cache a second semantic desktop model.
+Incoming monitor/workspace commands resolve targets against current authority
+and the accepted RandR snapshot, then call `workspace_activate()`. Monitor focus
+activates the target monitor's already-active workspace, deliberately avoiding
+the pointer-warping keyboard `monitor_select()` projection.
+
+Reports enumerate semantic monitors/workspaces in their existing order.
+Workspace indices are projected as numeric `1..N` names; occupied and urgent
+state comes directly from workspace membership and client urgency; FREE/MONOCLE
+is projected as bspwm-compatible `LT`/`LM`. Logical-monitor names are read by
+corresponding index from the accepted RandR observation and never copied into
+`Monitor` authority.
+
+Report serialization/comparison happens at coherent main-loop checkpoints after
+X event batches and compatibility-command dispatch. Individual transitions do
+not publish reports. A changed report is broadcast as a complete snapshot;
+bounded nonblocking output coalesces later unsent snapshots without blocking the
+X event loop. This is intentionally the Polybar-required bspwm subset, not a
+general IPC or `bspc` control plane.
 
 ### Monitors and workspaces
 
@@ -646,10 +683,16 @@ load defaults + optional config
     -> draw/update bars
     -> grab configured keys
     -> discover existing top-level windows
+    -> synchronize X and check semantic invariants
+    -> initialize optional bspwm compatibility socket
 ```
 
 Autostart runs after `wm_init()` returns successfully and startup discovery is
-complete.
+complete, so an autostarted Polybar can connect to an already-created socket and
+receive a post-discovery report. Compatibility initialization failure is logged
+but does not fail WM startup. Teardown closes compatibility clients/listener and
+removes its owned socket before the X connection and accepted RandR snapshot are
+destroyed; compatibility descriptors are not preserved across WM restart.
 
 ### Existing-window discovery
 

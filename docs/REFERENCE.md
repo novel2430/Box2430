@@ -230,6 +230,64 @@ Client fullscreen policy applies to client-initiated EWMH fullscreen requests:
 
 The `fullscreen` command is user-driven and is separate from the client policy.
 
+### Polybar workspace integration
+
+Box2430 can feed workspace state to Polybar's existing `internal/bspwm` module.
+The adapter is disabled by default and is independent of the native bar:
+
+```toml
+[bspwm_compat]
+enabled = true
+
+[appearance.bar]
+enabled = false # optional; both bars may also run together
+```
+
+When enabled, Box2430 creates the socket Polybar expects after startup window
+discovery is complete and before Box2430 runs session autostart. If the
+`BSPWM_SOCKET` environment variable exists and is non-empty, its value is used
+exactly. Otherwise Box2430 derives the conventional bspwm socket path from the
+active X display, such as `/tmp/bspwm_0_0-socket` for local display `:0`.
+Polybar and Box2430 must inherit the same `BSPWM_SOCKET` value when an override
+is used.
+
+A minimal module is:
+
+```ini
+[module/workspaces]
+type = internal/bspwm
+pin-workspaces = true
+enable-click = true
+enable-scroll = true
+
+label-focused = %name%
+label-occupied = %name%
+label-urgent = %name%!
+label-empty = %name%
+
+label-monocle = MONOCLE
+label-tiled = FREE
+```
+
+Workspace names are the per-monitor numeric ordinals `1..N`. With
+`pin-workspaces = true`, Polybar matches each bar monitor against the accepted
+RandR logical-monitor name. Clicks activate the selected numeric workspace.
+Scrolling supports local next/previous traversal, optional occupied-only
+traversal, and the non-pinned global forms Polybar sends; global traversal is
+monitor-major over the existing per-monitor workspaces.
+
+The mode labels are a presentation mapping: Box2430 FREE is reported to
+Polybar's `label-tiled`, while MONOCLE is reported to `label-monocle`. FREE does
+not acquire bspwm tree or tiling semantics.
+
+Box2430 implements the subset of the bspwm IPC protocol required by Polybar's
+`internal/bspwm` module. It does not provide general `bspc` compatibility.
+Queries, configuration, rules, node control, and arbitrary bspwm selectors are
+not supported. Box2430 also does not create bspwm root windows, so
+`wm-restack = bspwm` is outside this compatibility contract. When bar restacking
+is needed, use a non-bspwm-specific Polybar strategy such as
+`wm-restack = ewmh` (or Polybar's `generic` best-effort strategy).
+
 ### Borders
 
 FREE and MONOCLE presentation have independent border styles:

@@ -188,10 +188,11 @@ The Makefile performs:
 ```text
 build/debug/monitor-geometry-test
 build/debug/ui-label-test
+build/debug/bspwm-compat-test
 tests/run_xvfb.sh
 ```
 
-So `make test` contains two focused local tests followed by the Xvfb integration
+So `make test` contains three focused local tests followed by the Xvfb integration
 suite.
 
 ### Monitor geometry test
@@ -220,6 +221,13 @@ a live WM session. Coverage includes label formatting/style resolution,
 workspace/mode/title state selection, clock visibility, and related UI helper
 logic used by the bar and tabs.
 
+### bspwm compatibility test
+
+`tests/bspwm_compat_test.c` checks conventional socket-path derivation and the
+pure full-report projection, including monitor selection, numeric workspace
+names, empty/occupied/urgent state, FREE/MONOCLE layout flags, and omission of
+bspwm node semantics.
+
 ## Xvfb integration suite
 
 After building the WM and test tools, the headless scenarios can also be run
@@ -229,7 +237,7 @@ directly:
 tests/run_xvfb.sh
 ```
 
-The current runner executes 39 scenarios:
+The current runner executes 40 scenarios:
 
 ```text
 xvfb_randr_monitor.sh
@@ -270,6 +278,7 @@ xvfb_focus_history.sh
 xvfb_focus_protocol.sh
 xvfb_property_cache.sh
 xvfb_focus_compat.sh
+xvfb_bspwm_compat.sh
 xvfb_spawn.sh
 ```
 
@@ -310,6 +319,9 @@ The Xvfb suite currently covers areas including:
 * urgency and workspace focus-history restoration;
 * `WM_TAKE_FOCUS`, InputHint, and FocusIn compatibility;
 * runtime metadata/property-cache refresh without implicit re-placement;
+* optional Polybar bspwm-module socket lifecycle, exact NUL-separated wire
+  commands, reports, click/scroll transitions, pointer stability, backpressure
+  bounds, CLOEXEC, and conservative path conflict handling;
 * restart boundaries, including cold-start-only background/autostart behavior;
 * direct `spawn`, `spawn-shell`, and SIGCHLD inheritance/reset behavior.
 
@@ -319,6 +331,7 @@ Run one scenario directly when iterating on a focused area:
 tests/xvfb_tray.sh
 tests/xvfb_workspacebar.sh
 tests/xvfb_focus_compat.sh
+tests/xvfb_bspwm_compat.sh
 ```
 
 The scripts use `BOX2430_TEST_DISPLAY` when an explicit unused display number is
@@ -556,6 +569,15 @@ For a broad smoke test, check at least:
 * notification stacking if native UI stacking changed;
 * physical monitor unplug/replug only when topology behavior is in scope;
 * clean WM exit/restart.
+
+For a real Polybar compatibility smoke, enable `[bspwm_compat]`, start an
+unmodified `type = internal/bspwm` module after Box2430, and verify numeric
+workspace labels, click/scroll actions, occupied/urgent changes, and FREE /
+MONOCLE labels. On multiple monitors, also verify `pin-workspaces = true` against
+the RandR logical-monitor names. Use `wm-restack = ewmh` or `generic` if
+restacking is required; Box2430 does not create bspwm root windows. Finally,
+restart Box2430 and observe whether the installed Polybar reconnects; subscriber
+fd preservation is intentionally not implemented.
 
 ## Verification reporting
 

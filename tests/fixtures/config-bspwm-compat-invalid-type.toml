@@ -1,0 +1,5 @@
+[appearance.border.free]
+width = 9
+
+[bspwm_compat]
+enabled = "yes"

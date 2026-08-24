@@ -158,6 +158,7 @@ void config_set_defaults(Config *config)
             .right_count = 3,
             .title = {.source = UI_LABEL_TITLE},
         },
+        .bspwm_compat = {.enabled = false},
         .inherit_default_bindings = true,
     };
     memcpy(config->background, "#000000", 8);
@@ -1066,9 +1067,15 @@ static bool parse_supported_config(Config *candidate, toml_datum_t root)
 {
     static const char *top_keys[] = {
         "workspaces", "focus", "placement", "fullscreen", "appearance", "snap",
-        "bindings", "rules",
+        "bindings", "rules", "bspwm_compat",
     };
-    if (!validate_keys(root, "root", top_keys, 8)) return false;
+    if (!validate_keys(root, "root", top_keys, 9)) return false;
+
+    toml_datum_t bspwm_compat = toml_get(root, "bspwm_compat");
+    static const char *bspwm_compat_keys[] = {"enabled"};
+    if (!validate_keys(bspwm_compat, "bspwm_compat", bspwm_compat_keys, 1) ||
+        !read_bool(bspwm_compat, "bspwm_compat", "enabled",
+                   &candidate->bspwm_compat.enabled)) return false;
 
     toml_datum_t workspaces = toml_get(root, "workspaces");
     static const char *workspace_keys[] = {"count"};
