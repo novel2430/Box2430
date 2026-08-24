@@ -272,8 +272,10 @@ Report serialization/comparison happens at coherent main-loop checkpoints after
 X event batches and compatibility-command dispatch. Individual transitions do
 not publish reports. A changed report is broadcast as a complete snapshot;
 bounded nonblocking output coalesces later unsent snapshots without blocking the
-X event loop. This is intentionally the Polybar-required bspwm subset, not a
-general IPC or `bspc` control plane.
+X event loop. Socket-path ownership includes the filesystem identity captured
+after binding; shutdown removes the pathname only while it still names that
+same Unix socket instance. This is intentionally the Polybar-required bspwm
+subset, not a general IPC or `bspc` control plane.
 
 ### Monitors and workspaces
 

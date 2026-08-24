@@ -18,6 +18,7 @@ enum {
     BSPWM_COMPAT_MAX_ARGS = 4,
     BSPWM_COMPAT_MAX_ARG_LENGTH = 256,
     BSPWM_COMPAT_MAX_REPORT = 16384,
+    BSPWM_COMPAT_ACCEPT_BUDGET = BSPWM_COMPAT_MAX_CLIENTS,
 };
 
 typedef enum BspwmCompatClientKind {
@@ -40,6 +41,8 @@ typedef struct BspwmCompatClient {
 struct BspwmCompat {
     int listener_fd;
     bool owns_socket_path;
+    dev_t socket_device;
+    ino_t socket_inode;
     char socket_path[sizeof(((struct sockaddr_un *)0)->sun_path)];
     BspwmCompatClient clients[BSPWM_COMPAT_MAX_CLIENTS];
     int poll_slots[BSPWM_COMPAT_MAX_POLL_FDS];
@@ -106,7 +109,10 @@ bool bspwm_compat_default_socket_path(const char *display_name, char *path,
     if (!display_name || !*display_name || !path || capacity == 0) return false;
     const char *colon = strrchr(display_name, ':');
     if (!colon) return false;
-    size_t host_length = (size_t)(colon - display_name);
+    const char *host = display_name;
+    const char *slash = strrchr(display_name, '/');
+    if (slash && slash < colon) host = slash + 1;
+    size_t host_length = (size_t)(colon - host);
     if (host_length > INT_MAX) return false;
     const char *cursor = colon + 1;
     if (*cursor < '0' || *cursor > '9') return false;
@@ -124,7 +130,7 @@ bool bspwm_compat_default_socket_path(const char *display_name, char *path,
     }
     if (*end != '\0') return false;
     int written = snprintf(path, capacity, "/tmp/bspwm%.*s_%lu_%lu-socket",
-                           (int)host_length, display_name, display, screen);
+                           (int)host_length, host, display, screen);
     return written >= 0 && (size_t)written < capacity;
 }
 
@@ -213,12 +219,53 @@ static bool remove_stale_socket(const char *path)
                      path);
         return false;
     }
+    struct stat current;
+    if (lstat(path, &current) < 0) {
+        if (errno == ENOENT) return true;
+        COMPAT_ERROR("cannot recheck stale socket '%s': %s", path,
+                     strerror(errno));
+        return false;
+    }
+    if (!S_ISSOCK(current.st_mode) || current.st_dev != status.st_dev ||
+        current.st_ino != status.st_ino) {
+        COMPAT_ERROR("socket path '%s' changed while it was being probed", path);
+        return false;
+    }
     if (unlink(path) < 0) {
         COMPAT_ERROR("cannot remove stale socket '%s': %s", path,
                      strerror(errno));
         return false;
     }
     return true;
+}
+
+static bool owned_socket_path_matches(const BspwmCompat *compat,
+                                      const struct stat *status)
+{
+    return S_ISSOCK(status->st_mode) &&
+        status->st_dev == compat->socket_device &&
+        status->st_ino == compat->socket_inode;
+}
+
+static void remove_owned_socket(BspwmCompat *compat)
+{
+    if (!compat->owns_socket_path) return;
+    struct stat status;
+    if (lstat(compat->socket_path, &status) < 0) {
+        if (errno != ENOENT)
+            COMPAT_ERROR("cannot inspect owned socket '%s': %s",
+                         compat->socket_path, strerror(errno));
+        compat->owns_socket_path = false;
+        return;
+    }
+    if (!owned_socket_path_matches(compat, &status)) {
+        compat->owns_socket_path = false;
+        return;
+    }
+    if (unlink(compat->socket_path) < 0)
+        COMPAT_ERROR("cannot remove owned socket '%s': %s", compat->socket_path,
+                     strerror(errno));
+    compat->owns_socket_path = false;
 }
 
 static int create_listener(BspwmCompat *compat)
@@ -243,13 +290,42 @@ static int create_listener(BspwmCompat *compat)
         close(fd);
         return -1;
     }
+    struct stat status;
+    if (lstat(compat->socket_path, &status) < 0) {
+        COMPAT_ERROR("cannot identify bound socket '%s': %s",
+                     compat->socket_path, strerror(errno));
+        close(fd);
+        return -1;
+    }
+    if (!S_ISSOCK(status.st_mode)) {
+        COMPAT_ERROR("bound path '%s' is not a Unix socket",
+                     compat->socket_path);
+        close(fd);
+        return -1;
+    }
+    compat->socket_device = status.st_dev;
+    compat->socket_inode = status.st_ino;
     compat->owns_socket_path = true;
+    if (chmod(compat->socket_path, 0600) < 0) {
+        COMPAT_ERROR("cannot set socket permissions on '%s': %s",
+                     compat->socket_path, strerror(errno));
+        close(fd);
+        remove_owned_socket(compat);
+        return -1;
+    }
+    if (lstat(compat->socket_path, &status) < 0 ||
+        !owned_socket_path_matches(compat, &status)) {
+        COMPAT_ERROR("socket path '%s' changed during initialization",
+                     compat->socket_path);
+        close(fd);
+        remove_owned_socket(compat);
+        return -1;
+    }
     if (listen(fd, BSPWM_COMPAT_MAX_CLIENTS) < 0) {
         COMPAT_ERROR("cannot listen on socket '%s': %s", compat->socket_path,
                      strerror(errno));
         close(fd);
-        unlink(compat->socket_path);
-        compat->owns_socket_path = false;
+        remove_owned_socket(compat);
         return -1;
     }
     return fd;
@@ -311,7 +387,7 @@ BspwmCompat *bspwm_compat_create(WM *wm)
                                        sizeof(compat->last_report),
                                        &compat->last_report_length)) {
         if (compat->listener_fd >= 0) close(compat->listener_fd);
-        if (compat->owns_socket_path) unlink(compat->socket_path);
+        remove_owned_socket(compat);
         if (compat->listener_fd >= 0)
             COMPAT_ERROR("initial report exceeds the bounded report buffer");
         free(compat);
@@ -326,10 +402,7 @@ void bspwm_compat_destroy(BspwmCompat *compat)
     for (size_t i = 0; i < BSPWM_COMPAT_MAX_CLIENTS; ++i)
         close_client(&compat->clients[i]);
     if (compat->listener_fd >= 0) close(compat->listener_fd);
-    if (compat->owns_socket_path && unlink(compat->socket_path) < 0 &&
-        errno != ENOENT)
-        COMPAT_ERROR("cannot remove owned socket '%s': %s", compat->socket_path,
-                     strerror(errno));
+    remove_owned_socket(compat);
     free(compat);
 }
 
@@ -516,7 +589,7 @@ static bool read_client(WM *wm, BspwmCompatClient *client, bool *transitioned)
 
 static void accept_clients(BspwmCompat *compat)
 {
-    for (;;) {
+    for (unsigned int accepted = 0; accepted < BSPWM_COMPAT_ACCEPT_BUDGET;) {
         int fd = accept(compat->listener_fd, NULL, NULL);
         if (fd < 0) {
             if (errno == EINTR) continue;
@@ -524,6 +597,7 @@ static void accept_clients(BspwmCompat *compat)
                 COMPAT_ERROR("accept failed: %s", strerror(errno));
             return;
         }
+        ++accepted;
         if (!set_fd_flags(fd)) {
             close(fd);
             continue;

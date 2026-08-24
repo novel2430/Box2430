@@ -319,9 +319,10 @@ The Xvfb suite currently covers areas including:
 * urgency and workspace focus-history restoration;
 * `WM_TAKE_FOCUS`, InputHint, and FocusIn compatibility;
 * runtime metadata/property-cache refresh without implicit re-placement;
-* optional Polybar bspwm-module socket lifecycle, exact NUL-separated wire
-  commands, reports, click/scroll transitions, pointer stability, backpressure
-  bounds, CLOEXEC, and conservative path conflict handling;
+* optional Polybar bspwm-module socket lifecycle and permissions, exact
+  NUL-separated wire commands, reports, two-connection pinned scroll,
+  pointer stability, bounded connection pressure, non-reading subscriber
+  liveness/cleanup, CLOEXEC, and identity-safe path conflict handling;
 * restart boundaries, including cold-start-only background/autostart behavior;
 * direct `spawn`, `spawn-shell`, and SIGCHLD inheritance/reset behavior.
 

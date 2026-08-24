@@ -43,6 +43,26 @@ static int send_command(int fd, int argc, char **argv)
     return 0;
 }
 
+static int send_command_fast(int fd, int argc, char **argv)
+{
+    for (int i = 0; i < argc; ++i) {
+        const char *cursor = argv[i];
+        size_t remaining = strlen(argv[i]) + 1;
+        while (remaining > 0) {
+            ssize_t sent = send(fd, cursor, remaining, MSG_NOSIGNAL);
+            if (sent > 0) {
+                cursor += sent;
+                remaining -= (size_t)sent;
+            } else if (sent < 0 && errno == EINTR) {
+                continue;
+            } else {
+                return -1;
+            }
+        }
+    }
+    return 0;
+}
+
 static int subscribe_reports(const char *path, unsigned long count)
 {
     int fd = connect_socket(path);
@@ -108,6 +128,51 @@ static int exhaust_connections(const char *path, unsigned long count)
     return opened == count && rejected > 0 ? 0 : 1;
 }
 
+static int hold_slow_subscriber(const char *path, unsigned long seconds)
+{
+    int fd = connect_socket(path);
+    if (fd < 0) return 1;
+    int receive_buffer = 1024;
+    if (setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &receive_buffer,
+                   sizeof(receive_buffer)) < 0) {
+        close(fd);
+        return 1;
+    }
+    char *command[] = {"subscribe", "report"};
+    if (send_command_fast(fd, 2, command) < 0) {
+        close(fd);
+        return 1;
+    }
+    sleep((unsigned int)seconds);
+    close(fd);
+    return 0;
+}
+
+static int burst_workspaces(const char *path, const char *monitor,
+                            unsigned long count)
+{
+    char selector[256];
+    for (unsigned long i = 0; i < count; ++i) {
+        int written = snprintf(selector, sizeof(selector), "%s:^%u", monitor,
+                               (unsigned int)(i % 2) + 1);
+        if (written < 0 || (size_t)written >= sizeof(selector)) return 2;
+        int fd = connect_socket(path);
+        if (fd < 0) return 1;
+        char *command[] = {"desktop", "-f", selector};
+        if (send_command_fast(fd, 3, command) < 0 || shutdown(fd, SHUT_WR) < 0) {
+            close(fd);
+            return 1;
+        }
+        char byte;
+        ssize_t received;
+        do received = recv(fd, &byte, sizeof(byte), 0);
+        while (received < 0 && errno == EINTR);
+        close(fd);
+        if (received != 0) return 1;
+    }
+    return 0;
+}
+
 static int create_stale_socket(const char *path)
 {
     int fd = socket(AF_UNIX, SOCK_STREAM, 0);
@@ -151,6 +216,10 @@ int main(int argc, char **argv)
         return send_oversized(argv[2]);
     if (strcmp(argv[1], "exhaust") == 0 && argc == 4)
         return exhaust_connections(argv[2], strtoul(argv[3], NULL, 10));
+    if (strcmp(argv[1], "slow") == 0 && argc == 4)
+        return hold_slow_subscriber(argv[2], strtoul(argv[3], NULL, 10));
+    if (strcmp(argv[1], "burst") == 0 && argc == 5)
+        return burst_workspaces(argv[2], argv[3], strtoul(argv[4], NULL, 10));
     if (strcmp(argv[1], "stale") == 0 && argc == 3)
         return create_stale_socket(argv[2]);
     if (strcmp(argv[1], "listen") == 0 && argc == 4)

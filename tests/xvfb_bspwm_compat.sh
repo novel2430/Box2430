@@ -8,11 +8,13 @@ monitor_bin=${BOX2430_RANDR_MONITOR_BIN:-./build/debug/x11-randr-monitor}
 urgency_bin=${BOX2430_URGENCY_BIN:-./build/debug/x11-set-urgency}
 tmp_dir=$(mktemp -d)
 socket_path=$tmp_dir/bspwm.sock
-xvfb_pid= left_pid= right_pid= renamed_pid= wm_pid= subscriber_pid= left_one_pid= left_two_pid= right_pid_client= listener_pid=
+umask 000
+xvfb_pid= left_pid= right_pid= renamed_pid= wm_pid= subscriber_pid= slow_pid= pressure_pid= left_one_pid= left_two_pid= right_pid_client= listener_pid=
 
 cleanup() {
     for pid in "$listener_pid" "$right_pid_client" "$left_two_pid" "$left_one_pid" \
-        "$subscriber_pid" "$wm_pid" "$renamed_pid" "$right_pid" "$left_pid" "$xvfb_pid"; do
+        "$pressure_pid" "$slow_pid" "$subscriber_pid" "$wm_pid" "$renamed_pid" \
+        "$right_pid" "$left_pid" "$xvfb_pid"; do
         if [ -n "$pid" ]; then kill "$pid" 2>/dev/null || true; fi
     done
     rm -rf "$tmp_dir"
@@ -91,6 +93,8 @@ BSPWM_SOCKET=$socket_path DISPLAY=$display "$box2430_bin" \
     --autostart tests/check_bspwm_compat_cloexec.sh >"$tmp_dir/wm.log" 2>&1 &
 wm_pid=$!
 wait_for "test -S $socket_path" || fail "BSPWM_SOCKET listener was not created"
+[ "$(stat -c '%a' "$socket_path")" = 600 ] ||
+    fail "compatibility socket mode is not 0600 under a permissive umask"
 wait_for "test -s $tmp_dir/cloexec" || fail "autostart CLOEXEC probe did not run"
 [ "$(cat "$tmp_dir/cloexec")" = clean ] || fail "autostart inherited a compatibility fd"
 
@@ -188,6 +192,22 @@ sleep 0.1
 wait_latest '^WMleft:o1:O2:f3:f4:LT:mright:O1:f2:f3:f4:LT$' ||
     fail "left monitor did not reselect"
 
+# Polybar pinned scroll uses two immediate, short-lived connections and does not
+# wait for the monitor report before sending the local desktop selector.
+DISPLAY=$display xdotool mousemove --sync 120 120
+pointer_before=$(DISPLAY=$display xdotool getmouselocation --shell | tr '\n' ' ')
+"$compat_client" command "$socket_path" monitor -f right
+"$compat_client" command "$socket_path" desktop -f next.local
+wait_latest '^Wmleft:o1:O2:f3:f4:LT:Mright:o1:F2:f3:f4:LT$' ||
+    fail "two-connection pinned scroll did not advance the right monitor"
+pointer_after=$(DISPLAY=$display xdotool getmouselocation --shell | tr '\n' ' ')
+[ "$pointer_after" = "$pointer_before" ] ||
+    fail "two-connection pinned scroll warped the pointer"
+"$compat_client" command "$socket_path" desktop -f right:^1
+"$compat_client" command "$socket_path" monitor -f left
+wait_latest '^WMleft:o1:O2:f3:f4:LT:mright:O1:f2:f3:f4:LT$' ||
+    fail "pinned-scroll test state did not restore"
+
 # Urgency and layout are projected from existing authority, with no T/G tags.
 DISPLAY=$display "$urgency_bin" "$right_window" 1
 wait_latest 'mright:U1:f2:f3:f4:LT$' || fail "urgent projection missing"
@@ -209,6 +229,27 @@ before_invalid=$(tail -n 1 "$tmp_dir/reports")
 sleep 0.1
 [ "$(tail -n 1 "$tmp_dir/reports")" = "$before_invalid" ] ||
     fail "invalid compatibility input changed authority"
+
+# A subscriber with a deliberately small receive buffer never reads while many
+# distinct reports are produced. X events and command connections must continue
+# to make progress, and disconnecting the slow subscriber must remain harmless.
+"$compat_client" slow "$socket_path" 30 &
+slow_pid=$!
+sleep 0.1
+"$compat_client" burst "$socket_path" left 500 &
+pressure_pid=$!
+rm "$tmp_dir/cloexec"
+DISPLAY=$display xdotool key super+x
+wait_for "test -s $tmp_dir/cloexec" ||
+    fail "WM stopped processing X events with a non-reading subscriber"
+kill -0 "$pressure_pid" 2>/dev/null ||
+    fail "report burst ended before concurrent responsiveness was exercised"
+wait "$pressure_pid" || fail "report burst failed under subscriber backpressure"
+pressure_pid=
+wait_latest '^WMleft:o1:O2:f3:f4:LT:' ||
+    fail "IPC reports stopped making progress under subscriber backpressure"
+kill "$slow_pid"; wait "$slow_pid" 2>/dev/null || true; slow_pid=
+kill -0 "$wm_pid" || fail "slow subscriber disconnect disturbed the WM"
 "$compat_client" exhaust "$socket_path" 40 >"$tmp_dir/exhausted" ||
     fail "connection limit did not reject excess clients"
 kill -0 "$wm_pid" || fail "connection pressure disturbed the WM"
@@ -255,6 +296,15 @@ grep -q '^WMleft:F1:f2:f3:f4:LT:mrenamed:O1:f2:f3:f4:LT$' \
 
 kill "$right_pid_client"; wait "$right_pid_client" 2>/dev/null || true; right_pid_client=
 stop_wm
+
+# Teardown must not remove a filesystem object that replaced Box's socket.
+start_wm tests/fixtures/config-bspwm-compat.toml "$tmp_dir/replaced-path.log"
+[ -S "$socket_path" ] || fail "replacement-path test socket was not created"
+rm "$socket_path"
+: >"$socket_path"
+kill "$wm_pid"; wait "$wm_pid"; wm_pid=
+[ -f "$socket_path" ] || fail "teardown removed a replacement regular file"
+rm "$socket_path"
 
 # Existing path handling is conservative and compatibility failures are non-fatal.
 : >"$socket_path"

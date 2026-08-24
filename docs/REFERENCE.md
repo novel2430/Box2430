@@ -249,7 +249,8 @@ discovery is complete and before Box2430 runs session autostart. If the
 exactly. Otherwise Box2430 derives the conventional bspwm socket path from the
 active X display, such as `/tmp/bspwm_0_0-socket` for local display `:0`.
 Polybar and Box2430 must inherit the same `BSPWM_SOCKET` value when an override
-is used.
+is used. The created socket pathname is restricted to its owner with mode
+`0600`.
 
 A minimal module is:
 
@@ -259,6 +260,7 @@ type = internal/bspwm
 pin-workspaces = true
 enable-click = true
 enable-scroll = true
+format = <label-state> <label-mode>
 
 label-focused = %name%
 label-occupied = %name%

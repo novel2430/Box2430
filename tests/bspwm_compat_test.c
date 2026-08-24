@@ -22,6 +22,16 @@ static void test_socket_paths(void)
     assert(bspwm_compat_default_socket_path("host.example:7.2", path,
                                             sizeof(path)));
     assert(strcmp(path, "/tmp/bspwmhost.example_7_2-socket") == 0);
+    assert(bspwm_compat_default_socket_path("[::1]:0.0", path, sizeof(path)));
+    assert(strcmp(path, "/tmp/bspwm[::1]_0_0-socket") == 0);
+    assert(bspwm_compat_default_socket_path("unix/:0", path, sizeof(path)));
+    assert(strcmp(path, "/tmp/bspwm_0_0-socket") == 0);
+    assert(bspwm_compat_default_socket_path("tcp/host.example:7.2", path,
+                                            sizeof(path)));
+    assert(strcmp(path, "/tmp/bspwmhost.example_7_2-socket") == 0);
+    assert(bspwm_compat_default_socket_path("tcp/[::1]:0.0", path,
+                                            sizeof(path)));
+    assert(strcmp(path, "/tmp/bspwm[::1]_0_0-socket") == 0);
     assert(!bspwm_compat_default_socket_path("invalid", path, sizeof(path)));
     assert(!bspwm_compat_default_socket_path(":x", path, sizeof(path)));
     assert(!bspwm_compat_default_socket_path(":1.trailing", path,
