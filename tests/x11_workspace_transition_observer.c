@@ -43,6 +43,7 @@ int main(int argc, char **argv)
     if (!display) return 2;
     Window root = DefaultRootWindow(display);
     XSelectInput(display, root, SubstructureNotifyMask);
+    XSelectInput(display, incoming, FocusChangeMask);
     XSync(display, False);
     puts("READY");
     fflush(stdout);
@@ -51,6 +52,7 @@ int main(int argc, char **argv)
     if (clock_gettime(CLOCK_MONOTONIC, &deadline) != 0) return 2;
     deadline.tv_sec += 5;
     bool incoming_mapped = false;
+    bool outgoing_unmapped = false;
     struct pollfd descriptor = {.fd = ConnectionNumber(display), .events = POLLIN};
 
     for (;;) {
@@ -63,10 +65,18 @@ int main(int argc, char **argv)
                 fflush(stdout);
             } else if (event.type == UnmapNotify &&
                        event.xunmap.window == outgoing) {
+                if (!incoming_mapped) {
+                    XCloseDisplay(display);
+                    return 1;
+                }
+                outgoing_unmapped = true;
                 puts("OUTGOING_UNMAPPED");
                 fflush(stdout);
+            } else if (event.type == FocusIn && event.xfocus.window == incoming) {
+                puts("INCOMING_FOCUSED");
+                fflush(stdout);
                 XCloseDisplay(display);
-                return incoming_mapped ? 0 : 1;
+                return outgoing_unmapped ? 0 : 1;
             }
         }
 

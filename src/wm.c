@@ -1321,10 +1321,12 @@ void workspace_activate(WM *wm, Monitor *monitor, Workspace *workspace)
         project_client_mapped(wm, client);
         XRaiseWindow(wm->display, client->window);
     }
-    client_activate(wm, target, CurrentTime);
+    /* Keep the incoming-first handoff, but retire the outgoing projection
+     * before client_activate() can publish focus/UI or flush via stacking. */
     for (Client *client = old->clients; client; client = client->workspace_next) {
         project_client_unmapped(wm, client);
     }
+    client_activate(wm, target, CurrentTime);
     ui_bar_update(wm);
     enforce_stacking(wm);
 }

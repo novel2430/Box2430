@@ -42,7 +42,7 @@ observe_switch() {
     if ! wait "$observer_pid"; then
         observer_pid=
         sed -n '1,80p' "$observer_log" >&2
-        fail "$label mapped/unmapped in the wrong order"
+        fail "$label workspace projection/focus occurred in the wrong order"
     fi
     observer_pid=
 }
