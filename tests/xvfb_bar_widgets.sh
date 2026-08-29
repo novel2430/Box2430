@@ -24,6 +24,14 @@ wait_for() {
         sleep 0.02
     done
 }
+wait_managed() {
+    wanted=$(printf '0x%x' "$1")
+    wait_for "DISPLAY=$display xprop -root _NET_CLIENT_LIST | grep -qi $wanted"
+}
+wait_active() {
+    wanted=$(printf '0x%x' "$1")
+    wait_for "DISPLAY=$display xprop -root _NET_ACTIVE_WINDOW | grep -qi $wanted"
+}
 color_bounds() { DISPLAY=$display "$color_bin" "$1" "$2"; }
 color_present() { DISPLAY=$display "$color_bin" "$1" "$2" >/dev/null 2>&1; }
 Xvfb "$display" -screen 0 800x600x24 -nolisten tcp >"$tmp_dir/xvfb.log" 2>&1 &
@@ -55,6 +63,7 @@ DISPLAY=$display xterm -title Phase4Urgent -geometry 20x5 >"$tmp_dir/urgent.log"
 urgent_pid=$!
 wait_for "DISPLAY=$display xdotool search --name '^Phase4Urgent$' >/dev/null 2>&1" || fail "urgent client missing"
 urgent=$(DISPLAY=$display xdotool search --name '^Phase4Urgent$' | head -n 1)
+wait_managed "$urgent" || fail "urgent client was not managed"
 DISPLAY=$display "$urgency_bin" "$urgent" 1
 wait_for "DISPLAY=$display $color_bin $bar '#440000' >/dev/null 2>&1" || fail "urgent workspace style missing"
 
@@ -63,10 +72,13 @@ DISPLAY=$display xterm -title Phase4ActiveA -geometry 20x5 >"$tmp_dir/active-a.l
 active_a_pid=$!
 wait_for "DISPLAY=$display xdotool search --name '^Phase4ActiveA$' >/dev/null 2>&1" || fail "active A missing"
 active_a=$(DISPLAY=$display xdotool search --name '^Phase4ActiveA$' | head -n 1)
+wait_managed "$active_a" || fail "active A was not managed"
 DISPLAY=$display xterm -title 'Phase4 very long centered title that must remain physically centered despite asymmetric edge groups 0123456789' -geometry 20x5 >"$tmp_dir/active-b.log" 2>&1 &
 active_b_pid=$!
 wait_for "DISPLAY=$display xdotool search --name '^Phase4 very long centered title' >/dev/null 2>&1" || fail "active B missing"
 active_b=$(DISPLAY=$display xdotool search --name '^Phase4 very long centered title' | head -n 1)
+wait_managed "$active_b" || fail "active B was not managed"
+wait_active "$active_b" || fail "active B did not receive map focus"
 DISPLAY=$display "$urgency_bin" "$active_a" 1
 wait_for "DISPLAY=$display $color_bin $bar '#550000' >/dev/null 2>&1" || fail "active_urgent workspace style missing"
 

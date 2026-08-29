@@ -33,12 +33,44 @@ field() {
     DISPLAY=$display xwininfo -id "$1" | awk -v label="$2" '$0 ~ label {print $NF; exit}'
 }
 
-assert_geometry() {
+window_hex() {
+    printf '0x%x' "$1"
+}
+
+wait_managed() {
+    wanted=$(window_hex "$1")
+    wait_for "DISPLAY=$display xprop -root _NET_CLIENT_LIST | grep -qi $wanted"
+}
+
+wait_active() {
+    wanted=$(window_hex "$1")
+    wait_for "DISPLAY=$display xprop -root _NET_ACTIVE_WINDOW | grep -qi $wanted"
+}
+
+geometry_matches() {
     window=$1 expected_x=$2 expected_y=$3 expected_w=$4 expected_h=$5
-    [ "$(field "$window" 'Absolute upper-left X:')" = "$expected_x" ] || fail "wrong x geometry"
-    [ "$(field "$window" 'Absolute upper-left Y:')" = "$expected_y" ] || fail "wrong y geometry"
-    [ "$(field "$window" 'Width:')" = "$expected_w" ] || fail "wrong width geometry"
-    [ "$(field "$window" 'Height:')" = "$expected_h" ] || fail "wrong height geometry"
+    info=$(DISPLAY=$display xwininfo -id "$window" 2>/dev/null) || return 1
+    x=$(printf '%s\n' "$info" | awk '/Absolute upper-left X:/ {print $4; exit}')
+    y=$(printf '%s\n' "$info" | awk '/Absolute upper-left Y:/ {print $4; exit}')
+    width=$(printf '%s\n' "$info" | awk '/Width:/ {print $2; exit}')
+    height=$(printf '%s\n' "$info" | awk '/Height:/ {print $2; exit}')
+    [ "$x" = "$expected_x" ] && [ "$y" = "$expected_y" ] &&
+        [ "$width" = "$expected_w" ] && [ "$height" = "$expected_h" ]
+}
+
+wait_geometry() {
+    window=$1 expected_x=$2 expected_y=$3 expected_w=$4 expected_h=$5
+    attempts=0
+    while ! geometry_matches "$window" "$expected_x" "$expected_y" "$expected_w" "$expected_h"; do
+        attempts=$((attempts + 1))
+        if [ "$attempts" -ge 150 ]; then return 1; fi
+        sleep 0.02
+    done
+}
+
+wait_border() {
+    window=$1 expected=$2
+    wait_for "test \"\$(DISPLAY=$display xwininfo -id $window | awk '/Border width:/ {print \$3; exit}')\" = $expected"
 }
 
 Xvfb "$display" -screen 0 800x600x24 -nolisten tcp >"$tmp_dir/xvfb.log" 2>&1 &
@@ -56,10 +88,13 @@ DISPLAY=$display xterm -title CoreOne -geometry 40x10 >"$tmp_dir/one.log" 2>&1 &
 one_pid=$!
 wait_for "DISPLAY=$display xdotool search --name CoreOne >/dev/null 2>&1" || fail "first client did not map"
 one=$(DISPLAY=$display xdotool search --name CoreOne | head -n 1)
+wait_managed "$one" || fail "first client was not managed"
 DISPLAY=$display xterm -title CoreTwo -geometry 30x8 >"$tmp_dir/two.log" 2>&1 &
 two_pid=$!
 wait_for "DISPLAY=$display xdotool search --name CoreTwo >/dev/null 2>&1" || fail "second client did not map"
 two=$(DISPLAY=$display xdotool search --name CoreTwo | head -n 1)
+wait_managed "$two" || fail "second client was not managed"
+wait_active "$two" || fail "second client did not become active"
 
 original_x=$(field "$two" 'Absolute upper-left X:')
 original_y=$(field "$two" 'Absolute upper-left Y:')
@@ -70,42 +105,45 @@ original_h=$(field "$two" 'Height:')
 # without surrendering geometry authority.
 DISPLAY=$display xdotool windowstate --add FULLSCREEN "$two"
 wait_for "DISPLAY=$display xprop -id $two _NET_WM_STATE | grep -q _NET_WM_STATE_FULLSCREEN" || fail "client fullscreen was not acknowledged"
-assert_geometry "$two" "$original_x" "$original_y" "$original_w" "$original_h"
+wait_geometry "$two" "$original_x" "$original_y" "$original_w" "$original_h" ||
+    fail "fake fullscreen changed geometry"
 DISPLAY=$display xdotool windowstate --remove FULLSCREEN "$two"
 wait_for "! DISPLAY=$display xprop -id $two _NET_WM_STATE | grep -q _NET_WM_STATE_FULLSCREEN" || fail "client fullscreen state did not clear"
-assert_geometry "$two" "$original_x" "$original_y" "$original_w" "$original_h"
+wait_geometry "$two" "$original_x" "$original_y" "$original_w" "$original_h" ||
+    fail "fake fullscreen restore changed geometry"
 
 DISPLAY=$display xdotool key super+Left
-wait_for "test \"\$(DISPLAY=$display xwininfo -id $two | awk '/Width:/ {print \$2; exit}')\" = 396" || fail "left snap did not apply"
-assert_geometry "$two" 0 0 396 596
+wait_geometry "$two" 0 0 396 596 || fail "left snap did not apply"
 
 DISPLAY=$display xdotool key super+Up
-wait_for "test \"\$(DISPLAY=$display xwininfo -id $two | awk '/Width:/ {print \$2; exit}')\" = 796" || fail "maximize did not apply"
-assert_geometry "$two" 0 0 796 596
+wait_geometry "$two" 0 0 796 596 || fail "maximize did not apply"
 DISPLAY=$display xdotool key super+Up
-wait_for "test \"\$(DISPLAY=$display xwininfo -id $two | awk '/Width:/ {print \$2; exit}')\" = $original_w" || fail "maximize did not restore normal geometry"
-assert_geometry "$two" "$original_x" "$original_y" "$original_w" "$original_h"
+wait_geometry "$two" "$original_x" "$original_y" "$original_w" "$original_h" ||
+    fail "maximize did not restore normal geometry"
 
 DISPLAY=$display xdotool key super+f
-wait_for "test \"\$(DISPLAY=$display xwininfo -id $two | awk '/Border width:/ {print \$3}')\" = 0" || fail "fullscreen border remained"
-assert_geometry "$two" 0 0 800 600
+wait_border "$two" 0 || fail "fullscreen border remained"
+wait_geometry "$two" 0 0 800 600 || fail "fullscreen geometry missing"
 DISPLAY=$display xprop -id "$two" _NET_WM_STATE | grep -q _NET_WM_STATE_FULLSCREEN || fail "fullscreen property missing"
 DISPLAY=$display xdotool key super+f
-wait_for "test \"\$(DISPLAY=$display xwininfo -id $two | awk '/Border width:/ {print \$3}')\" = 2" || fail "fullscreen border did not restore"
-assert_geometry "$two" "$original_x" "$original_y" "$original_w" "$original_h"
+wait_border "$two" 2 || fail "fullscreen border did not restore"
+wait_geometry "$two" "$original_x" "$original_y" "$original_w" "$original_h" ||
+    fail "fullscreen geometry did not restore"
 
 DISPLAY=$display xdotool key super+m
-wait_for "test \"\$(DISPLAY=$display xwininfo -id $two | awk '/Width:/ {print \$2; exit}')\" = 800" || fail "MONOCLE presentation missing"
-wait_for "test \"\$(DISPLAY=$display xwininfo -id $two | awk '/Border width:/ {print \$3; exit}')\" = 0" || fail "default MONOCLE border width was not applied"
-assert_geometry "$one" 0 24 800 576
-assert_geometry "$two" 0 24 800 576
+wait_border "$two" 0 || fail "default MONOCLE border width was not applied"
+wait_geometry "$one" 0 24 800 576 || fail "first MONOCLE presentation missing"
+wait_geometry "$two" 0 24 800 576 || fail "second MONOCLE presentation missing"
 DISPLAY=$display xdotool key super+Left
-assert_geometry "$two" 0 24 800 576
 DISPLAY=$display xdotool key super+j
-wait_for "DISPLAY=$display xprop -root _NET_ACTIVE_WINDOW | grep -qi $(printf '0x%x' "$one")" || fail "tab-order focus did not cycle"
+wait_active "$one" || fail "tab-order focus did not cycle"
+# Waiting for the later focus command also provides an event-order barrier for
+# the preceding snap command, which must be a no-op in MONOCLE.
+wait_geometry "$two" 0 24 800 576 || fail "snap changed MONOCLE geometry"
 DISPLAY=$display xdotool key super+m
-wait_for "test \"\$(DISPLAY=$display xwininfo -id $two | awk '/Width:/ {print \$2; exit}')\" = $original_w" || fail "FREE geometry did not restore"
-wait_for "test \"\$(DISPLAY=$display xwininfo -id $two | awk '/Border width:/ {print \$3; exit}')\" = 2" || fail "FREE border width did not restore"
+wait_border "$two" 2 || fail "FREE border width did not restore"
+wait_geometry "$two" "$original_x" "$original_y" "$original_w" "$original_h" ||
+    fail "FREE geometry did not restore"
 
 DISPLAY=$display xdotool key super+shift+2
 wait_for "DISPLAY=$display xwininfo -id $one | grep -q 'Map State: IsUnMapped'" || fail "move-workspace did not hide client"

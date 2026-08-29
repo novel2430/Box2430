@@ -90,9 +90,15 @@ echo "$active" | grep -qi "$(printf '0x%x' "$window")" || fail "active window is
 
 # A later MapRequest follows the same manage path and click-to-focus can return
 # focus to the first client without swallowing the pointer event.
-DISPLAY=$display xterm -geometry 30x8+11+13 >"$tmp_dir/xterm2.log" 2>&1 &
+DISPLAY=$display xterm -title BootstrapSecond -geometry 30x8+11+13 >"$tmp_dir/xterm2.log" 2>&1 &
 client2_pid=$!
-wait_for "test \"\$(DISPLAY=$display xdotool search --class XTerm 2>/dev/null | wc -l)\" -ge 2" || fail "second xterm did not map"
+wait_for "DISPLAY=$display xdotool search --name '^BootstrapSecond$' >/dev/null 2>&1" ||
+    fail "second xterm did not appear"
+window2=$(DISPLAY=$display xdotool search --name '^BootstrapSecond$' | head -n 1)
+wait_for "DISPLAY=$display xprop -root _NET_CLIENT_LIST | grep -qi $(printf '0x%x' "$window2")" ||
+    fail "second xterm was not managed"
+wait_for "DISPLAY=$display xprop -root _NET_ACTIVE_WINDOW | grep -qi $(printf '0x%x' "$window2")" ||
+    fail "second xterm was not focused on map"
 DISPLAY=$display xdotool mousemove --window "$window" 20 20 click 1
 wait_for "DISPLAY=$display xprop -root _NET_ACTIVE_WINDOW | grep -qi $(printf '0x%x' "$window")" || fail "click did not focus first client"
 

@@ -30,6 +30,10 @@ wait_for() {
         sleep 0.02
     done
 }
+wait_managed() {
+    wanted=$(printf '0x%x' "$1")
+    wait_for "DISPLAY=$display xprop -root _NET_CLIENT_LIST | grep -qi $wanted"
+}
 wait_active() {
     wanted=$(printf '0x%x' "$1")
     wait_for "DISPLAY=$display xprop -root _NET_ACTIVE_WINDOW | grep -qi $wanted"
@@ -51,6 +55,8 @@ wait_for "DISPLAY=$display xdotool search --name SloppyOne >/dev/null 2>&1" || f
 wait_for "DISPLAY=$display xdotool search --name SloppyTwo >/dev/null 2>&1" || fail "second client missing"
 one=$(DISPLAY=$display xdotool search --name SloppyOne | head -n 1)
 two=$(DISPLAY=$display xdotool search --name SloppyTwo | head -n 1)
+wait_managed "$one" || fail "first client was not managed"
+wait_managed "$two" || fail "second client was not managed"
 
 DISPLAY=$display xdotool mousemove --window "$one" 20 20
 wait_active "$one" || fail "sloppy enter did not focus first client"

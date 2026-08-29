@@ -83,6 +83,8 @@ allow_pid=$!
 wait_for "DISPLAY=$display xdotool search --name AllowFullscreen >/dev/null 2>&1" ||
     fail "allow-policy client missing"
 allow=$(DISPLAY=$display xdotool search --name AllowFullscreen | head -n 1)
+wait_for "DISPLAY=$display xprop -root _NET_CLIENT_LIST | grep -qi $(printf '0x%x' "$allow")" ||
+    fail "allow-policy client was not managed"
 DISPLAY=$display xdotool windowstate --add FULLSCREEN "$allow"
 wait_for "test \"\$(DISPLAY=$display xwininfo -id $allow | awk '/Border width:/ {print \$3}')\" = 0" ||
     fail "allow fullscreen policy did not enter real fullscreen"

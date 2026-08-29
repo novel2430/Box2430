@@ -67,6 +67,7 @@ incoming_pid=$!
 wait_for "DISPLAY=$display xdotool search --name TransitionIncoming >/dev/null 2>&1" ||
     fail "incoming client missing"
 incoming=$(DISPLAY=$display xdotool search --name TransitionIncoming | head -n 1)
+wait_active "$incoming" || fail "incoming client was not focused on map"
 DISPLAY=$display xdotool key super+Up
 wait_for "test \"\$(DISPLAY=$display xwininfo -id $incoming | awk '/Width:/ {print \$2; exit}')\" = 796" ||
     fail "incoming client did not maximize"

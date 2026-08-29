@@ -42,6 +42,10 @@ wait_active() {
     wanted=$(printf '0x%x' "$1")
     wait_for "DISPLAY=$display xprop -root _NET_ACTIVE_WINDOW | grep -qi $wanted"
 }
+wait_managed() {
+    wanted=$(printf '0x%x' "$1")
+    wait_for "DISPLAY=$display xprop -root _NET_CLIENT_LIST | grep -qi $wanted"
+}
 
 Xvfb "$display" -screen 0 800x600x24 -nolisten tcp >"$tmp_dir/xvfb.log" 2>&1 &
 xvfb_pid=$!
@@ -56,6 +60,8 @@ wait_for "DISPLAY=$display xdotool search --name '^BorderOne$' >/dev/null 2>&1" 
 wait_for "DISPLAY=$display xdotool search --name '^BorderTwo$' >/dev/null 2>&1" || fail "second client missing"
 one=$(DISPLAY=$display xdotool search --name '^BorderOne$' | head -n 1)
 two=$(DISPLAY=$display xdotool search --name '^BorderTwo$' | head -n 1)
+wait_managed "$one" || fail "first client was not managed"
+wait_managed "$two" || fail "second client was not managed"
 
 DISPLAY=$display xdotool mousemove --window "$one" 20 20 click 1
 wait_active "$one" || fail "first client did not focus"
@@ -110,6 +116,7 @@ snapshot "$tmp_dir/free-restored.xwd"
 DISPLAY=$display xterm -title BorderNone -geometry 30x8+250+300 >"$tmp_dir/none.log" 2>&1 & none_pid=$!
 wait_for "DISPLAY=$display xdotool search --name '^BorderNone$' >/dev/null 2>&1" || fail "border=false client missing"
 none=$(DISPLAY=$display xdotool search --name '^BorderNone$' | head -n 1)
+wait_managed "$none" || fail "border=false client was not managed"
 wait_border "$none" 0 || fail "border=false rule did not suppress FREE border"
 DISPLAY=$display xdotool mousemove --window "$one" 20 20 click 1
 wait_active "$one" || fail "first client did not refocus"

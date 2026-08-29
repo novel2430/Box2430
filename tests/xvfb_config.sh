@@ -129,7 +129,11 @@ if grep -q 'discarding invalid config' "$tmp_dir/example.log"; then
     sed -n '1,120p' "$tmp_dir/example.log" >&2
     fail "full example config failed validation"
 fi
-kill "$wm_pid"
-wait "$wm_pid"
+# _NET_SUPPORTED is published during wm_init(), before wm_run() installs the
+# SIGTERM handler.  This phase only validates that the example config parses and
+# starts, so do not require an early SIGTERM to be handled as a clean shutdown.
+kill -0 "$wm_pid" 2>/dev/null || fail "full example config WM exited unexpectedly"
+kill "$wm_pid" 2>/dev/null || true
+wait "$wm_pid" 2>/dev/null || true
 wm_pid=
 echo "PASS: Xvfb strict atomic config scenario"
