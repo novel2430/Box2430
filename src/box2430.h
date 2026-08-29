@@ -476,6 +476,9 @@ typedef struct WM {
     UIBorderPixels free_border;
     UIBorderPixels monocle_border;
     unsigned int numlock_mask;
+    Cursor cursor_normal;
+    Cursor cursor_move;
+    Cursor cursor_resize;
     bool running;
     bool restart_requested;
     struct {

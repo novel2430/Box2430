@@ -59,6 +59,7 @@ Required development packages:
 * X11
 * XRandR 1.5 or newer
 * Xft
+* Xcursor
 
 Build a debug binary:
 
@@ -98,6 +99,10 @@ Command-line options:
 ```text
 box2430 [-d display] [-c config.toml] [-a path|--autostart path]
 ```
+
+Box2430 loads its root, native-UI, move, and resize pointers through Xcursor.
+Set `XCURSOR_THEME` and `XCURSOR_SIZE` before starting the WM to use a cursor
+theme and size consistently with other X11 applications.
 
 Without `-c`, Box2430 looks for:
 

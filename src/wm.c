@@ -5,6 +5,7 @@
 
 #include <X11/Xatom.h>
 #include <X11/keysym.h>
+#include <X11/Xcursor/Xcursor.h>
 #include <errno.h>
 #include <fnmatch.h>
 #include <poll.h>
@@ -14,6 +15,44 @@
 #include <string.h>
 
 static volatile sig_atomic_t stop_requested;
+
+static Cursor load_cursor(WM *wm, const char *name, const char *fallback)
+{
+    Cursor cursor = XcursorLibraryLoadCursor(wm->display, name);
+    if (cursor == None && fallback)
+        cursor = XcursorLibraryLoadCursor(wm->display, fallback);
+    return cursor;
+}
+
+static bool init_cursors(WM *wm)
+{
+    wm->cursor_normal = load_cursor(wm, "left_ptr", NULL);
+    wm->cursor_move = load_cursor(wm, "fleur", NULL);
+    wm->cursor_resize = load_cursor(wm, "se-resize", "bottom_right_corner");
+    if (wm->cursor_normal == None || wm->cursor_move == None ||
+        wm->cursor_resize == None) {
+        fprintf(stderr, "box2430: cannot load Xcursor theme cursors\n");
+        if (wm->cursor_normal != None) XFreeCursor(wm->display, wm->cursor_normal);
+        if (wm->cursor_move != None) XFreeCursor(wm->display, wm->cursor_move);
+        if (wm->cursor_resize != None) XFreeCursor(wm->display, wm->cursor_resize);
+        wm->cursor_normal = None;
+        wm->cursor_move = None;
+        wm->cursor_resize = None;
+        return false;
+    }
+    XDefineCursor(wm->display, wm->root, wm->cursor_normal);
+    return true;
+}
+
+static void free_cursors(WM *wm)
+{
+    if (wm->cursor_normal != None) XFreeCursor(wm->display, wm->cursor_normal);
+    if (wm->cursor_move != None) XFreeCursor(wm->display, wm->cursor_move);
+    if (wm->cursor_resize != None) XFreeCursor(wm->display, wm->cursor_resize);
+    wm->cursor_normal = None;
+    wm->cursor_move = None;
+    wm->cursor_resize = None;
+}
 
 static int ignore_x11_error(Display *display, XErrorEvent *event)
 {
@@ -1127,6 +1166,9 @@ void mouse_begin_drag(WM *wm, Client *client, bool resize, int root_x, int root_
     wm->drag.preview_snap = SNAP_NONE;
     wm->drag.preview_monitor = NULL;
     wm->drag.preview_maximized = false;
+    XChangeActivePointerGrab(
+        wm->display, ButtonPressMask | ButtonReleaseMask | PointerMotionMask,
+        resize ? wm->cursor_resize : wm->cursor_move, CurrentTime);
     if (resize) {
         int border = (int)client_border_width(wm, client);
         root_x = client->geometry.x + client->geometry.width + 2 * border - 1;
@@ -2574,6 +2616,7 @@ bool wm_init(WM *wm, const char *display_name, const char *config_path,
     wm->running = true;
     if (!randr_check_version(wm)) return false;
     if (!x11_acquire_wm_ownership(wm)) return false;
+    if (!init_cursors(wm)) return false;
     if (session_start) {
         unsigned long background = named_color(
             wm, wm->config.background, BlackPixel(wm->display, wm->screen));
@@ -2684,6 +2727,7 @@ void wm_destroy(WM *wm)
     }
     tray_destroy(wm);
     ui_destroy(wm);
+    free_cursors(wm);
     XSync(wm->display, False);
     for (unsigned int i = 0; i < wm->model.monitor_count; ++i)
         free(wm->model.monitors[i].workspaces);

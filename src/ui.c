@@ -923,11 +923,12 @@ bool ui_bar_create_monitor(WM *wm, Monitor *monitor)
         .override_redirect = True,
         .background_pixel = wm->bar_bg.pixel,
         .event_mask = ExposureMask | ButtonPressMask,
+        .cursor = wm->cursor_normal,
     };
     monitor->bar = XCreateWindow(
         wm->display, wm->root, geometry.x, geometry.y, width, height, 0,
         DefaultDepth(wm->display, wm->screen), InputOutput, visual,
-        CWOverrideRedirect | CWBackPixel | CWEventMask, &attributes);
+        CWOverrideRedirect | CWBackPixel | CWEventMask | CWCursor, &attributes);
     if (!monitor->bar) return false;
     ui_bar_name_monitor(wm, monitor);
     monitor->bar_draw = XftDrawCreate(
@@ -1095,6 +1096,7 @@ bool ui_tab_create_monitor(WM *wm, Monitor *monitor)
         .override_redirect = True,
         .background_pixel = wm->tab_inactive_bg.pixel,
         .event_mask = ExposureMask | ButtonPressMask,
+        .cursor = wm->cursor_normal,
     };
     unsigned int height = ui_tab_height(wm, monitor);
     if (!height) height = 1;
@@ -1103,7 +1105,7 @@ bool ui_tab_create_monitor(WM *wm, Monitor *monitor)
         wm->display, wm->root, monitor->workarea.x, y,
         (unsigned int)monitor->workarea.width, height, 0,
         DefaultDepth(wm->display, wm->screen), InputOutput, visual,
-        CWOverrideRedirect | CWBackPixel | CWEventMask, &attributes);
+        CWOverrideRedirect | CWBackPixel | CWEventMask | CWCursor, &attributes);
     ui_tab_name_monitor(wm, monitor);
     monitor->tab_draw = XftDrawCreate(
         wm->display, monitor->tab_bar, visual,

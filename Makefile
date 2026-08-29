@@ -3,8 +3,8 @@ PKG_CONFIG ?= pkg-config
 
 CPPFLAGS += -D_POSIX_C_SOURCE=200809L -Isrc
 CFLAGS_COMMON = -std=c11 -Wall -Wextra -Wpedantic -Wshadow -Wformat=2 \
-	$(shell $(PKG_CONFIG) --cflags x11 'xrandr >= 1.5' xft)
-LDLIBS = $(shell $(PKG_CONFIG) --libs x11 'xrandr >= 1.5' xft)
+	$(shell $(PKG_CONFIG) --cflags x11 'xrandr >= 1.5' xft xcursor)
+LDLIBS = $(shell $(PKG_CONFIG) --libs x11 'xrandr >= 1.5' xft xcursor)
 
 PROFILE ?= debug
 PREFIX ?= /usr/local

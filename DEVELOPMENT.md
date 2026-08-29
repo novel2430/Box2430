@@ -16,11 +16,12 @@ For runtime semantics see `docs/ARCHITECTURE.md`. For commands/configuration see
   * `x11`
   * `xrandr >= 1.5`
   * `xft`
+  * `xcursor`
 
 Verify the required libraries with:
 
 ```sh
-pkg-config --exists x11 'xrandr >= 1.5' xft
+pkg-config --exists x11 'xrandr >= 1.5' xft xcursor
 ```
 
 Useful X11 test/debug tools include:
@@ -102,7 +103,7 @@ as a WM bug.
 
 At minimum:
 
-1. `pkg-config --exists x11 'xrandr >= 1.5' xft` succeeds;
+1. `pkg-config --exists x11 'xrandr >= 1.5' xft xcursor` succeeds;
 2. `make` succeeds;
 3. `make test-tools` succeeds;
 4. an Xvfb display can start and accept `xdpyinfo` connections;
