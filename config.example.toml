@@ -7,7 +7,7 @@ enabled = false
 [focus]
 mode = "click"
 active_window = "urgent"
-raise_on_focus = false
+raise_on_focus = true
 focus_on_map = true
 raise_on_map = true
 
@@ -19,67 +19,67 @@ dialog = "center"
 client_policy = "fake"
 
 [appearance]
-background = "#000000"
+background = "#4c566a"
 
 [appearance.border.free]
 width = 2
-focused = "#89b4fa"
-unfocused = "#45475a"
-urgent = "#f38ba8"
+focused = "#eceff4"
+unfocused = "#3f3f36"
+urgent = "#bf616a"
 
 [appearance.border.monocle]
 width = 0
-focused = "#89b4fa"
-unfocused = "#45475a"
-urgent = "#f38ba8"
+focused = "#eceff4"
+unfocused = "#3f3f36"
+urgent = "#bf616a"
 
 [appearance.bar]
 enabled = true
 position = "top"
 height = 24
-padding = 8
+padding = 0
 gap = 8
-font = "monospace:size=10"
-font_bold = "monospace:style=Bold:size=10"
-fg = "#aaaaaa"
-bg = "#222222"
+font = "DejaVuSansM Nerd Font:size=12"
+font_bold = "DejaVuSansM Nerd Font:style=Bold:size=12"
+fg = "#eceff4"
+bg = "#2d2825"
 left = ["workspaces", "mode"]
-center = ["title"]
-right = ["status", "clock", "tray"]
+center = ["clock"]
+right = ["status", "tray"]
 
 [appearance.bar.widgets.workspaces]
 format = " %s "
 font_style = "normal"
 
 [appearance.bar.widgets.workspaces.empty]
-fg = "#666666"
-bg = "#222222"
+fg = "#999797"
+bg = "#2d2825"
 font_style = "normal"
 format = " %s "
 
 [appearance.bar.widgets.workspaces.occupied]
-fg = "#aaaaaa"
-bg = "#222222"
-font_style = "normal"
+fg = "#eceff4"
+bg = "#2d2825"
+font_style = "bold"
 format = " %s "
 
 [appearance.bar.widgets.workspaces.active]
-fg = "#ffffff"
-bg = "#3b4252"
+fg = "#eceff4"
+bg = "#5e936c"
 font_style = "bold"
-format = "[ %s ]"
+format = " %s "
 
 [appearance.bar.widgets.workspaces.urgent]
-fg = "#ffffff"
+fg = "#eceff4"
 bg = "#bf616a"
 font_style = "bold"
-format = "! %s !"
+format = " %s "
 
 [appearance.bar.widgets.workspaces.active_urgent]
-fg = "#ffffff"
+fg = "#eceff4"
 bg = "#bf616a"
 font_style = "bold"
-format = "[! %s !]"
+format = " %s "
 
 [appearance.bar.widgets.mode]
 format = "%s"
@@ -87,13 +87,13 @@ font_style = "normal"
 
 [appearance.bar.widgets.mode.free]
 label = "F"
-format = "[ %s ]"
+format = "[%s]"
 font_style = "normal"
 
 [appearance.bar.widgets.mode.monocle]
 label = "M"
-format = "[ %s ]"
-font_style = "bold"
+format = "[%s]"
+font_style = "normal"
 
 [appearance.bar.widgets.title]
 source = "title"
@@ -105,45 +105,45 @@ format = "%s"
 font_style = "normal"
 
 [appearance.bar.widgets.clock]
-format = "%H:%M"
+format = "%Y-%m-%d %a %H:%M"
 font_style = "normal"
 
 [appearance.bar.widgets.tray]
-bg = "#222222"
+bg = "#5e936c"
 
 [appearance.tabs]
 enabled = true
-position = "top"
-height = 24
+position = "bottom"
+height = 20
 padding = 8
-font = "monospace:size=10"
-font_bold = "monospace:style=Bold:size=10"
-source = "title"
+font = "DejaVuSansM Nerd Font:size=10"
+font_bold = "DejaVuSansM Nerd Font:style=Bold:size=10"
+source = "class"
 format = "%s"
-fg = "#aaaaaa"
-bg = "#222222"
+fg = "#eceff4"
+bg = "#2d2825"
 font_style = "normal"
 
 [appearance.tabs.inactive]
-fg = "#aaaaaa"
-bg = "#222222"
+fg = "#eceff4"
+bg = "#2d2825"
 font_style = "normal"
 format = "%s"
 
 [appearance.tabs.active]
-fg = "#ffffff"
-bg = "#3b4252"
+fg = "#eceff4"
+bg = "#5e936c"
 font_style = "bold"
 format = "%s"
 
 [appearance.tabs.urgent]
-fg = "#ffffff"
+fg = "#eceff4"
 bg = "#bf616a"
 font_style = "bold"
 format = "%s"
 
 [appearance.snap_preview]
-color = "#89b4fa"
+color = "#eceff4"
 width = 2
 
 [snap]
@@ -162,12 +162,29 @@ inherit_defaults = true
 "Super+j" = "focus next"
 "Super+k" = "focus prev"
 "Alt+Tab" = "focus next"
+
 "Super+Left" = "snap left"
 "Super+Right" = "snap right"
 "Super+Up" = "maximize toggle"
 "Super+f" = "fullscreen toggle"
-"Super+Ctrl+Left" = "monitor prev"
-"Super+Ctrl+Right" = "monitor next"
+
+"Super+Shift+e" = "wm quit"
+"Super+Shift+r" = "wm restart"
+
+"Alt+1" = "tab focus 1"
+"Alt+2" = "tab focus 2"
+"Alt+3" = "tab focus 3"
+"Alt+4" = "tab focus 4"
+"Alt+5" = "tab focus 5"
+
+"Super+o" = "monitor next"
+
+"Super+Ctrl+Left" = "workspace prev"
+"Super+Ctrl+Right" = "workspace next"
+"Super+Ctrl+k" = "workspace prev"
+"Super+Ctrl+j" = "workspace next"
+"Super+Return" = "spawn wezterm"
+"Super+d" = "spawn rofi -show drun"
 
 [bindings.mouse]
 "Super+Button1" = "mouse move-window"
@@ -184,8 +201,8 @@ inherit_defaults = true
 "Button1" = "workspace activate"
 "Button2" = "none"
 "Button3" = "none"
-"WheelUp" = "none"
-"WheelDown" = "none"
+"WheelUp" = "workspace prev"
+"WheelDown" = "workspace next"
 
 [[rules]]
 class = "Firefox"
