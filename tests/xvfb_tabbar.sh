@@ -22,6 +22,9 @@ wait_for() {
         sleep 0.02
     done
 }
+wait_map_state() {
+    wait_for "DISPLAY=$display xwininfo -id $1 | grep -q 'Map State: $2'"
+}
 wait_active() {
     wanted=$(printf '0x%x' "$1")
     wait_for "DISPLAY=$display xprop -root _NET_ACTIVE_WINDOW | grep -qi $wanted"
@@ -50,6 +53,8 @@ bar=$(DISPLAY=$display xdotool search --name box2430-tabbar-0 | head -n 1)
     fail "MONOCLE client did not start below tab bar"
 [ "$(DISPLAY=$display xwininfo -id "$two" | awk '/Height:/ {print $2; exit}')" = 569 ] ||
     fail "MONOCLE client did not use tab-excluded content height"
+wait_map_state "$two" IsViewable || fail "focused MONOCLE tab was not mapped"
+wait_map_state "$one" IsUnMapped || fail "inactive MONOCLE tab remained mapped"
 DISPLAY=$display xprop -root _NET_CLIENT_LIST | grep -qi "$(printf '0x%x' "$bar")" &&
     fail "WM-owned tab bar leaked into client list"
 
@@ -60,13 +65,20 @@ wait_for "DISPLAY=$display xdotool search --name TabThree >/dev/null 2>&1" ||
     fail "MONOCLE-time client missing"
 three=$(DISPLAY=$display xdotool search --name TabThree | head -n 1)
 wait_active "$three" || fail "MONOCLE-time client did not focus"
+wait_map_state "$three" IsViewable || fail "new active MONOCLE tab did not map"
+wait_map_state "$one" IsUnMapped || fail "first inactive MONOCLE tab remapped"
+wait_map_state "$two" IsUnMapped || fail "previous MONOCLE tab remained mapped"
 
 # Keyboard tab selection uses the same stable visual tab order. An out-of-range
 # index is a deliberate no-op rather than a command error or fallback focus.
 DISPLAY=$display xdotool key alt+1
 wait_active "$one" || fail "Alt+1 did not focus first MONOCLE tab"
+wait_map_state "$one" IsViewable || fail "Alt+1 did not map first MONOCLE tab"
+wait_map_state "$three" IsUnMapped || fail "Alt+1 did not hide previous MONOCLE tab"
 DISPLAY=$display xdotool key alt+2
 wait_active "$two" || fail "Alt+2 did not focus second MONOCLE tab"
+wait_map_state "$two" IsViewable || fail "Alt+2 did not map second MONOCLE tab"
+wait_map_state "$one" IsUnMapped || fail "Alt+2 did not hide first MONOCLE tab"
 DISPLAY=$display xdotool key alt+4
 wait_active "$two" || fail "out-of-range keyboard tab focus was not a no-op"
 
@@ -89,6 +101,18 @@ wait_active "$two" || fail "right click was not a no-op"
 DISPLAY=$display xdotool key super+f
 wait_for "test \"\$(DISPLAY=$display xwininfo -id $two | awk '/Height:/ {print \$2; exit}')\" = 600" ||
     fail "fullscreen did not cover full monitor"
+DISPLAY=$display xdotool key alt+3
+wait_active "$three" || fail "fullscreen tab did not hand focus to third tab"
+wait_map_state "$three" IsViewable || fail "third tab did not map over fullscreen tab"
+wait_map_state "$two" IsUnMapped || fail "inactive fullscreen tab remained mapped"
+DISPLAY=$display xprop -id "$two" _NET_WM_STATE | grep -q _NET_WM_STATE_FULLSCREEN ||
+    fail "inactive fullscreen tab lost fullscreen state"
+DISPLAY=$display xdotool key alt+2
+wait_active "$two" || fail "fullscreen tab did not reactivate"
+wait_map_state "$two" IsViewable || fail "reactivated fullscreen tab did not map"
+wait_map_state "$three" IsUnMapped || fail "previous tab remained mapped after fullscreen return"
+wait_for "test \"\$(DISPLAY=$display xwininfo -id $two | awk '/Height:/ {print \$2; exit}')\" = 600" ||
+    fail "reactivated fullscreen tab did not restore fullscreen presentation"
 DISPLAY=$display xdotool key super+f
 wait_for "test \"\$(DISPLAY=$display xwininfo -id $two | awk '/Absolute upper-left Y:/ {print \$4; exit}')\" = 31" ||
     fail "fullscreen exit did not restore MONOCLE content area"
@@ -100,6 +124,8 @@ one_pid=
 DISPLAY=$display xdotool key super+m
 wait_for "DISPLAY=$display xwininfo -id $bar | grep -q 'Map State: IsUnMapped'" ||
     fail "tab bar remained mapped outside MONOCLE"
+wait_map_state "$two" IsViewable || fail "leaving MONOCLE did not remap focused FREE client"
+wait_map_state "$three" IsViewable || fail "leaving MONOCLE did not remap inactive FREE client"
 DISPLAY=$display xdotool key alt+1
 wait_active "$two" || fail "keyboard tab focus was not a no-op in FREE mode"
 three_width=$(DISPLAY=$display xwininfo -id "$three" | awk '/Width:/ {print $2; exit}')
@@ -108,6 +134,18 @@ three_height=$(DISPLAY=$display xwininfo -id "$three" | awk '/Height:/ {print $2
     fail "MONOCLE-time client did not restore centered FREE x geometry"
 [ "$(DISPLAY=$display xwininfo -id "$three" | awk '/Absolute upper-left Y:/ {print $4; exit}')" = $(((600 - three_height) / 2)) ] ||
     fail "MONOCLE-time client did not restore centered FREE y geometry"
+
+# Closing the active MONOCLE tab must map/focus the remembered fallback before
+# the departing client's lifecycle is retired.
+DISPLAY=$display xdotool key super+m
+DISPLAY=$display xdotool key alt+2
+wait_active "$three" || fail "could not activate third tab before lifecycle fallback"
+wait_map_state "$three" IsViewable || fail "third tab was not mapped before lifecycle fallback"
+kill "$three_pid" 2>/dev/null || true; three_pid=
+wait_for "! DISPLAY=$display xwininfo -id $three >/dev/null 2>&1" ||
+    fail "active MONOCLE tab did not exit"
+wait_active "$two" || fail "active MONOCLE tab removal did not restore fallback focus"
+wait_map_state "$two" IsViewable || fail "active MONOCLE tab removal did not map fallback"
 
 kill "$two_pid" 2>/dev/null || true; two_pid=
 kill "$wm_pid"; wait "$wm_pid"; wm_pid=

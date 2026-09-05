@@ -66,8 +66,12 @@ static void recompute_workareas(WM *wm);
 static void apply_normal_hints(WM *wm, Client *client, int *width, int *height);
 static void materialize_client_geometry(WM *wm, Client *client);
 static void grab_client_buttons(WM *wm, Client *client, bool focused);
-static bool client_is_visible(const Client *client);
+static void project_client_mapped(WM *wm, Client *client);
+static void project_client_unmapped(WM *wm, Client *client);
+static bool client_workspace_is_active(const Client *client);
+static bool client_should_be_mapped(const Client *client);
 static void reconcile_client_mapping(WM *wm, Client *client);
+static void reconcile_workspace_mapping(WM *wm, Workspace *workspace);
 static void translate_client_latent_geometry(Client *client, Rect old_monitor,
                                              Rect new_monitor);
 static void clamp_client_latent_geometry(WM *wm, Client *client, Rect workarea);
@@ -775,7 +779,16 @@ static void resolve_focus_before_client_removal(WM *wm, Client *client)
      * links. Avoid refreshing X presentation on that disappearing client. */
     Client *fallback = workspace_focus_fallback(client->workspace, client);
     wm->model.focused_client = NULL;
-    client_activate(wm, fallback, CurrentTime);
+    if (fallback && client->workspace->mode == WORKSPACE_MONOCLE &&
+        client_workspace_is_active(fallback)) {
+        /* The departing client may already be destroyed/unmapped, so do not
+         * run a whole-workspace reconciliation that would query it. The
+         * remaining MONOCLE tabs are already hidden in steady state. */
+        project_client_mapped(wm, fallback);
+        client_activate(wm, fallback, CurrentTime);
+    } else {
+        client_activate(wm, fallback, CurrentTime);
+    }
 }
 
 static void present_client_geometry(WM *wm, Client *client, Rect geometry)
@@ -920,17 +933,28 @@ void workspace_focus_relative(WM *wm, Workspace *workspace, bool forward)
         if (!cursor) cursor = forward ? workspace->tab_head : workspace->tab_tail;
         if (client_can_focus(cursor)) { target = cursor; break; }
     }
-    client_activate(wm, target, CurrentTime);
-    if (workspace->mode == WORKSPACE_MONOCLE && target) client_raise(wm, target);
+    if (workspace->mode == WORKSPACE_MONOCLE && target)
+        client_focus_tab_target(wm, target, CurrentTime);
+    else
+        client_activate(wm, target, CurrentTime);
 }
 
 void client_focus_tab_target(WM *wm, Client *client, Time time)
 {
-    if (!client) return;
+    if (!client || !client_can_focus(client)) return;
     Workspace *workspace = client->workspace;
     if (workspace != workspace->monitor->active_workspace) return;
+
+    /* The incoming tab must be viewable before X input focus is projected.
+     * Keep the old tab mapped until the new one is focused/raised so the
+     * handoff never exposes an empty MONOCLE content area. */
+    if (workspace->mode == WORKSPACE_MONOCLE)
+        project_client_mapped(wm, client);
     client_activate(wm, client, time);
-    if (workspace->mode == WORKSPACE_MONOCLE) client_raise(wm, client);
+    if (workspace->mode == WORKSPACE_MONOCLE) {
+        client_raise(wm, client);
+        reconcile_workspace_mapping(wm, workspace);
+    }
 }
 
 void workspace_set_mode(WM *wm, Workspace *workspace, WorkspaceMode mode)
@@ -939,11 +963,19 @@ void workspace_set_mode(WM *wm, Workspace *workspace, WorkspaceMode mode)
     workspace->mode = mode;
     if (workspace != workspace->monitor->active_workspace) return;
     ui_bar_update(wm);
-    for (Client *client = workspace->clients; client; client = client->workspace_next)
-        materialize_client_geometry(wm, client);
     if (mode == WORKSPACE_MONOCLE) {
-        if (wm->model.focused_client && wm->model.focused_client->workspace == workspace)
-            client_raise(wm, wm->model.focused_client);
+        Client *target = workspace_focus_target(workspace);
+        if (target) {
+            materialize_client_geometry(wm, target);
+            client_raise(wm, target);
+        }
+        reconcile_workspace_mapping(wm, workspace);
+        for (Client *client = workspace->clients; client; client = client->workspace_next)
+            if (client != target) materialize_client_geometry(wm, client);
+    } else {
+        for (Client *client = workspace->clients; client; client = client->workspace_next)
+            materialize_client_geometry(wm, client);
+        reconcile_workspace_mapping(wm, workspace);
     }
     enforce_stacking(wm);
 }
@@ -1341,6 +1373,39 @@ static void project_client_unmapped(WM *wm, Client *client)
     XUnmapWindow(wm->display, client->window);
 }
 
+static bool client_workspace_is_active(const Client *client)
+{
+    return client && client->workspace == client->workspace->monitor->active_workspace;
+}
+
+/* MONOCLE keeps exactly one ordinary client mapped: the current workspace
+ * focus target.  FREE keeps every client on the active workspace mapped.
+ * Hidden workspaces keep all clients unmapped. */
+static bool client_should_be_mapped(const Client *client)
+{
+    if (!client_workspace_is_active(client)) return false;
+    if (client->workspace->mode == WORKSPACE_FREE) return true;
+    return workspace_focus_target(client->workspace) == client;
+}
+
+static void reconcile_client_mapping(WM *wm, Client *client)
+{
+    XWindowAttributes attrs;
+    if (!XGetWindowAttributes(wm->display, client->window, &attrs)) return;
+    bool should_map = client_should_be_mapped(client);
+    if (should_map && attrs.map_state == IsUnmapped) {
+        project_client_mapped(wm, client);
+    } else if (!should_map && attrs.map_state != IsUnmapped) {
+        project_client_unmapped(wm, client);
+    }
+}
+
+static void reconcile_workspace_mapping(WM *wm, Workspace *workspace)
+{
+    for (Client *client = workspace->clients; client; client = client->workspace_next)
+        reconcile_client_mapping(wm, client);
+}
+
 void workspace_activate(WM *wm, Monitor *monitor, Workspace *workspace)
 {
     if (!monitor || !workspace || workspace->monitor != monitor) return;
@@ -1359,14 +1424,26 @@ void workspace_activate(WM *wm, Monitor *monitor, Workspace *workspace)
 
     select_monitor_context(wm, monitor);
     monitor->active_workspace = workspace;
-    for (Client *client = workspace->stack_head; client; client = client->stack_next) {
-        project_client_mapped(wm, client);
-        XRaiseWindow(wm->display, client->window);
+    if (workspace->mode == WORKSPACE_MONOCLE) {
+        if (target) {
+            project_client_mapped(wm, target);
+            XRaiseWindow(wm->display, target->window);
+        }
+    } else {
+        /* Preserve FREE's established incoming stack materialization: build
+         * the final bottom-to-top order before retiring the old workspace. */
+        for (Client *client = workspace->stack_head; client; client = client->stack_next) {
+            project_client_mapped(wm, client);
+            XRaiseWindow(wm->display, client->window);
+        }
     }
     /* Keep the incoming-first handoff, but retire the outgoing projection
      * before client_activate() can publish focus/UI or flush via stacking. */
-    for (Client *client = old->clients; client; client = client->workspace_next) {
-        project_client_unmapped(wm, client);
+    if (old->mode == WORKSPACE_MONOCLE) {
+        reconcile_workspace_mapping(wm, old);
+    } else {
+        for (Client *client = old->clients; client; client = client->workspace_next)
+            project_client_unmapped(wm, client);
     }
     client_activate(wm, target, CurrentTime);
     ui_bar_update(wm);
@@ -1415,13 +1492,18 @@ void client_move_to_workspace(WM *wm, Client *client, Workspace *workspace,
     Monitor *old_monitor = old->monitor;
     Monitor *new_monitor = workspace->monitor;
     bool was_focused = wm->model.focused_client == client;
-    if (was_focused)
-        client_activate(wm, workspace_focus_fallback(old, client), CurrentTime);
+    if (was_focused) {
+        Client *fallback = workspace_focus_fallback(old, client);
+        if (fallback && old->mode == WORKSPACE_MONOCLE)
+            client_focus_tab_target(wm, fallback, CurrentTime);
+        else
+            client_activate(wm, fallback, CurrentTime);
+    }
 
     bool keep_mapped_for_follow = follow && old_monitor == new_monitor &&
         workspace != new_monitor->active_workspace;
-    bool was_visible = client_is_visible(client);
-    if (was_visible && !keep_mapped_for_follow)
+    bool was_mapped_projection = client_should_be_mapped(client);
+    if (was_mapped_projection && !keep_mapped_for_follow)
         project_client_unmapped(wm, client);
     if (translate_monitor_geometry && old_monitor != new_monitor) {
         translate_client_latent_geometry(client, old_monitor->geometry,
@@ -1433,15 +1515,21 @@ void client_move_to_workspace(WM *wm, Client *client, Workspace *workspace,
     materialize_client_geometry(wm, client);
 
     if (follow) {
-        /* Preserve V1.7 follow staging: suppress the active-workspace fallback
-         * before the moved client itself becomes the final focus target. */
+        /* Following the move makes this client the destination workspace's
+         * remembered tab/focus target before workspace activation, so a
+         * MONOCLE destination maps the moved client directly rather than
+         * briefly exposing the previous tab. */
+        promote_workspace_focus(workspace, client);
         set_selected_monitor_authority(&wm->model, workspace->monitor);
         workspace_activate(wm, workspace->monitor, workspace);
         project_client_mapped(wm, client);
         client_activate(wm, client, CurrentTime);
         client_raise(wm, client);
-    } else if (client_is_visible(client))
-        project_client_mapped(wm, client);
+        if (workspace->mode == WORKSPACE_MONOCLE)
+            reconcile_workspace_mapping(wm, workspace);
+    } else {
+        reconcile_client_mapping(wm, client);
+    }
     ui_update(wm);
 }
 
@@ -1820,16 +1908,30 @@ static void manage_window(WM *wm, Window window, bool map_window)
     x11_set_wm_state(wm, window, NormalState);
     read_wm_hints(wm, client);
     read_wm_protocols(wm, client);
-    bool visible = client_is_visible(client);
-    if (visible && (map_window || attrs.map_state == IsUnmapped)) {
-        project_client_mapped(wm, client);
-    } else if (!map_window && !visible && attrs.map_state == IsViewable) {
-        project_client_unmapped(wm, client);
+    bool workspace_active = client_workspace_is_active(client);
+    bool activate_on_map = policy.focus_on_map && workspace_active &&
+        client_can_focus(client);
+    bool monocle_activation = activate_on_map &&
+        client->workspace->mode == WORKSPACE_MONOCLE;
+
+    /* A MONOCLE client that will become active must be mapped before
+     * client_activate() projects X input focus. Other mapping decisions can
+     * follow the steady-state workspace projection directly. */
+    if (monocle_activation) {
+        if (attrs.map_state == IsUnmapped) project_client_mapped(wm, client);
+    } else {
+        reconcile_client_mapping(wm, client);
     }
-    if (policy.raise_on_map) {
+    if (policy.raise_on_map && !monocle_activation) {
         client_raise(wm, client);
     }
-    if (policy.focus_on_map && visible) client_activate(wm, client, CurrentTime);
+    if (activate_on_map) {
+        client_activate(wm, client, CurrentTime);
+        if (client->workspace->mode == WORKSPACE_MONOCLE) {
+            client_raise(wm, client);
+            reconcile_workspace_mapping(wm, client->workspace);
+        }
+    }
     if (x11_window_requests_fullscreen(wm, window))
         client_set_requested_fullscreen(wm, client, true);
     ui_update(wm);
@@ -1841,6 +1943,9 @@ static void unmanage_client(WM *wm, Client *client, bool withdrawn)
     Workspace *workspace = client->workspace;
     resolve_focus_before_client_removal(wm, client);
     unlink_workspace_orders(workspace, client);
+    if (workspace->mode == WORKSPACE_MONOCLE &&
+        workspace == workspace->monitor->active_workspace)
+        reconcile_workspace_mapping(wm, workspace);
 
     Client **link = &wm->model.clients;
     while (*link && *link != client) {
@@ -2024,23 +2129,6 @@ static void retarget_monitor_workspaces(WM *wm, Monitor *monitor)
         monitor->workspaces[i].monitor = monitor;
 }
 
-static bool client_is_visible(const Client *client)
-{
-    return client->workspace == client->workspace->monitor->active_workspace;
-}
-
-static void reconcile_client_mapping(WM *wm, Client *client)
-{
-    XWindowAttributes attrs;
-    if (!XGetWindowAttributes(wm->display, client->window, &attrs)) return;
-    bool visible = client_is_visible(client);
-    if (visible && attrs.map_state == IsUnmapped) {
-        project_client_mapped(wm, client);
-    } else if (!visible && attrs.map_state != IsUnmapped) {
-        project_client_unmapped(wm, client);
-    }
-}
-
 static void destroy_removed_monitor_resources(WM *wm, Monitor *old_monitors,
                                               const MonitorTopologyPlan *plan)
 {
@@ -2179,15 +2267,20 @@ static void reconcile_monitors(WM *wm)
             wm, client_plan->client,
             wm->model.monitors[client_plan->new_monitor_index].workarea);
     }
+
+    Client *preferred_focus = plan.preferred_focus;
+    bool preserve_preferred_focus = preferred_focus &&
+        client_workspace_is_active(preferred_focus) &&
+        client_can_focus(preferred_focus);
+    if (preserve_preferred_focus)
+        promote_workspace_focus(preferred_focus->workspace, preferred_focus);
+
     rematerialize_all_clients(wm);
     for (Client *client = wm->model.clients; client; client = client->next)
         reconcile_client_mapping(wm, client);
 
-    Client *preferred_focus = plan.preferred_focus;
-    if (preferred_focus && client_is_visible(preferred_focus) &&
-        client_can_focus(preferred_focus)) {
+    if (preserve_preferred_focus) {
         set_selected_monitor_authority(&wm->model, preferred_focus->workspace->monitor);
-        promote_workspace_focus(preferred_focus->workspace, preferred_focus);
         x11_update_active_window(wm);
     } else {
         client_activate(wm, NULL, CurrentTime);
@@ -2498,7 +2591,10 @@ static void handle_event(WM *wm, XEvent *event)
                 set_client_urgent(wm, client, true);
             } else if (client->workspace ==
                        client->workspace->monitor->active_workspace) {
-                client_activate(wm, client, CurrentTime);
+                if (client->workspace->mode == WORKSPACE_MONOCLE)
+                    client_focus_tab_target(wm, client, CurrentTime);
+                else
+                    client_activate(wm, client, CurrentTime);
             }
         } else if (event->xclient.message_type == wm->atoms.net_close_window && client) {
             client_close(wm, client);

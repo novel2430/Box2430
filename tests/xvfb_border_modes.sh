@@ -86,18 +86,26 @@ snapshot "$tmp_dir/monocle.xwd"
 [ "$(pixel_at_window_corner "$one" "$tmp_dir/monocle.xwd")" = "$(expected_pixel '#aa1122')" ] ||
     fail "MONOCLE focused border color mismatch"
 
-# Lower the still-focused client so the identically sized second MONOCLE client
-# becomes visible without changing focus or clearing urgency.
+# In MONOCLE the focused/active tab is the only mapped ordinary client.
+# The urgent second tab must remain managed and retain its per-mode border
+# width/state while hidden; lowering the active tab must not expose it.
+wait_for "DISPLAY=$display xwininfo -id $one | grep -q 'Map State: IsViewable'" ||
+    fail "MONOCLE focused tab was not mapped"
+wait_for "DISPLAY=$display xwininfo -id $two | grep -q 'Map State: IsUnMapped'" ||
+    fail "MONOCLE urgent inactive tab remained mapped"
 DISPLAY=$display xdotool key super+l
-snapshot "$tmp_dir/monocle-urgent.xwd"
-[ "$(pixel_at_window_corner "$two" "$tmp_dir/monocle-urgent.xwd")" = "$(expected_pixel '#1122aa')" ] ||
-    fail "MONOCLE urgent border color mismatch"
+DISPLAY=$display xwininfo -id "$two" | grep -q 'Map State: IsUnMapped' ||
+    fail "lowering active MONOCLE tab exposed inactive urgent tab"
+DISPLAY=$display xprop -id "$two" WM_HINTS | grep -qi urgency ||
+    fail "hidden MONOCLE tab lost urgency"
+
+# An inactive MONOCLE tab has no visible border to sample: the new presentation
+# contract intentionally unmaps it. Clearing urgency while hidden must still be
+# observed without remapping the client.
 DISPLAY=$display "$urgency_bin" "$two" 0
 wait_for "! DISPLAY=$display xprop -id $two WM_HINTS | grep -qi urgency" || fail "urgency did not clear"
-snapshot "$tmp_dir/monocle-unfocused.xwd"
-[ "$(pixel_at_window_corner "$two" "$tmp_dir/monocle-unfocused.xwd")" = "$(expected_pixel '#22aa11')" ] ||
-    fail "MONOCLE unfocused border color mismatch"
-DISPLAY=$display xdotool key super+r
+DISPLAY=$display xwininfo -id "$two" | grep -q 'Map State: IsUnMapped' ||
+    fail "WM_HINTS update remapped inactive MONOCLE tab"
 
 DISPLAY=$display xdotool key super+f
 wait_border "$one" 0 || fail "real fullscreen did not force zero border"

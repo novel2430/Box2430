@@ -108,8 +108,10 @@ wait_pointer_ge 400 || fail "cross-monitor tab click warped the pointer"
 DISPLAY=$display xdotool key super+2
 wait_for "DISPLAY=$display xwininfo -id $right_one | grep -q 'Map State: IsUnMapped'" ||
     fail "tab click did not select the clicked client's monitor"
-DISPLAY=$display xwininfo -id "$left_one" | grep -q 'Map State: IsViewable' ||
-    fail "right workspace command changed the left monitor"
+DISPLAY=$display xwininfo -id "$left_two" | grep -q 'Map State: IsViewable' ||
+    fail "right workspace command hid the active left MONOCLE tab"
+DISPLAY=$display xwininfo -id "$left_one" | grep -q 'Map State: IsUnMapped' ||
+    fail "right workspace command remapped the inactive left MONOCLE tab"
 DISPLAY=$display xdotool key super+1
 wait_active "$right_one" || fail "right workspace focus did not restore"
 

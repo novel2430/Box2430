@@ -5,10 +5,10 @@ display=${BOX2430_TEST_DISPLAY:-:198}
 box2430_bin=${BOX2430_BIN:-./build/debug/box2430}
 observer_bin=${BOX2430_TRANSITION_OBSERVER_BIN:-./build/debug/x11-workspace-transition-observer}
 tmp_dir=$(mktemp -d)
-xvfb_pid= wm_pid= incoming_pid= outgoing_pid= observer_pid=
+xvfb_pid= wm_pid= incoming_pid= outgoing_pid= inactive_pid= observer_pid=
 
 cleanup() {
-    for pid in "$observer_pid" "$outgoing_pid" "$incoming_pid" "$wm_pid" "$xvfb_pid"; do
+    for pid in "$observer_pid" "$inactive_pid" "$outgoing_pid" "$incoming_pid" "$wm_pid" "$xvfb_pid"; do
         if [ -n "$pid" ]; then kill "$pid" 2>/dev/null || true; fi
     done
     rm -rf "$tmp_dir"
@@ -34,8 +34,15 @@ wait_active() {
 }
 observe_switch() {
     old_window=$1 new_window=$2 key=$3 label=$4
+    forbidden_map=${5:-}
     observer_log="$tmp_dir/observer-$label.log"
-    DISPLAY=$display "$observer_bin" "$old_window" "$new_window" >"$observer_log" 2>&1 &
+    if [ -n "$forbidden_map" ]; then
+        DISPLAY=$display "$observer_bin" "$old_window" "$new_window" "$forbidden_map" \
+            >"$observer_log" 2>&1 &
+    else
+        DISPLAY=$display "$observer_bin" "$old_window" "$new_window" \
+            >"$observer_log" 2>&1 &
+    fi
     observer_pid=$!
     wait_for "grep -q READY $observer_log" || fail "$label observer did not become ready"
     DISPLAY=$display xdotool key "$key"
@@ -102,6 +109,48 @@ assert_state "$outgoing" IsViewable "reverse incoming client was not viewable"
 assert_state "$incoming" IsUnMapped "fullscreen source remained mapped after reverse switch"
 wait_active "$outgoing" || fail "reverse incoming client did not receive focus"
 
+# A MONOCLE workspace maps only its active tab. Switching tabs performs an
+# incoming-first mapping handoff, and returning to the workspace must never map
+# an inactive tab even transiently. Keep Incoming in real fullscreen to verify
+# that fullscreen remains client state while inactive/unmapped.
+DISPLAY=$display xterm -title TransitionMonocleInactive -geometry 20x6 \
+    >"$tmp_dir/inactive.log" 2>&1 &
+inactive_pid=$!
+wait_for "DISPLAY=$display xdotool search --name TransitionMonocleInactive >/dev/null 2>&1" ||
+    fail "MONOCLE inactive client missing"
+inactive=$(DISPLAY=$display xdotool search --name TransitionMonocleInactive | head -n 1)
+wait_active "$inactive" || fail "MONOCLE inactive client did not focus on map"
+DISPLAY=$display xdotool key super+shift+2
+assert_state "$inactive" IsUnMapped "MONOCLE inactive client did not move to workspace 2"
+wait_active "$outgoing" || fail "source focus did not recover after MONOCLE client move"
+
+DISPLAY=$display xdotool key super+2
+wait_active "$incoming" || fail "workspace 2 did not restore its focus target"
+DISPLAY=$display xdotool key super+m
+assert_state "$incoming" IsViewable "MONOCLE active fullscreen tab was not viewable"
+assert_state "$inactive" IsUnMapped "MONOCLE inactive tab remained mapped"
+
+DISPLAY=$display xdotool key super+j
+wait_active "$inactive" || fail "MONOCLE focus next did not activate hidden tab"
+assert_state "$inactive" IsViewable "new MONOCLE active tab did not map"
+assert_state "$incoming" IsUnMapped "previous fullscreen tab did not unmap"
+DISPLAY=$display xprop -id "$incoming" _NET_WM_STATE | grep -q _NET_WM_STATE_FULLSCREEN ||
+    fail "hidden MONOCLE tab lost fullscreen state"
+
+DISPLAY=$display xdotool key super+1
+wait_active "$outgoing" || fail "workspace 1 did not restore before MONOCLE return"
+observe_switch "$outgoing" "$inactive" super+2 monocle-single-map "$incoming"
+assert_state "$inactive" IsViewable "MONOCLE active tab did not remap on workspace return"
+assert_state "$incoming" IsUnMapped "inactive MONOCLE tab mapped on workspace return"
+wait_active "$inactive" || fail "MONOCLE active tab did not receive focus on return"
+
+# Restore workspace 2 to FREE so the existing workspace-mode publication matrix
+# below starts from its original FREE/FREE baseline.
+DISPLAY=$display xdotool key super+m
+assert_state "$incoming" IsViewable "leaving MONOCLE did not remap fullscreen tab"
+DISPLAY=$display xdotool key super+1
+wait_active "$outgoing" || fail "could not restore workspace 1 after MONOCLE mapping test"
+
 # Exercise tab-bar publication in every workspace-mode direction. Existing
 # tab and stacking machinery remains responsible for the final bar state.
 DISPLAY=$display xdotool key super+m
@@ -124,8 +173,8 @@ assert_tab_state "$bar" IsUnMapped "MONOCLE destination did not return to FREE"
 DISPLAY=$display xdotool key super+1
 assert_tab_state "$bar" IsUnMapped "FREE to FREE showed tab bar"
 
-kill "$incoming_pid" "$outgoing_pid" 2>/dev/null || true
-incoming_pid= outgoing_pid=
+kill "$inactive_pid" "$incoming_pid" "$outgoing_pid" 2>/dev/null || true
+inactive_pid= incoming_pid= outgoing_pid=
 kill "$wm_pid"; wait "$wm_pid"; wm_pid=
 if grep -q "box2430: X11 error" "$tmp_dir/wm.log"; then
     sed -n '1,160p' "$tmp_dir/wm.log" >&2

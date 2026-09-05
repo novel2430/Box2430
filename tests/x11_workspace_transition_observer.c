@@ -9,7 +9,9 @@
 
 static void usage(const char *program)
 {
-    fprintf(stderr, "usage: %s OUTGOING_WINDOW INCOMING_WINDOW\n", program);
+    fprintf(stderr,
+            "usage: %s OUTGOING_WINDOW INCOMING_WINDOW [FORBIDDEN_MAP_WINDOW]\n",
+            program);
     exit(2);
 }
 
@@ -34,10 +36,13 @@ static long milliseconds_until(struct timespec deadline)
 
 int main(int argc, char **argv)
 {
-    if (argc != 3) usage(argv[0]);
+    if (argc != 3 && argc != 4) usage(argv[0]);
     Window outgoing = parse_window(argv[1]);
     Window incoming = parse_window(argv[2]);
-    if (outgoing == None || incoming == None) usage(argv[0]);
+    Window forbidden_map = argc == 4 ? parse_window(argv[3]) : None;
+    if (outgoing == None || incoming == None ||
+        (argc == 4 && forbidden_map == None))
+        usage(argv[0]);
 
     Display *display = XOpenDisplay(NULL);
     if (!display) return 2;
@@ -59,7 +64,13 @@ int main(int argc, char **argv)
         while (XPending(display)) {
             XEvent event;
             XNextEvent(display, &event);
-            if (event.type == MapNotify && event.xmap.window == incoming) {
+            if (event.type == MapNotify && forbidden_map != None &&
+                event.xmap.window == forbidden_map) {
+                puts("FORBIDDEN_MAPPED");
+                fflush(stdout);
+                XCloseDisplay(display);
+                return 1;
+            } else if (event.type == MapNotify && event.xmap.window == incoming) {
                 incoming_mapped = true;
                 puts("INCOMING_MAPPED");
                 fflush(stdout);
