@@ -11,7 +11,7 @@ built directly on Xlib. Ordinary managed application windows remain their own
 X11 top-level windows; Box2430 does not wrap them in frame windows.
 
 The native UI is part of the same runtime rather than a separate panel process.
-Bars, MONOCLE tab bars, snap-preview windows, and the tray owner/host are
+Bars, MONOCLE tab bars, client titlebars, snap-preview windows, and the tray owner/host are
 Box2430-owned override-redirect windows. XEmbed tray icons are the notable
 reparenting exception: tray protocol requires icons to be embedded into the tray
 host.
@@ -23,6 +23,7 @@ The main source layout is:
 | `src/main.c` | CLI parsing, fresh-session/restart distinction, WM lifecycle, and re-exec |
 | `src/wm.c` | Main state machine: events, clients, workspaces, focus, stacking, geometry, monitor reconciliation, dragging, ICCCM/EWMH reactions |
 | `src/ui.c` / `src/ui.h` | Borders, native bars, widget layout/drawing, status/clock text, MONOCLE tabs, snap preview |
+| `src/decoration.c` / `src/decoration.h` | FREE-only decoration decision, content/outer/titlebar geometry, sibling projection lifecycle and drawing |
 | `src/tray.c` / `src/tray.h` | XEmbed system-tray selection, owner/host windows, icon lifecycle and geometry |
 | `src/bspwm_compat.c` / `src/bspwm_compat.h` | Optional Polybar `internal/bspwm` wire adapter, Unix socket lifecycle, bounded clients, command parsing, and report projection |
 | `src/monitor.c` | Pure geometry-first logical-monitor continuity matching and metadata comparison |
@@ -507,6 +508,20 @@ both EWMH maximized atoms. It uses the monitor workarea.
 Leaving snap/maximize restores `normal_geometry` rather than treating the target
 rectangle as the permanent normal size.
 
+With FREE decoration enabled for a client, snap/maximize targets are decorated
+outer rectangles. `client_content_rect()` removes the title strip and existing
+X border at the materialization boundary; `client_outer_rect()` performs the
+inverse for the footprint and snap preview. `client_decoration_rect()` derives
+the strip from the client rectangle. Width/height remain client content size;
+x/y retain the original X window's border-origin convention. Ordinary FREE
+geometry and `normal_geometry` are not shifted when decoration appears. As with
+undecorated borders, an impossibly small target retains the minimum one-pixel
+client content size instead of sending an invalid X size.
+
+MONOCLE and real fullscreen have no decoration contribution. Monitor translation
+and topology reconciliation continue to own only client geometry; titlebars are
+re-derived, never independently translated or stored in topology plans.
+
 ### Fullscreen
 
 User fullscreen and client-requested fullscreen are tracked separately:
@@ -531,6 +546,60 @@ Real fullscreen uses the raw monitor rectangle and zero border. Exiting it
 rematerializes the appropriate underlying MONOCLE/maximize/snap/normal state.
 
 ## Native UI
+
+### Client decoration
+
+Decoration is a FREE-mode-only projection resource attached to a semantic Client,
+not a frame or a second window-management entity. Its override-redirect window
+is a root sibling of the original client, never its parent. The Client carries
+the window/draw attachment and cached projection mapping flags; it retains sole
+ownership of workspace membership, stable/tab order, stack order and focus
+history. `decoration_client_for_window()` is distinct from managed-client lookup.
+
+The Client caches its one-shot `auto`/`force`/`none` policy, AUTO type eligibility
+and the explicit Motif no-decoration request. `client_should_decorate()` resolves
+global enablement, FREE mode, real fullscreen, policy, AUTO eligibility and Motif
+metadata in that order. Force cannot bypass the global switch or presentation restrictions.
+Visibility is separate from eligibility so hidden FREE snap/maximize geometry
+can still be materialized correctly. `x11_read_window_type()` retains its
+established first-atom classification and transient-to-Dialog fallback for
+rules, placement and special-window handling. Decoration does not alter it.
+The separate `x11_window_auto_decoration_eligible()` reads the preference list,
+skips unknown extension atoms and uses the first recognized standard type:
+Normal/Dialog allow AUTO; other standard types exclude it. Missing/empty/invalid
+properties retain the ordinary eligible default; nonempty unknown-only lists
+are not eligible. Eligibility is cached at manage and refreshed on type changes.
+
+`decoration_reconcile()` lazily creates the resource only for an eligible mapped
+client on its monitor's active workspace. It derives geometry and draws from
+cached title/focus authority. Workspace hiding, MONOCLE, real fullscreen and
+Motif opt-out unmap and retain the resource; unmanage/restart/exit destroy it.
+There is no reparent restoration. A newly mapped strip is placed immediately
+above its owner before mapping. The shared stacking projection enforces the
+whole pair's tier and semantic order.
+
+Geometry/mapping transitions converge on per-client reconciliation. Entering
+MONOCLE retires all strips in that workspace before raising the incoming target.
+Generic `ui_update()` only updates bars/tabs: it does not traverse decorations.
+Focus transitions redraw only the previous/new client strips; title updates
+redraw only their owner's strip, without reissuing its geometry. Reconciliation
+still configures/redraws the affected visible strip on geometry/mapping paths;
+there is no dirty-flag framework or independent decoration geometry authority.
+Runtime Motif/type changes refresh metadata and, when eligibility changes, rematerialize
+client presentation (including a snapped/maximized outer target). Rules are not
+rerun. Title updates read the property once through the existing title cache and
+redraw bar/tab/decoration consumers. No CSD heuristic or second font/color parser
+is introduced.
+
+Decoration uses UI drawing helpers, but `ui.c` does not call decoration code.
+Tray admission checks each Client's original window and decoration attachment
+in its existing ownership walk, separately from native-UI window lookup.
+
+Titlebar Button1 is a thin input adapter to `mouse_begin_drag()`. Its pointer
+grab is on root so a runtime opt-out can hide the strip without losing release.
+Motion, snap preview, crossing, geometry commit and release use the existing
+drag runtime. Release or owner unmanage ends the grab. X and semantic focus
+remain attached to the original Client, never to the strip.
 
 ### Borders
 
@@ -630,6 +699,12 @@ another monitor moves/reallocates the tray host into that monitor's native bar.
 
 Box2430 has explicit workspace stack order for ordinary clients and also enforces
 a root-level ordering between categories it owns.
+
+Each decorated semantic stack member expands to an adjacent X pair, titlebar
+above its own original client window. `project_client_stack()` returns that
+client window as the ceiling for the next lower pair. Raise/lower and workspace
+handoffs use this same expansion; titlebars never enter the semantic stack or
+EWMH client lists. The pair belongs to the ordinary-client tier, not native UI.
 
 The intended known tiers are approximately:
 
@@ -1025,6 +1100,8 @@ The following distinctions are structural and should not be collapsed as an
 incidental refactor:
 
 * ordinary clients are non-reparented; tray icons are protocol-specific embedded children;
+* decoration windows are Client projection resources, not managed clients or semantic stack members;
+* decoration is FREE-only: hidden workspaces, MONOCLE and real fullscreen never map a titlebar;
 * workspaces are per-monitor, not one global desktop list;
 * selected monitor and focused client are distinct state;
 * RandR logical/output identity is accepted platform metadata, not semantic

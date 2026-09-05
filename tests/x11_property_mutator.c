@@ -67,6 +67,8 @@ static int set_window_type(Display *display, Window window, const char *type)
     else if (strcmp(type, "dock") == 0) suffix = "DOCK";
     else if (strcmp(type, "desktop") == 0) suffix = "DESKTOP";
     else if (strcmp(type, "notification") == 0) suffix = "NOTIFICATION";
+    else if (strcmp(type, "splash") == 0) suffix = "SPLASH";
+    else if (strcmp(type, "utility") == 0) suffix = "UTILITY";
     else return 2;
 
     char name[64];
@@ -102,10 +104,11 @@ static void usage(const char *program)
     fprintf(stderr, "usage: %s input WINDOW true|false\n", program);
     fprintf(stderr, "       %s take-focus WINDOW true|false\n", program);
     fprintf(stderr, "       %s transient WINDOW PARENT|none\n", program);
-    fprintf(stderr, "       %s type WINDOW normal|dialog|dock|desktop|notification|none\n",
+    fprintf(stderr, "       %s type WINDOW normal|dialog|dock|desktop|notification|splash|utility|none\n",
             program);
     fprintf(stderr, "       %s wm-name WINDOW|root TEXT|none\n", program);
     fprintf(stderr, "       %s net-name WINDOW|root TEXT|none\n", program);
+    fprintf(stderr, "       %s motif WINDOW off|on|none|unflagged|short|format|type\n", program);
 }
 
 int main(int argc, char **argv)
@@ -138,6 +141,24 @@ int main(int argc, char **argv)
         result = set_name(display, window, false, argv[3]);
     } else if (strcmp(argv[1], "net-name") == 0) {
         result = set_name(display, window, true, argv[3]);
+    } else if (strcmp(argv[1], "motif") == 0) {
+        Atom property = XInternAtom(display, "_MOTIF_WM_HINTS", False);
+        unsigned long hints[5] = {2, 0, 0, 0, 0};
+        if (strcmp(argv[3], "none") == 0) {
+            XDeleteProperty(display, window, property);
+            result = 0;
+        } else if (!strcmp(argv[3], "off") || !strcmp(argv[3], "on") ||
+                   !strcmp(argv[3], "unflagged") || !strcmp(argv[3], "short") ||
+                   !strcmp(argv[3], "format") || !strcmp(argv[3], "type")) {
+            if (!strcmp(argv[3], "on")) hints[2] = 1;
+            if (!strcmp(argv[3], "unflagged")) hints[0] = 0;
+            XChangeProperty(display, window, property,
+                            !strcmp(argv[3], "type") ? XA_CARDINAL : property,
+                            !strcmp(argv[3], "format") ? 8 : 32,
+                            PropModeReplace, (unsigned char *)hints,
+                            !strcmp(argv[3], "short") ? 2 : 5);
+            result = 0;
+        }
     }
     if (result == 2) usage(argv[0]);
     XSync(display, False);

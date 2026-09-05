@@ -88,7 +88,7 @@ static bool window_owned_elsewhere(const WM *wm, Window window)
         return true;
 
     for (const Client *client = wm->model.clients; client; client = client->next)
-        if (client->window == window) return true;
+        if (client->window == window || client->decoration == window) return true;
     for (const SpecialWindow *special = wm->model.special_windows; special;
          special = special->next)
         if (special->window == window) return true;

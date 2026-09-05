@@ -3,10 +3,11 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 int main(int argc, char **argv)
 {
-    if (argc != 3) return 2;
+    if (argc != 3 && !(argc == 4 && !strcmp(argv[3], "--paint"))) return 2;
     Display *display = XOpenDisplay(NULL);
     if (!display) return 1;
     Window window = (Window)strtoul(argv[1], NULL, 0);
@@ -21,6 +22,14 @@ int main(int argc, char **argv)
     if (!XAllocNamedColor(display, attrs.colormap, argv[2], &screen, &exact)) {
         XCloseDisplay(display);
         return 2;
+    }
+    if (argc == 4) {
+        GC gc = XCreateGC(display, window, 0, NULL);
+        XSetForeground(display, gc, screen.pixel);
+        XFillRectangle(display, window, gc, 0, 0, 8, 8);
+        XFreeGC(display, gc);
+        XCloseDisplay(display);
+        return 0;
     }
     XImage *image = XGetImage(display, window, 0, 0, (unsigned int)attrs.width,
                               (unsigned int)attrs.height, AllPlanes, ZPixmap);

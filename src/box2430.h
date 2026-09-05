@@ -51,6 +51,12 @@ typedef enum ClientFullscreenPolicy {
     CLIENT_FULLSCREEN_DENY,
 } ClientFullscreenPolicy;
 
+typedef enum ClientDecorationPolicy {
+    CLIENT_DECORATION_AUTO,
+    CLIENT_DECORATION_FORCE,
+    CLIENT_DECORATION_NONE,
+} ClientDecorationPolicy;
+
 typedef enum UIFontStyle {
     UI_FONT_NORMAL,
     UI_FONT_BOLD,
@@ -126,6 +132,15 @@ typedef struct BorderConfig {
     BorderStyleConfig free;
     BorderStyleConfig monocle;
 } BorderConfig;
+
+typedef struct DecorationConfig {
+    bool enabled;
+    unsigned int height;
+    char bg[8];
+    char fg[8];
+    char focused_bg[8];
+    char focused_fg[8];
+} DecorationConfig;
 
 typedef struct TabConfig {
     bool enabled;
@@ -230,6 +245,7 @@ typedef struct Rule {
     bool has_border;
     bool has_fullscreen_policy;
     bool has_placement;
+    bool has_decoration;
     unsigned int workspace;
     unsigned int monitor;
     bool focus_on_map;
@@ -237,6 +253,7 @@ typedef struct Rule {
     bool border;
     ClientFullscreenPolicy fullscreen_policy;
     PlacementPolicy placement;
+    ClientDecorationPolicy decoration;
 } Rule;
 
 typedef struct Config {
@@ -250,6 +267,7 @@ typedef struct Config {
     PlacementPolicy dialog_placement;
     ClientFullscreenPolicy client_fullscreen_policy;
     BorderConfig border;
+    DecorationConfig decoration;
     char background[8];
     char snap_preview_color[8];
     unsigned int snap_preview_width;
@@ -343,6 +361,11 @@ struct SpecialWindow {
 
 struct Client {
     Window window;
+    /* X11 projection attachments, never members of semantic orders. */
+    bool mapped;
+    Window decoration;
+    XftDraw *decoration_draw;
+    bool decoration_mapped;
     Workspace *workspace;
     Rect geometry;
     Rect normal_geometry;
@@ -367,6 +390,9 @@ struct Client {
     char *class_name;
     char *instance;
     WindowType window_type;
+    bool requests_no_decoration;
+    bool auto_decoration_eligible;
+    ClientDecorationPolicy decoration_policy;
     Window transient_for;
     bool border_enabled;
     unsigned int original_border_width;
@@ -417,6 +443,7 @@ typedef struct Atoms {
     Atom wm_delete_window;
     Atom wm_take_focus;
     Atom wm_state;
+    Atom motif_wm_hints;
     Atom net_supported;
     Atom net_supporting_wm_check;
     Atom net_active_window;
@@ -435,6 +462,8 @@ typedef struct Atoms {
     Atom net_wm_window_type_dock;
     Atom net_wm_window_type_desktop;
     Atom net_wm_window_type_notification;
+    /* Additional standard types recognized only for AUTO decoration policy. */
+    Atom net_wm_window_type_undecorated[9];
     Atom net_wm_strut;
     Atom net_wm_strut_partial;
     Atom net_workarea;
@@ -525,6 +554,11 @@ typedef struct WM {
     char clock_text[BOX2430_MAX_CLOCK_TEXT];
     bool tab_resources_ready;
     bool bar_resources_ready;
+    XftColor decoration_fg;
+    XftColor decoration_bg;
+    XftColor decoration_focused_fg;
+    XftColor decoration_focused_bg;
+    bool decoration_resources_ready;
 } WM;
 
 bool randr_check_version(WM *wm);
@@ -588,6 +622,10 @@ bool x11_window_is_iconic(WM *wm, Window window);
 void x11_update_client_lists(WM *wm);
 void x11_update_active_window(WM *wm);
 WindowType x11_read_window_type(WM *wm, Window window);
+bool x11_window_auto_decoration_eligible(WM *wm, Window window);
+bool x11_read_no_decoration(WM *wm, Window window);
+bool x11_motif_requests_no_decoration(unsigned long flags,
+                                     unsigned long decorations);
 char *x11_read_window_title(WM *wm, Window window);
 char *x11_read_root_status(WM *wm);
 void x11_read_window_class(WM *wm, Window window, char **instance,

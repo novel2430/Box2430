@@ -51,6 +51,7 @@ void x11_init_atoms(WM *wm)
     wm->atoms.wm_delete_window = XInternAtom(wm->display, "WM_DELETE_WINDOW", False);
     wm->atoms.wm_take_focus = XInternAtom(wm->display, "WM_TAKE_FOCUS", False);
     wm->atoms.wm_state = XInternAtom(wm->display, "WM_STATE", False);
+    wm->atoms.motif_wm_hints = XInternAtom(wm->display, "_MOTIF_WM_HINTS", False);
     wm->atoms.net_supported = XInternAtom(wm->display, "_NET_SUPPORTED", False);
     wm->atoms.net_supporting_wm_check =
         XInternAtom(wm->display, "_NET_SUPPORTING_WM_CHECK", False);
@@ -80,6 +81,15 @@ void x11_init_atoms(WM *wm)
         XInternAtom(wm->display, "_NET_WM_WINDOW_TYPE_DESKTOP", False);
     wm->atoms.net_wm_window_type_notification =
         XInternAtom(wm->display, "_NET_WM_WINDOW_TYPE_NOTIFICATION", False);
+    char *undecorated_types[] = {
+        "_NET_WM_WINDOW_TYPE_TOOLBAR", "_NET_WM_WINDOW_TYPE_MENU",
+        "_NET_WM_WINDOW_TYPE_UTILITY", "_NET_WM_WINDOW_TYPE_SPLASH",
+        "_NET_WM_WINDOW_TYPE_DROPDOWN_MENU", "_NET_WM_WINDOW_TYPE_POPUP_MENU",
+        "_NET_WM_WINDOW_TYPE_TOOLTIP", "_NET_WM_WINDOW_TYPE_COMBO",
+        "_NET_WM_WINDOW_TYPE_DND",
+    };
+    XInternAtoms(wm->display, undecorated_types, 9, False,
+                 wm->atoms.net_wm_window_type_undecorated);
     wm->atoms.net_wm_strut = XInternAtom(wm->display, "_NET_WM_STRUT", False);
     wm->atoms.net_wm_strut_partial =
         XInternAtom(wm->display, "_NET_WM_STRUT_PARTIAL", False);
@@ -154,6 +164,72 @@ WindowType x11_read_window_type(WM *wm, Window window)
     if (type == WINDOW_TYPE_NORMAL && XGetTransientForHint(wm->display, window, &transient))
         type = WINDOW_TYPE_DIALOG;
     return type;
+}
+
+/* Decoration preference is deliberately separate from the established
+ * first-atom/transient WindowType classification used by rules and placement.
+ * Read in chunks so unknown extension atoms cannot hide a later fallback. */
+bool x11_window_auto_decoration_eligible(WM *wm, Window window)
+{
+    long offset = 0;
+    for (;;) {
+        Atom type;
+        int format;
+        unsigned long count, remaining;
+        unsigned char *data = NULL;
+        if (XGetWindowProperty(wm->display, window, wm->atoms.net_wm_window_type,
+                               offset, 32, False, XA_ATOM, &type, &format,
+                               &count, &remaining, &data) != Success ||
+            !data || type != XA_ATOM || format != 32 || !count) {
+            if (data) XFree(data);
+            /* Absent/empty/invalid type retains the ordinary Normal/Dialog
+             * default. A nonempty unknown-only list is not AUTO-eligible. */
+            return offset == 0;
+        }
+        const Atom *atoms = (const Atom *)data;
+        for (unsigned long i = 0; i < count; ++i) {
+            Atom atom = atoms[i];
+            bool eligible = atom == wm->atoms.net_wm_window_type_normal ||
+                            atom == wm->atoms.net_wm_window_type_dialog;
+            bool excluded = atom == wm->atoms.net_wm_window_type_dock ||
+                            atom == wm->atoms.net_wm_window_type_desktop ||
+                            atom == wm->atoms.net_wm_window_type_notification;
+            for (unsigned int j = 0; j < 9; ++j)
+                if (atom == wm->atoms.net_wm_window_type_undecorated[j])
+                    excluded = true;
+            if (eligible || excluded) {
+                XFree(data);
+                return eligible;
+            }
+        }
+        XFree(data);
+        if (!remaining) return false;
+        offset += (long)count;
+    }
+}
+
+bool x11_motif_requests_no_decoration(unsigned long flags,
+                                     unsigned long decorations)
+{
+    return (flags & (1UL << 1)) != 0 && decorations == 0;
+}
+
+bool x11_read_no_decoration(WM *wm, Window window)
+{
+    Atom type;
+    int format;
+    unsigned long count, remaining;
+    unsigned char *data = NULL;
+    bool requested = false;
+    if (XGetWindowProperty(wm->display, window, wm->atoms.motif_wm_hints,
+                           0, 5, False, wm->atoms.motif_wm_hints,
+                           &type, &format, &count, &remaining, &data) == Success &&
+        data && type == wm->atoms.motif_wm_hints && format == 32 && count >= 3) {
+        const unsigned long *hints = (const unsigned long *)data;
+        requested = x11_motif_requests_no_decoration(hints[0], hints[2]);
+    }
+    if (data) XFree(data);
+    return requested;
 }
 
 

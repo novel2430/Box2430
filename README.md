@@ -25,6 +25,7 @@ and multi-monitor topology reconciliation.
 * Per-monitor workspaces
 * FREE and MONOCLE workspace modes
 * Configurable FREE/MONOCLE client borders
+* Optional FREE-only sibling window titlebars, disabled by default
 * Per-monitor native bar with workspace, mode, title, status, clock, and tray widgets
 * Configurable top/bottom MONOCLE tab bar
 * XEmbed system tray integrated with the selected monitor's bar
@@ -122,6 +123,28 @@ configuration is rejected as a whole and Box2430 falls back to those defaults.
 `appearance.background` sets the root fallback color only for a fresh WM
 session. Box2430 does not continuously own the background, so wallpaper tools
 such as `feh` can replace it normally. `wm restart` does not repaint it.
+
+## Window decoration
+
+Window decoration is optional and disabled by default. Enable it with:
+
+```toml
+[appearance.decoration]
+enabled = true
+height = 24
+
+[[rules]]
+class = "mpv"
+decoration = "none"
+```
+
+Decoration is non-reparenting: each titlebar is a sibling of its original
+client window. It appears only in FREE mode, never in MONOCLE or real
+fullscreen. Dragging a titlebar with Button1 uses the existing window-move
+behavior. Rules accept `auto` (default), `force`, and `none`. AUTO decorates
+Normal/Dialog clients and respects `_MOTIF_WM_HINTS` no-decoration requests,
+including runtime changes. `force` overrides type/Motif policy but cannot
+override the global switch or FREE-only restriction.
 
 ## Default controls
 

@@ -311,6 +311,61 @@ urgent = "#f38ba8"
 `width` may be `0..64`. A rule with `border = false` suppresses both mode-specific
 WM borders for that client. Real fullscreen also presents with zero border.
 
+### Window decoration
+
+Optional non-reparenting sibling titlebars are disabled by default:
+
+```toml
+[appearance.decoration]
+enabled = false
+height = 24
+bg = "#222222"
+fg = "#aaaaaa"
+focused_bg = "#3b4252"
+focused_fg = "#ffffff"
+```
+
+`height` is an integer in `12..128`; colors use the existing `#RRGGBB` syntax.
+Invalid values reject the whole configuration. Text uses the cached client title
+and the normal `appearance.tabs.font` font/fallback set and `tabs.padding`, even
+when tabs are disabled. The configured titlebar height is fixed; oversized text
+is clipped, not used to enlarge it.
+
+Decoration is a FREE-mode-only presentation feature. It is never visible in
+MONOCLE or real fullscreen, regardless of rules. Fake client fullscreen retains
+the underlying FREE presentation. Hidden workspaces hide both client and titlebar.
+
+The manage-time `decoration` rule policy is:
+
+* `auto` (default): decorate Normal/Dialog clients unless `_MOTIF_WM_HINTS`
+  explicitly sets the decorations flag and requests zero decorations;
+* `force`: override window-type and Motif opt-out policy for a managed Client;
+* `none`: never decorate that client.
+
+The global `enabled` switch overrides all policies, including `force`. Special
+windows and unmanaged windows do not enter this system. AUTO examines the
+window-type preference list independently of Box2430's rule/placement type
+classification: unknown extension atoms are skipped and the first recognized
+standard type wins. Normal/Dialog allow AUTO; Utility, Splash, Menu, Toolbar
+and other standard types exclude it even when followed by Normal. Missing,
+empty or invalid type properties use the ordinary eligible default; a nonempty
+unknown-only list is ineligible. Runtime Motif/type changes refresh metadata and
+reconcile decoration, but do not reapply rules. There are no toolkit/class-name,
+`_GTK_FRAME_EXTENTS`, or pixel-based CSD heuristics; Motif opt-out does not imply
+that a client actually draws its own titlebar.
+
+Unmodified Button1 on the titlebar starts the existing move interaction, with
+the same focus/raise policy, center pointer warp, monitor crossing, and snap
+preview/release behavior as a client move binding. This input is built in, not
+a new binding table. There are no titlebar buttons or resize handles.
+
+Floating client content geometry is unchanged: the titlebar extends above the
+original window. Existing X border behavior is independent (`border = false`
+does not suppress a titlebar). Snap/maximize fit the titlebar and client border
+inside their target outer rectangle; leaving them restores normal client content
+geometry. ConfigureRequest and synthetic ConfigureNotify still describe the
+original client window, never a frame.
+
 ### Native bar
 
 The native bar is configured under `[appearance.bar]`:
@@ -660,6 +715,7 @@ Action fields:
 * `focus_on_map`: boolean
 * `raise_on_map`: boolean
 * `border`: boolean
+* `decoration`: `auto`, `force`, or `none` (default `auto`)
 * `fullscreen_policy`: `allow`, `fake`, or `deny`
 * `placement`: `center` or `client`
 
@@ -674,6 +730,7 @@ focus_on_map = true
 [[rules]]
 class = "mpv"
 fullscreen_policy = "allow"
+decoration = "none"
 
 [[rules]]
 window_type = "dialog"

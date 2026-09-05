@@ -169,6 +169,12 @@ ownership, workspace-local order coherence, selected-monitor/focused-client
 coherence, accepted RandR snapshot count/geometry correspondence, and
 snap/maximize exclusion without querying X.
 
+Decoration windows are Client projection resources, not managed clients or
+semantic stack members. Decoration is a FREE-mode-only presentation feature.
+The checker also validates unique decoration ownership and forbids a mapped
+titlebar without an eligible mapped owner on an active FREE workspace, including
+the real-fullscreen exclusion. These checks add no X round trips.
+
 The full Xvfb suite therefore exercises these checks through real management,
 focus, workspace, movement, lifecycle, and protocol paths. A failure reported as
 `semantic invariant failed` indicates internal authoritative-state corruption;
@@ -190,10 +196,11 @@ The Makefile performs:
 build/debug/monitor-geometry-test
 build/debug/ui-label-test
 build/debug/bspwm-compat-test
+build/debug/decoration-test
 tests/run_xvfb.sh
 ```
 
-So `make test` contains three focused local tests followed by the Xvfb integration
+So `make test` contains four focused local tests followed by the Xvfb integration
 suite.
 
 ### Monitor geometry test
@@ -229,6 +236,20 @@ pure full-report projection, including monitor selection, numeric workspace
 names, empty/occupied/urgent state, FREE/MONOCLE layout flags, and omission of
 bspwm node semantics.
 
+### Decoration test
+
+`tests/decoration_test.c` checks default-disabled and strict atomic configuration,
+height bounds, all three ordered-rule policy values, Motif flag interpretation,
+AUTO type eligibility, force/master-switch/FREE/fullscreen precedence, and
+content/outer/titlebar geometry conversions with and without X borders.
+
+The decoration Xvfb scenario also runs `decoration-test --x11-types` against
+real properties: custom-type Normal/Dialog fallbacks, standard-type precedence,
+multi-chunk lists, and unchanged first-atom/transient semantic classification.
+Manage-time regressions exercise normal rules, dialog placement and parent
+workspace inheritance with decoration disabled and enabled. A painted marker
+checks that unrelated UI/title/focus updates do not redraw every titlebar.
+
 ## Xvfb integration suite
 
 After building the WM and test tools, the headless scenarios can also be run
@@ -238,7 +259,7 @@ directly:
 tests/run_xvfb.sh
 ```
 
-The current runner executes 40 scenarios:
+The current runner executes 42 scenarios:
 
 ```text
 xvfb_randr_monitor.sh
@@ -249,6 +270,8 @@ xvfb_workspace_transition.sh
 xvfb_config.sh
 xvfb_v2_config.sh
 xvfb_border_modes.sh
+xvfb_decoration.sh
+xvfb_decoration_topology.sh
 xvfb_rules.sh
 xvfb_special_windows.sh
 xvfb_native_bar.sh
@@ -301,6 +324,13 @@ The Xvfb suite currently covers areas including:
 * strict atomic TOML parsing and invalid-config fallback;
 * native UI configuration validation, state-style validation, and old-config rejection;
 * independent FREE/MONOCLE border presentation;
+* decoration lifecycle, default/master switch, rule precedence, runtime Motif/type
+  changes, cached title rendering, focus colors, ConfigureRequest content geometry,
+  FREE/MONOCLE/fullscreen exclusion, decorated snap/maximize restore, adjacent
+  stacking pairs, titlebar drag/release, withdrawal and restart;
+* decoration following real X11 multi-monitor drag/translation, fullscreen monitor
+  geometry changes, MONOCLE monitor removal, hidden snap rematerialization and
+  monitor addition through the existing passive RandR reconciliation path;
 * ordered rules and client fullscreen policies;
 * Docks, struts, workareas, Desktop/Notification special windows;
 * native bar top/bottom workarea reservation;

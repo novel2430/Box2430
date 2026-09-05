@@ -2,6 +2,7 @@
 #include "bspwm_compat.h"
 #include "ui.h"
 #include "tray.h"
+#include "decoration.h"
 
 #include <X11/Xatom.h>
 #include <X11/keysym.h>
@@ -305,6 +306,17 @@ static void wm_check_invariants(const WM *wm)
             invariant_failure("globally owned client is not owned by one workspace");
         if (client->snap_state != SNAP_NONE && client->maximized)
             invariant_failure("client is both snapped and maximized");
+        if (client->decoration_mapped &&
+            (!client->decoration || !client->mapped ||
+             !client_should_decorate(wm, client) || !client_workspace_is_active(client)))
+            invariant_failure("decoration is mapped outside FREE-visible presentation");
+        if (client->decoration) {
+            for (const Client *other = model->clients; other; other = other->next) {
+                if (other->window == client->decoration ||
+                    (other != client && other->decoration == client->decoration))
+                    invariant_failure("decoration has ambiguous client ownership");
+            }
+        }
     }
 
     if (model->focused_client) {
@@ -438,6 +450,18 @@ static void append_native_stack(WM *wm, Window window, Window ceiling,
     *top = window;
 }
 
+/* Expand one semantic stack member into an adjacent top-to-bottom X pair.
+ * Returning the client window gives the next lower unit its ceiling. */
+static Window project_client_stack(WM *wm, Client *client, Window upper)
+{
+    Window top = client->decoration_mapped ? client->decoration : client->window;
+    if (upper) stack_relative(wm, top, upper, Below);
+    else XRaiseWindow(wm->display, top);
+    if (top != client->window)
+        stack_relative(wm, client->window, top, Below);
+    return client->window;
+}
+
 static void enforce_stacking_below(WM *wm, Window ceiling)
 {
     ui_update(wm);
@@ -476,14 +500,7 @@ static void enforce_stacking_below(WM *wm, Window ceiling)
         Workspace *workspace = wm->model.monitors[i].active_workspace;
         for (Client *client = workspace->stack_tail; client; client = client->stack_prev) {
             if (client->fullscreen) continue;
-            if (upper) {
-                stack_relative(wm, client->window, upper, Below);
-            } else {
-                /* With no native UI there is no stable Box2430 sibling to
-                 * anchor against, so preserve the existing raise semantics. */
-                XRaiseWindow(wm->display, client->window);
-            }
-            upper = client->window;
+            upper = project_client_stack(wm, client, upper);
         }
     }
 
@@ -744,6 +761,7 @@ static void client_activate(WM *wm, Client *client, Time time)
     wm->model.focused_client = client;
     if (previous) {
         ui_client_border_refresh(wm, previous);
+        decoration_draw(wm, previous);
         grab_client_buttons(wm, previous, false);
     }
     if (!client) {
@@ -757,6 +775,7 @@ static void client_activate(WM *wm, Client *client, Time time)
     set_client_urgent(wm, client, false);
     ui_client_border_refresh(wm, client);
     grab_client_buttons(wm, client, true);
+    decoration_draw(wm, client);
     project_semantic_input_focus(wm, time);
     ui_update(wm);
     if (wm->config.raise_on_focus) client_raise(wm, client);
@@ -795,6 +814,7 @@ static void present_client_geometry(WM *wm, Client *client, Rect geometry)
 {
     XMoveResizeWindow(wm->display, client->window, geometry.x, geometry.y,
                       (unsigned int)geometry.width, (unsigned int)geometry.height);
+    decoration_reconcile(wm, client);
 }
 
 /*
@@ -824,18 +844,12 @@ static unsigned int client_free_border_width(const WM *wm, const Client *client)
 
 static unsigned int client_border_width(const WM *wm, const Client *client)
 {
-    if (client->fullscreen) return 0;
-    return client_border_width_for_mode(wm, client, client->workspace->mode);
+    return ui_client_border_width(wm, client);
 }
 
 static Rect fit_workarea(WM *wm, const Client *client, Rect area)
 {
-    int border = (int)client_border_width(wm, client);
-    int width = area.width - 2 * border;
-    int height = area.height - 2 * border;
-    if (width < 1) width = 1;
-    if (height < 1) height = 1;
-    return (Rect){area.x, area.y, width, height};
+    return client_content_rect(wm, client, area);
 }
 
 static Rect monocle_content_area(const WM *wm, const Workspace *workspace)
@@ -962,6 +976,11 @@ void workspace_set_mode(WM *wm, Workspace *workspace, WorkspaceMode mode)
     if (!workspace || workspace->mode == mode) return;
     workspace->mode = mode;
     if (workspace != workspace->monitor->active_workspace) return;
+    /* Retire every FREE strip before the incoming MONOCLE target is raised
+     * and stacking projection can flush. Geometry/mapping follow below. */
+    if (mode == WORKSPACE_MONOCLE)
+        for (Client *client = workspace->clients; client; client = client->workspace_next)
+            decoration_reconcile(wm, client);
     ui_bar_update(wm);
     if (mode == WORKSPACE_MONOCLE) {
         Client *target = workspace_focus_target(workspace);
@@ -1154,11 +1173,8 @@ static Rect snap_preview_outer_target(WM *wm, Client *client, Monitor *monitor,
                                       SnapState state, bool maximize)
 {
     if (maximize) return monitor->workarea;
-    Rect inner = snap_geometry_on(wm, client, monitor, state);
-    int border = (int)client_border_width(wm, client);
-    inner.width += 2 * border;
-    inner.height += 2 * border;
-    return inner;
+    return client_outer_rect(wm, client,
+                             snap_geometry_on(wm, client, monitor, state));
 }
 
 static SnapState pointer_snap_target(WM *wm, Monitor *monitor, int x, int y)
@@ -1297,6 +1313,7 @@ static void finish_drag(WM *wm)
         else client_snap(wm, client, wm->drag.preview_snap);
     }
     client_activate(wm, client, CurrentTime);
+    XUngrabPointer(wm->display, CurrentTime);
     wm->drag.active = false;
     wm->drag.client = NULL;
     wm->drag.preview_monitor = NULL;
@@ -1363,6 +1380,8 @@ static void client_set_requested_fullscreen(WM *wm, Client *client, bool request
 static void project_client_mapped(WM *wm, Client *client)
 {
     XMapWindow(wm->display, client->window);
+    client->mapped = true;
+    decoration_reconcile(wm, client);
 }
 
 /* Record causality before issuing the X request so its later UnmapNotify is an
@@ -1371,6 +1390,8 @@ static void project_client_unmapped(WM *wm, Client *client)
 {
     ++client->ignored_unmaps;
     XUnmapWindow(wm->display, client->window);
+    client->mapped = false;
+    decoration_reconcile(wm, client);
 }
 
 static bool client_workspace_is_active(const Client *client)
@@ -1392,11 +1413,14 @@ static void reconcile_client_mapping(WM *wm, Client *client)
 {
     XWindowAttributes attrs;
     if (!XGetWindowAttributes(wm->display, client->window, &attrs)) return;
+    client->mapped = attrs.map_state != IsUnmapped;
     bool should_map = client_should_be_mapped(client);
     if (should_map && attrs.map_state == IsUnmapped) {
         project_client_mapped(wm, client);
     } else if (!should_map && attrs.map_state != IsUnmapped) {
         project_client_unmapped(wm, client);
+    } else {
+        decoration_reconcile(wm, client);
     }
 }
 
@@ -1427,14 +1451,14 @@ void workspace_activate(WM *wm, Monitor *monitor, Workspace *workspace)
     if (workspace->mode == WORKSPACE_MONOCLE) {
         if (target) {
             project_client_mapped(wm, target);
-            XRaiseWindow(wm->display, target->window);
+            project_client_stack(wm, target, None);
         }
     } else {
         /* Preserve FREE's established incoming stack materialization: build
          * the final bottom-to-top order before retiring the old workspace. */
         for (Client *client = workspace->stack_head; client; client = client->stack_next) {
             project_client_mapped(wm, client);
-            XRaiseWindow(wm->display, client->window);
+            project_client_stack(wm, client, None);
         }
     }
     /* Keep the incoming-first handoff, but retire the outgoing projection
@@ -1604,6 +1628,7 @@ typedef struct InitialPolicy {
     bool border;
     PlacementPolicy placement;
     ClientFullscreenPolicy fullscreen_policy;
+    ClientDecorationPolicy decoration;
 } InitialPolicy;
 
 static bool rule_matches(const Rule *rule, const Client *client)
@@ -1647,6 +1672,7 @@ static InitialPolicy initial_policy(WM *wm, Client *client,
         if (rule->has_focus_on_map) policy.focus_on_map = rule->focus_on_map;
         if (rule->has_raise_on_map) policy.raise_on_map = rule->raise_on_map;
         if (rule->has_border) policy.border = rule->border;
+        if (rule->has_decoration) policy.decoration = rule->decoration;
         if (rule->has_placement) policy.placement = rule->placement;
         if (rule->has_fullscreen_policy)
             policy.fullscreen_policy = rule->fullscreen_policy;
@@ -1874,9 +1900,12 @@ static void manage_window(WM *wm, Window window, bool map_window)
         return;
     }
     client->window = window;
+    client->mapped = attrs.map_state != IsUnmapped;
     client->title = x11_read_window_title(wm, window);
     x11_read_window_class(wm, window, &client->instance, &client->class_name);
     client->window_type = type;
+    client->auto_decoration_eligible = x11_window_auto_decoration_eligible(wm, window);
+    client->requests_no_decoration = x11_read_no_decoration(wm, window);
     read_transient_for(wm, client);
     if (!client->title || !client->instance || !client->class_name) {
         fprintf(stderr, "box2430: out of memory reading window metadata\n");
@@ -1893,6 +1922,7 @@ static void manage_window(WM *wm, Window window, bool map_window)
     client->border_enabled = policy.border;
     client->original_border_width = (unsigned int)attrs.border_width;
     client->fullscreen_policy = policy.fullscreen_policy;
+    client->decoration_policy = policy.decoration;
     unsigned int border_width = client_free_border_width(wm, client);
     client->geometry = initial_geometry(wm, client, policy.monitor, &attrs,
                                         policy.placement, border_width);
@@ -1935,11 +1965,17 @@ static void manage_window(WM *wm, Window window, bool map_window)
     if (x11_window_requests_fullscreen(wm, window))
         client_set_requested_fullscreen(wm, client, true);
     ui_update(wm);
+    if (client->decoration_mapped) enforce_stacking(wm);
     x11_update_client_lists(wm);
 }
 
 static void unmanage_client(WM *wm, Client *client, bool withdrawn)
 {
+    if (wm->drag.client == client) {
+        ui_snap_preview_hide(wm);
+        XUngrabPointer(wm->display, CurrentTime);
+        memset(&wm->drag, 0, sizeof(wm->drag));
+    }
     Workspace *workspace = client->workspace;
     resolve_focus_before_client_removal(wm, client);
     unlink_workspace_orders(workspace, client);
@@ -1954,6 +1990,7 @@ static void unmanage_client(WM *wm, Client *client, bool withdrawn)
     if (*link) {
         *link = client->next;
     }
+    decoration_destroy(wm, client);
     if (withdrawn) {
         XWindowChanges changes = {
             .border_width = (int)client->original_border_width,
@@ -2406,6 +2443,19 @@ static void handle_event(WM *wm, XEvent *event)
     case ButtonPress:
         {
         /* Pointer hit testing supplies context for user-intent transitions. */
+        client = decoration_client_for_window(wm, event->xbutton.window);
+        if (client) {
+            /* A runtime Motif change can hide the input surface mid-drag.
+             * Keep this surface's pointer grab on root until common release. */
+            if (event->xbutton.button == Button1 && client->decoration_mapped &&
+                XGrabPointer(wm->display, wm->root, False,
+                             ButtonPressMask | ButtonReleaseMask | PointerMotionMask,
+                             GrabModeAsync, GrabModeAsync, None,
+                             wm->cursor_move, event->xbutton.time) == GrabSuccess)
+                mouse_begin_drag(wm, client, false,
+                                 event->xbutton.x_root, event->xbutton.y_root);
+            break;
+        }
         if (event->xbutton.window == wm->root) {
             if (event->xbutton.button == Button1 &&
                 event->xbutton.subwindow == None) {
@@ -2551,6 +2601,7 @@ static void handle_event(WM *wm, XEvent *event)
             if (title) {
                 free(client->title);
                 client->title = title;
+                decoration_draw(wm, client);
                 ui_update(wm);
             }
         } else if (client && event->xproperty.atom == XA_WM_CLASS) {
@@ -2567,11 +2618,24 @@ static void handle_event(WM *wm, XEvent *event)
                 free(instance);
                 free(class_name);
             }
-        } else if (client && event->xproperty.atom == XA_WM_TRANSIENT_FOR) {
-            read_transient_for(wm, client);
-            client->window_type = x11_read_window_type(wm, client->window);
-        } else if (client && event->xproperty.atom == wm->atoms.net_wm_window_type) {
-            client->window_type = x11_read_window_type(wm, client->window);
+        } else if (client && (event->xproperty.atom == XA_WM_TRANSIENT_FOR ||
+                              event->xproperty.atom == wm->atoms.net_wm_window_type ||
+                              event->xproperty.atom == wm->atoms.motif_wm_hints)) {
+            bool decorated = client_should_decorate(wm, client);
+            if (event->xproperty.atom == wm->atoms.motif_wm_hints)
+                client->requests_no_decoration = x11_read_no_decoration(wm, client->window);
+            else {
+                if (event->xproperty.atom == XA_WM_TRANSIENT_FOR)
+                    read_transient_for(wm, client);
+                client->window_type = x11_read_window_type(wm, client->window);
+                if (event->xproperty.atom == wm->atoms.net_wm_window_type)
+                    client->auto_decoration_eligible =
+                        x11_window_auto_decoration_eligible(wm, client->window);
+            }
+            if (decorated != client_should_decorate(wm, client)) {
+                materialize_client_geometry(wm, client);
+                enforce_stacking(wm);
+            }
         } else if (!client && (event->xproperty.atom == wm->atoms.net_wm_strut ||
                                event->xproperty.atom == wm->atoms.net_wm_strut_partial)) {
             special = find_special_window(&wm->model, event->xproperty.window);
@@ -2620,6 +2684,11 @@ static void handle_event(WM *wm, XEvent *event)
         break;
     case Expose:
         {
+        client = decoration_client_for_window(wm, event->xexpose.window);
+        if (client && event->xexpose.count == 0) {
+            decoration_draw(wm, client);
+            break;
+        }
         Monitor *bar_monitor = ui_bar_monitor_for_window(wm, event->xexpose.window);
         if (bar_monitor && event->xexpose.count == 0) {
             ui_bar_draw(wm, bar_monitor);

@@ -1290,6 +1290,13 @@ void ui_client_border_refresh(WM *wm, Client *client)
     XSetWindowBorder(wm->display, client->window, pixel);
 }
 
+unsigned int ui_client_border_width(const WM *wm, const Client *client)
+{
+    if (!client->border_enabled || client->fullscreen) return 0;
+    return client->workspace->mode == WORKSPACE_MONOCLE
+        ? wm->config.border.monocle.width : wm->config.border.free.width;
+}
+
 static void init_snap_preview_resources(WM *wm)
 {
     wm->ui_snap_preview_color = WhitePixel(wm->display, wm->screen);
@@ -1502,6 +1509,29 @@ static bool init_bar_resources(WM *wm)
     return true;
 }
 
+static bool init_decoration_resources(WM *wm)
+{
+    if (!wm->config.decoration.enabled) return true;
+    XftColor *colors[] = {
+        &wm->decoration_fg, &wm->decoration_bg,
+        &wm->decoration_focused_fg, &wm->decoration_focused_bg,
+    };
+    const DecorationConfig *config = &wm->config.decoration;
+    const char *names[] = {config->fg, config->bg,
+                          config->focused_fg, config->focused_bg};
+    for (size_t i = 0; i < 4; ++i) {
+        if (!XftColorAllocName(wm->display, DefaultVisual(wm->display, wm->screen),
+                               DefaultColormap(wm->display, wm->screen),
+                               names[i], colors[i])) {
+            fprintf(stderr, "box2430: cannot allocate decoration color %s\n", names[i]);
+            free_color_prefix(wm, colors, i);
+            return false;
+        }
+    }
+    wm->decoration_resources_ready = true;
+    return true;
+}
+
 bool ui_init(WM *wm)
 {
     init_border_resources(wm);
@@ -1569,6 +1599,7 @@ bool ui_init(WM *wm)
         }
     }
     wm->tab_resources_ready = true;
+    if (!init_decoration_resources(wm)) return false;
     ui_update(wm);
     return true;
 }
@@ -1582,6 +1613,14 @@ void ui_update(WM *wm)
 void ui_destroy(WM *wm)
 {
     if (!wm->display) return;
+    if (wm->decoration_resources_ready) {
+        XftColor *colors[] = {
+            &wm->decoration_fg, &wm->decoration_bg,
+            &wm->decoration_focused_fg, &wm->decoration_focused_bg,
+        };
+        free_color_prefix(wm, colors, 4);
+        wm->decoration_resources_ready = false;
+    }
     for (unsigned int i = 0; i < wm->model.monitor_count; ++i) {
         ui_bar_destroy_monitor(wm, &wm->model.monitors[i]);
         ui_tab_destroy_monitor(wm, &wm->model.monitors[i]);

@@ -13,7 +13,7 @@ BINDIR ?= $(PREFIX)/bin
 DATADIR ?= $(PREFIX)/share
 BUILD_DIR = build/$(PROFILE)
 TARGET = $(BUILD_DIR)/box2430
-SOURCES = src/main.c src/wm.c src/ui.c src/tray.c src/bspwm_compat.c src/monitor.c src/monitor_randr.c src/command.c src/config.c src/x11.c \
+SOURCES = src/main.c src/wm.c src/ui.c src/decoration.c src/tray.c src/bspwm_compat.c src/monitor.c src/monitor_randr.c src/command.c src/config.c src/x11.c \
 	vendor/tomlc17/tomlc17.c
 OBJECTS = $(SOURCES:%.c=$(BUILD_DIR)/%.o)
 DEPS = $(OBJECTS:.o=.d)
@@ -64,12 +64,14 @@ test-tools: $(BUILD_DIR)/x11-test-client $(BUILD_DIR)/x11-set-urgency \
 	$(BUILD_DIR)/monitor-geometry-test \
 	$(BUILD_DIR)/ui-label-test \
 	$(BUILD_DIR)/bspwm-compat-test \
+	$(BUILD_DIR)/decoration-test \
 	$(BUILD_DIR)/bspwm-compat-client
 
 test: all test-tools
 	$(BUILD_DIR)/monitor-geometry-test
 	$(BUILD_DIR)/ui-label-test
 	$(BUILD_DIR)/bspwm-compat-test
+	$(BUILD_DIR)/decoration-test
 	tests/run_xvfb.sh
 
 $(BUILD_DIR)/x11-test-client: tests/x11_test_client.c
@@ -178,3 +180,6 @@ $(BUILD_DIR)/bspwm-compat-client: tests/bspwm_compat_client.c
 	$(CC) $(CPPFLAGS) $(CFLAGS_COMMON) $(CFLAGS) -o $@ $<
 
 -include $(DEPS)
+
+$(BUILD_DIR)/decoration-test: tests/decoration_test.c $(filter-out $(BUILD_DIR)/src/main.o,$(OBJECTS))
+	$(CC) $(CPPFLAGS) $(CFLAGS_COMMON) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LDLIBS)

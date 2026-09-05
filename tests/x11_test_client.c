@@ -48,14 +48,30 @@ int main(int argc, char **argv)
                     (unsigned char *)argv[2], (int)strlen(argv[2]));
     XClassHint class_hint = {.res_name = argv[2], .res_class = "Box2430Fixture"};
     XSetClassHint(display, window, &class_hint);
+    const char *motif = getenv("BOX2430_TEST_MOTIF");
+    if (motif) {
+        Atom property = XInternAtom(display, "_MOTIF_WM_HINTS", False);
+        unsigned long hints[5] = {2, 0, 0, 0, 0};
+        if (strcmp(motif, "unflagged") == 0) hints[0] = 0;
+        XChangeProperty(display, window, property, property, 32,
+                        PropModeReplace, (unsigned char *)hints, 5);
+    }
 
     const char *type_name = override_notification ? "NOTIFICATION" : argv[1];
     char atom_name[128];
     snprintf(atom_name, sizeof(atom_name), "_NET_WM_WINDOW_TYPE_%s", type_name);
     Atom type_property = XInternAtom(display, "_NET_WM_WINDOW_TYPE", False);
     Atom type = XInternAtom(display, atom_name, False);
+    Atom types[2] = {type, None};
+    const char *fallback = getenv("BOX2430_TEST_TYPE_FALLBACK");
+    if (fallback) {
+        snprintf(atom_name, sizeof(atom_name), "_NET_WM_WINDOW_TYPE_%s", fallback);
+        types[1] = XInternAtom(display, atom_name, False);
+    }
     XChangeProperty(display, window, type_property, XA_ATOM, 32,
-                    PropModeReplace, (unsigned char *)&type, 1);
+                    PropModeReplace, (unsigned char *)types, fallback ? 2 : 1);
+    const char *parent = getenv("BOX2430_TEST_TRANSIENT_FOR");
+    if (parent) XSetTransientForHint(display, window, (Window)strtoul(parent, NULL, 0));
     if (override_notification) {
         Atom state_property = XInternAtom(display, "_NET_WM_STATE", False);
         Atom above = XInternAtom(display, "_NET_WM_STATE_ABOVE", False);

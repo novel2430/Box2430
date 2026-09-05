@@ -33,6 +33,14 @@ focused = "#eceff4"
 unfocused = "#3f3f36"
 urgent = "#bf616a"
 
+[appearance.decoration]
+enabled = false
+height = 24
+bg = "#222222"
+fg = "#aaaaaa"
+focused_bg = "#3b4252"
+focused_fg = "#ffffff"
+
 [appearance.bar]
 enabled = true
 position = "top"

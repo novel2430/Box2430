@@ -1,0 +1,46 @@
+[placement]
+normal = "client"
+dialog = "client"
+
+[focus]
+active_window = "focus"
+
+[appearance.decoration]
+enabled = true
+height = 24
+bg = "#223344"
+fg = "#aabbcc"
+focused_bg = "#334455"
+focused_fg = "#ffffff"
+
+[bindings.keys]
+"Super+n" = "snap none"
+"Super+r" = "window raise"
+"Super+l" = "window lower"
+"Super+o" = "window move-monitor next --follow"
+"Super+Shift+r" = "wm restart"
+"Super+Shift+q" = "wm quit"
+
+[[rules]]
+title = "DecForce*"
+decoration = "none"
+
+[[rules]]
+title = "DecForce*"
+decoration = "force"
+
+[[rules]]
+title = "DecNone*"
+decoration = "none"
+
+[[rules]]
+title = "DecAuto*"
+decoration = "auto"
+
+[[rules]]
+title = "DecBorderless"
+border = false
+
+[[rules]]
+title = "DecAllow"
+fullscreen_policy = "allow"

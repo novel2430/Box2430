@@ -130,6 +130,14 @@ void config_set_defaults(Config *config)
             .free = {.width = 2},
             .monocle = {.width = 0},
         },
+        .decoration = {
+            .enabled = false,
+            .height = 24,
+            .bg = "#222222",
+            .fg = "#aaaaaa",
+            .focused_bg = "#3b4252",
+            .focused_fg = "#ffffff",
+        },
         .snap_preview_width = 2,
         .snap_enabled = true,
         .snap_edge_zone = 16,
@@ -835,8 +843,9 @@ static bool parse_rule(Config *candidate, toml_datum_t table, Rule *rule)
     static const char *keys[] = {
         "class", "instance", "title", "window_type", "workspace", "monitor",
         "focus_on_map", "raise_on_map", "border", "fullscreen_policy", "placement",
+        "decoration",
     };
-    if (!validate_keys(table, "rule", keys, 11) ||
+    if (!validate_keys(table, "rule", keys, 12) ||
         !read_rule_pattern(table, "class", &rule->has_class, rule->class_pattern) ||
         !read_rule_pattern(table, "instance", &rule->has_instance,
                            rule->instance_pattern) ||
@@ -874,12 +883,20 @@ static bool parse_rule(Config *candidate, toml_datum_t table, Rule *rule)
         rule->has_placement = true;
         rule->placement = (PlacementPolicy)selected;
     }
+    datum = toml_get(table, "decoration");
+    if (datum.type != TOML_UNKNOWN) {
+        static const char *names[] = {"auto", "force", "none"};
+        unsigned int selected = 0;
+        if (!read_enum(table, "rule", "decoration", names, 3, &selected)) return false;
+        rule->has_decoration = true;
+        rule->decoration = (ClientDecorationPolicy)selected;
+    }
     bool has_match = rule->has_class || rule->has_instance || rule->has_title ||
                      rule->has_window_type;
     bool has_action = rule->has_workspace || rule->has_monitor ||
                       rule->has_focus_on_map || rule->has_raise_on_map ||
                       rule->has_border || rule->has_fullscreen_policy ||
-                      rule->has_placement;
+                      rule->has_placement || rule->has_decoration;
     return has_match && has_action;
 }
 
@@ -934,6 +951,22 @@ static bool parse_tabs(Config *candidate, toml_datum_t tabs)
                              &candidate->tabs.active) &&
            parse_style_state(tabs, "urgent", "appearance.tabs",
                              &candidate->tabs.urgent);
+}
+
+static bool parse_decoration(Config *candidate, toml_datum_t table)
+{
+    static const char *keys[] = {
+        "enabled", "height", "bg", "fg", "focused_bg", "focused_fg",
+    };
+    DecorationConfig *config = &candidate->decoration;
+    return validate_keys(table, "appearance.decoration", keys, 6) &&
+           read_bool(table, "appearance.decoration", "enabled", &config->enabled) &&
+           read_uint(table, "appearance.decoration", "height", 12, 128,
+                     &config->height) &&
+           read_color(table, "appearance.decoration", "bg", config->bg) &&
+           read_color(table, "appearance.decoration", "fg", config->fg) &&
+           read_color(table, "appearance.decoration", "focused_bg", config->focused_bg) &&
+           read_color(table, "appearance.decoration", "focused_fg", config->focused_fg);
 }
 
 static bool parse_workspace_widget(BarConfig *bar, toml_datum_t table)
@@ -1122,9 +1155,9 @@ static bool parse_supported_config(Config *candidate, toml_datum_t root)
 
     toml_datum_t appearance = toml_get(root, "appearance");
     static const char *appearance_keys[] = {
-        "background", "border", "tabs", "bar", "snap_preview",
+        "background", "border", "tabs", "bar", "snap_preview", "decoration",
     };
-    if (!validate_keys(appearance, "appearance", appearance_keys, 5) ||
+    if (!validate_keys(appearance, "appearance", appearance_keys, 6) ||
         !read_color(appearance, "appearance", "background", candidate->background))
         return false;
     toml_datum_t border = toml_get(appearance, "border");
@@ -1159,7 +1192,8 @@ static bool parse_supported_config(Config *candidate, toml_datum_t root)
                     candidate->snap_preview_color) ||
         !read_uint(preview, "appearance.snap_preview", "width", 1, 32,
                    &candidate->snap_preview_width)) return false;
-    if (!parse_tabs(candidate, toml_get(appearance, "tabs")) ||
+    if (!parse_decoration(candidate, toml_get(appearance, "decoration")) ||
+        !parse_tabs(candidate, toml_get(appearance, "tabs")) ||
         !parse_bar(candidate, toml_get(appearance, "bar"))) return false;
 
     toml_datum_t snap = toml_get(root, "snap");

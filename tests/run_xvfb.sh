@@ -10,6 +10,8 @@ for scenario in \
     xvfb_config.sh \
     xvfb_v2_config.sh \
     xvfb_border_modes.sh \
+    xvfb_decoration.sh \
+    xvfb_decoration_topology.sh \
     xvfb_rules.sh \
     xvfb_special_windows.sh \
     xvfb_native_bar.sh \

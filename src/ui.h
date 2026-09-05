@@ -30,6 +30,7 @@ void ui_status_refresh(WM *wm);
 bool ui_clock_visible(const WM *wm);
 void ui_clock_tick(WM *wm);
 void ui_client_border_refresh(WM *wm, Client *client);
+unsigned int ui_client_border_width(const WM *wm, const Client *client);
 Monitor *ui_bar_monitor_for_window(WM *wm, Window window);
 Workspace *ui_bar_workspace_hit_test(WM *wm, Monitor *monitor, int x);
 UIWorkspaceVisualState ui_workspace_visual_state(const Monitor *monitor,
