@@ -30,15 +30,20 @@ static bool init_cursors(WM *wm)
     wm->cursor_normal = load_cursor(wm, "left_ptr", NULL);
     wm->cursor_move = load_cursor(wm, "fleur", NULL);
     wm->cursor_resize = load_cursor(wm, "se-resize", "bottom_right_corner");
+    if (wm->config.decoration.enabled)
+        wm->cursor_pointer = load_cursor(wm, "pointer", "hand2");
     if (wm->cursor_normal == None || wm->cursor_move == None ||
-        wm->cursor_resize == None) {
+        wm->cursor_resize == None ||
+        (wm->config.decoration.enabled && wm->cursor_pointer == None)) {
         fprintf(stderr, "box2430: cannot load Xcursor theme cursors\n");
         if (wm->cursor_normal != None) XFreeCursor(wm->display, wm->cursor_normal);
         if (wm->cursor_move != None) XFreeCursor(wm->display, wm->cursor_move);
         if (wm->cursor_resize != None) XFreeCursor(wm->display, wm->cursor_resize);
+        if (wm->cursor_pointer != None) XFreeCursor(wm->display, wm->cursor_pointer);
         wm->cursor_normal = None;
         wm->cursor_move = None;
         wm->cursor_resize = None;
+        wm->cursor_pointer = None;
         return false;
     }
     XDefineCursor(wm->display, wm->root, wm->cursor_normal);
@@ -50,9 +55,11 @@ static void free_cursors(WM *wm)
     if (wm->cursor_normal != None) XFreeCursor(wm->display, wm->cursor_normal);
     if (wm->cursor_move != None) XFreeCursor(wm->display, wm->cursor_move);
     if (wm->cursor_resize != None) XFreeCursor(wm->display, wm->cursor_resize);
+    if (wm->cursor_pointer != None) XFreeCursor(wm->display, wm->cursor_pointer);
     wm->cursor_normal = None;
     wm->cursor_move = None;
     wm->cursor_resize = None;
+    wm->cursor_pointer = None;
 }
 
 static int ignore_x11_error(Display *display, XErrorEvent *event)
@@ -318,6 +325,17 @@ static void wm_check_invariants(const WM *wm)
             }
         }
     }
+
+    const DecorationInputState *input = &wm->decoration_input;
+    if (input->client &&
+        (global_client_occurrences(model, input->client) != 1 ||
+         !input->client->decoration_mapped || input->titlebar != input->client->decoration))
+        invariant_failure("titlebar input has no visible managed owner");
+    if (input->last_client && global_client_occurrences(model, input->last_client) != 1)
+        invariant_failure("titlebar click history has no managed owner");
+    if (input->dragging &&
+        (!input->client || !wm->drag.active || wm->drag.client != input->client))
+        invariant_failure("titlebar drag disagrees with move runtime");
 
     if (model->focused_client) {
         const Client *focused = model->focused_client;
@@ -1196,7 +1214,28 @@ static SnapState pointer_snap_target(WM *wm, Monitor *monitor, int x, int y)
     return SNAP_NONE;
 }
 
-void mouse_begin_drag(WM *wm, Client *client, bool resize, int root_x, int root_y)
+static void mouse_cancel_drag(WM *wm)
+{
+    ui_snap_preview_hide(wm);
+    XUngrabPointer(wm->display, CurrentTime);
+    memset(&wm->drag, 0, sizeof(wm->drag));
+}
+
+void decoration_input_cancel(WM *wm, Client *client)
+{
+    DecorationInputState *input = &wm->decoration_input;
+    if (input->client && (!client || input->client == client)) {
+        if (wm->drag.client == input->client) mouse_cancel_drag(wm);
+        else XUngrabPointer(wm->display, CurrentTime);
+        *input = (DecorationInputState){0};
+    } else if (!client || input->last_client == client) {
+        input->last_client = NULL;
+        input->last_titlebar = None;
+    }
+}
+
+static void mouse_begin_drag_at(WM *wm, Client *client, bool resize,
+                                 int root_x, int root_y, bool warp_pointer)
 {
     if (!client || client->workspace->mode == WORKSPACE_MONOCLE || client->fullscreen)
         return;
@@ -1204,7 +1243,13 @@ void mouse_begin_drag(WM *wm, Client *client, bool resize, int root_x, int root_
         bool was_maximized = client->maximized;
         client->snap_state = SNAP_NONE;
         client->maximized = false;
-        commit_client_geometry(wm, client, client->normal_geometry);
+        Rect restored = client->normal_geometry;
+        if (!warp_pointer) {
+            /* Restore size without moving the titlebar's press anchor. */
+            restored.x = client->geometry.x;
+            restored.y = client->geometry.y;
+        }
+        commit_client_geometry(wm, client, restored);
         if (was_maximized) update_net_wm_state(wm, client);
     }
     client_activate(wm, client, CurrentTime);
@@ -1217,12 +1262,12 @@ void mouse_begin_drag(WM *wm, Client *client, bool resize, int root_x, int root_
     XChangeActivePointerGrab(
         wm->display, ButtonPressMask | ButtonReleaseMask | PointerMotionMask,
         resize ? wm->cursor_resize : wm->cursor_move, CurrentTime);
-    if (resize) {
+    if (warp_pointer && resize) {
         int border = (int)client_border_width(wm, client);
         root_x = client->geometry.x + client->geometry.width + 2 * border - 1;
         root_y = client->geometry.y + client->geometry.height + 2 * border - 1;
         XWarpPointer(wm->display, None, wm->root, 0, 0, 0, 0, root_x, root_y);
-    } else {
+    } else if (warp_pointer) {
         int border = (int)client_border_width(wm, client);
         root_x = client->geometry.x + (client->geometry.width + 2 * border) / 2;
         root_y = client->geometry.y + (client->geometry.height + 2 * border) / 2;
@@ -1231,6 +1276,12 @@ void mouse_begin_drag(WM *wm, Client *client, bool resize, int root_x, int root_
     wm->drag.start_x = root_x;
     wm->drag.start_y = root_y;
     wm->drag.start_geometry = client->geometry;
+}
+
+void mouse_begin_drag(WM *wm, Client *client, bool resize, int root_x, int root_y)
+{
+    decoration_input_cancel(wm, NULL);
+    mouse_begin_drag_at(wm, client, resize, root_x, root_y, true);
 }
 
 static void update_drag(WM *wm, int root_x, int root_y)
@@ -1319,6 +1370,114 @@ static void finish_drag(WM *wm)
     wm->drag.preview_monitor = NULL;
     wm->drag.preview_snap = SNAP_NONE;
     wm->drag.preview_maximized = false;
+}
+
+static void execute_decoration_action(WM *wm, Client *client,
+                                      DecorationAction action, Time time)
+{
+    switch (action) {
+    case DECORATION_ACTION_NONE:
+        break;
+    case DECORATION_ACTION_RAISE:
+        client_activate(wm, client, time);
+        client_raise(wm, client);
+        break;
+    case DECORATION_ACTION_LOWER:
+        client_lower(wm, client);
+        break;
+    case DECORATION_ACTION_MAXIMIZE_TOGGLE:
+        client_set_maximized(wm, client, !client->maximized);
+        break;
+    }
+}
+
+static void decoration_button_press(WM *wm, Client *client, const XButtonEvent *event)
+{
+    if (event->button < Button1 || event->button > Button3 || !client->decoration_mapped)
+        return;
+    DecorationPart part = decoration_part_at(wm, client, event->x_root, event->y_root);
+    if (part != DECORATION_PART_TITLE) {
+        wm->decoration_input.last_client = NULL;
+        if (part == DECORATION_PART_NONE || event->button != Button1) return;
+    }
+    if (XGrabPointer(wm->display, wm->root, False,
+                     ButtonPressMask | ButtonReleaseMask | PointerMotionMask,
+                     GrabModeAsync, GrabModeAsync, None, wm->cursor_normal,
+                     event->time) != GrabSuccess) return;
+    DecorationInputState *input = &wm->decoration_input;
+    input->client = client;
+    input->titlebar = event->window;
+    input->part = part;
+    input->button = event->button;
+    input->press_x = event->x_root;
+    input->press_y = event->y_root;
+    input->press_time = event->time;
+    input->dragging = false;
+    input->click_cancelled = false;
+    if (part == DECORATION_PART_TITLE && event->button == Button1)
+        client_activate(wm, client, event->time);
+    else input->last_client = NULL;
+    decoration_pointer_cursor(wm, client, event->x_root, event->y_root);
+}
+
+static void decoration_pointer_motion(WM *wm, int x, int y)
+{
+    DecorationInputState *input = &wm->decoration_input;
+    if (!input->client) return;
+    if (input->part != DECORATION_PART_TITLE) {
+        decoration_pointer_cursor(wm, input->client, x, y);
+        return;
+    }
+    if (!input->dragging &&
+        decoration_drag_threshold_reached(input->press_x, input->press_y, x, y)) {
+        input->last_client = NULL;
+        if (input->button != Button1) {
+            input->click_cancelled = true;
+            return;
+        }
+        input->dragging = true;
+        mouse_begin_drag_at(wm, input->client, false, input->press_x, input->press_y, false);
+    }
+    if (input->dragging) update_drag(wm, x, y);
+}
+
+static void decoration_button_release(WM *wm, const XButtonEvent *event)
+{
+    if (event->button != wm->decoration_input.button) return;
+    decoration_pointer_motion(wm, event->x_root, event->y_root);
+    DecorationInputState input = wm->decoration_input;
+    if (!input.client) return;
+    /* Completion can hide the strip while migrating between workspaces.
+     * Detach input first so that reconciliation cannot cancel this commit. */
+    wm->decoration_input = (DecorationInputState){0};
+    if (input.dragging) {
+        finish_drag(wm);
+    } else {
+        XUngrabPointer(wm->display, event->time);
+        if (input.part != DECORATION_PART_TITLE) {
+            if (input.part == decoration_part_at(wm, input.client,
+                                                  event->x_root, event->y_root)) {
+                if (input.part == DECORATION_PART_CLOSE) client_close(wm, input.client);
+                else execute_decoration_action(wm, input.client,
+                    DECORATION_ACTION_MAXIMIZE_TOGGLE, event->time);
+            }
+            return;
+        }
+        if (input.click_cancelled) return;
+        const DecorationBindings *bindings = &wm->config.decoration_bindings;
+        execute_decoration_action(wm, input.client,
+            decoration_click_action(bindings, input.button, false), event->time);
+        if (decoration_is_double_click(&input, event->time)) {
+            execute_decoration_action(wm, input.client,
+                decoration_click_action(bindings, input.button, true), event->time);
+        } else if (input.button == Button1) {
+            wm->decoration_input.last_client = input.client;
+            wm->decoration_input.last_titlebar = input.titlebar;
+            wm->decoration_input.last_x = input.press_x;
+            wm->decoration_input.last_y = input.press_y;
+            wm->decoration_input.last_time = event->time;
+        }
+    }
 }
 
 void client_set_maximized(WM *wm, Client *client, bool maximized)
@@ -1971,11 +2130,8 @@ static void manage_window(WM *wm, Window window, bool map_window)
 
 static void unmanage_client(WM *wm, Client *client, bool withdrawn)
 {
-    if (wm->drag.client == client) {
-        ui_snap_preview_hide(wm);
-        XUngrabPointer(wm->display, CurrentTime);
-        memset(&wm->drag, 0, sizeof(wm->drag));
-    }
+    decoration_input_cancel(wm, client);
+    if (wm->drag.client == client) mouse_cancel_drag(wm);
     Workspace *workspace = client->workspace;
     resolve_focus_before_client_removal(wm, client);
     unlink_workspace_orders(workspace, client);
@@ -2443,19 +2599,13 @@ static void handle_event(WM *wm, XEvent *event)
     case ButtonPress:
         {
         /* Pointer hit testing supplies context for user-intent transitions. */
+        if (wm->decoration_input.client) break;
         client = decoration_client_for_window(wm, event->xbutton.window);
         if (client) {
-            /* A runtime Motif change can hide the input surface mid-drag.
-             * Keep this surface's pointer grab on root until common release. */
-            if (event->xbutton.button == Button1 && client->decoration_mapped &&
-                XGrabPointer(wm->display, wm->root, False,
-                             ButtonPressMask | ButtonReleaseMask | PointerMotionMask,
-                             GrabModeAsync, GrabModeAsync, None,
-                             wm->cursor_move, event->xbutton.time) == GrabSuccess)
-                mouse_begin_drag(wm, client, false,
-                                 event->xbutton.x_root, event->xbutton.y_root);
+            decoration_button_press(wm, client, &event->xbutton);
             break;
         }
+        wm->decoration_input.last_client = NULL;
         if (event->xbutton.window == wm->root) {
             if (event->xbutton.button == Button1 &&
                 event->xbutton.subwindow == None) {
@@ -2555,19 +2705,48 @@ static void handle_event(WM *wm, XEvent *event)
         break;
         }
     case MotionNotify:
-        while (XCheckTypedEvent(wm->display, MotionNotify, event)) {}
+        if (wm->decoration_input.client) {
+            /* Do not coalesce across release or skip a threshold excursion. */
+            decoration_pointer_motion(wm, event->xmotion.x_root, event->xmotion.y_root);
+            break;
+        }
+        /* Keep button/property boundaries in order; scanning the whole queue
+         * could consume a later titlebar gesture's threshold motion. */
+        while (XPending(wm->display)) {
+            XEvent next;
+            XPeekEvent(wm->display, &next);
+            if (next.type != MotionNotify) break;
+            XNextEvent(wm->display, event);
+        }
         update_drag(wm, event->xmotion.x_root, event->xmotion.y_root);
+        client = decoration_client_for_window(wm, event->xmotion.window);
+        if (client && !wm->drag.active)
+            decoration_pointer_cursor(wm, client, event->xmotion.x_root, event->xmotion.y_root);
         break;
     case ButtonRelease:
+        if (wm->decoration_input.client) {
+            decoration_button_release(wm, &event->xbutton);
+            break;
+        }
         finish_drag(wm);
         break;
     case EnterNotify:
+        client = decoration_client_for_window(wm, event->xcrossing.window);
+        if (client) {
+            if (!wm->drag.active)
+                decoration_pointer_cursor(wm, client, event->xcrossing.x_root, event->xcrossing.y_root);
+            break;
+        }
         client = find_client(&wm->model, event->xcrossing.window);
         if (client && wm->config.focus_mode == FOCUS_SLOPPY &&
             client != wm->model.focused_client &&
             event->xcrossing.mode == NotifyNormal &&
             event->xcrossing.detail != NotifyInferior)
             client_activate(wm, client, event->xcrossing.time);
+        break;
+    case LeaveNotify:
+        client = decoration_client_for_window(wm, event->xcrossing.window);
+        if (client) XDefineCursor(wm->display, client->decoration, wm->cursor_normal);
         break;
     case FocusIn:
         /* Observation only: repair X focus from semantic Authority. */
@@ -2851,6 +3030,8 @@ void wm_run(WM *wm, const char *autostart_path)
 void wm_destroy(WM *wm)
 {
     if (!wm->display) return;
+    decoration_input_cancel(wm, NULL);
+    if (wm->drag.active) mouse_cancel_drag(wm);
     bspwm_compat_destroy(wm->bspwm_compat);
     wm->bspwm_compat = NULL;
     XSync(wm->display, False);

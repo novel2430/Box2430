@@ -252,7 +252,7 @@ xdotool key super+r
 "$stack" "$da" "$bar" || fail 'raise escaped native tier'
 "$stack" "$bar" "$notification" || fail 'raise escaped notification tier'
 
-# Titlebar uses the existing center-warp move path; assert during motion and
+# Titlebar preserves its anchor while using the common move path; assert during motion and
 # after release, and inspect real input focus as well as EWMH semantic focus.
 xdotool mousemove --window "$da" 30 12 mousedown 1
 sleep 0.05
@@ -266,15 +266,17 @@ xdotool key super+Up key super+Up
 assert_geometry "$a" '160 140 220 140 2' 'drag normal geometry committed'
 xdotool mousemove --window "$da" 30 12 mousedown 1
 sleep 0.05
+xdotool mousemove_relative --sync 6 0
+assert_geometry "$a" '166 140 220 140 2' 'drag before Motif cancellation'
 "$mutator" motif "$a" off
 wait_until undecorated "$a" || fail 'Motif during drag'
 xdotool mousemove_relative --sync 20 20
-assert_geometry "$a" '180 160 220 140 2' 'drag survives hidden input surface'
+assert_geometry "$a" '166 140 220 140 2' 'hidden input surface cancels drag'
 xdotool mouseup 1
 "$mutator" motif "$a" on
 wait_until decorated "$a" || fail 'titlebar after hidden-surface drag'
 xdotool mousemove_relative --sync 10 10
-assert_geometry "$a" '180 160 220 140 2' 'release ended hidden-surface drag'
+assert_geometry "$a" '166 140 220 140 2' 'release after cancelled drag'
 xdotool mousemove --window "$da" 30 12 mousedown 1
 sleep 0.05
 xdotool mousemove --sync 0 0

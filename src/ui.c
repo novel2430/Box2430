@@ -1528,6 +1528,12 @@ static bool init_decoration_resources(WM *wm)
             return false;
         }
     }
+    wm->decoration_font_count = load_fonts(wm, config->font, false, wm->decoration_fonts);
+    if (!wm->decoration_font_count) {
+        fprintf(stderr, "box2430: cannot open configured decoration font\n");
+        free_color_prefix(wm, colors, 4);
+        return false;
+    }
     wm->decoration_resources_ready = true;
     return true;
 }
@@ -1614,6 +1620,9 @@ void ui_destroy(WM *wm)
 {
     if (!wm->display) return;
     if (wm->decoration_resources_ready) {
+        for (unsigned int i = 0; i < wm->decoration_font_count; ++i)
+            XftFontClose(wm->display, wm->decoration_fonts[i]);
+        wm->decoration_font_count = 0;
         XftColor *colors[] = {
             &wm->decoration_fg, &wm->decoration_bg,
             &wm->decoration_focused_fg, &wm->decoration_focused_bg,

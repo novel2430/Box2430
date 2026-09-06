@@ -595,11 +595,66 @@ Decoration uses UI drawing helpers, but `ui.c` does not call decoration code.
 Tray admission checks each Client's original window and decoration attachment
 in its existing ownership walk, separately from native-UI window lookup.
 
-Titlebar Button1 is a thin input adapter to `mouse_begin_drag()`. Its pointer
-grab is on root so a runtime opt-out can hide the strip without losing release.
-Motion, snap preview, crossing, geometry commit and release use the existing
-drag runtime. Release or owner unmanage ends the grab. X and semantic focus
-remain attached to the original Client, never to the strip.
+`WM.decoration_input` is single-seat transient input state, outside `WMModel`.
+The title/space region is identified by owner and sibling XID; there is no
+per-client gesture or binding table. Press records owner, part, button,
+root position and X timestamp and grabs the pointer on root without moving it.
+Below the 4-pixel per-axis threshold it remains pending. Button1 crossing the
+threshold enters `mouse_begin_drag_at()` with pointer warp disabled, then uses the existing
+motion, preview, monitor crossing, geometry commit and release paths. The public
+`mouse_begin_drag()` entry retains center/corner warp for client bindings.
+Restoring from snap/maximize on title drag restores normal size at the current
+titlebar origin before applying pointer delta; normal move commits then own the
+new content position. No independent decoration geometry authority is added.
+
+Pending Button1 release immediately resolves the global click binding. A second
+click on the same titlebar within 300 ms and the position tolerance executes
+click then double-click bindings; no timer delays a first click. The finite
+`DecorationAction` set is none, raise, lower and maximize-toggle.
+`decoration_click_action()` resolves bindings; `execute_decoration_action()`
+routes the explicit gesture owner to existing activation/raise, lower or
+maximize transitions. It never chooses the focused client as a substitute.
+Button2/3 use the same pending/release lifetime for simple clicks only; crossing
+the motion threshold cancels their click rather than entering drag. They do
+not implicitly activate or participate in double-click history. Button1 drag
+bypasses binding resolution entirely. X timestamps use
+32-bit wrap-safe subtraction. Drag, other mouse surfaces, a completed double
+click, hiding and owner removal interrupt click history. Titlebar motion is
+not coalesced, and other motion coalescing never crosses event-type boundaries.
+
+`decoration_input_cancel()` clears matching pending/history references, cancels
+an owned move/preview and releases the grab before the strip is hidden or
+destroyed. Unmanage and WM teardown use the same cleanup. Normal title-drag
+release detaches input before calling common completion, so a workspace handoff
+inside completion cannot cancel the move being committed. Cancellation retains
+already committed motion but does not execute snap completion. X and semantic
+focus remain attached to the original Client, never to the strip. Debug checks
+verify live input/history owners and agreement with the common drag runtime.
+
+`DecorationConfig.layout` is an ordered array of at most four unique items.
+`decoration_layout_calculate()` allocates button widths first, then title and
+flexible space; its local item rectangles are shared by drawing, hit testing
+and cursor projection. Under extreme pressure fixed items are clipped in layout
+order, without overlap or negative geometry. No layout geometry becomes client
+authority. Maximize/restore visual selection reads `Client.maximized` directly;
+existing materialization/redraw paths update it for keyboard and other transitions.
+Builtin icons use Xft rectangle primitives; optional label overrides reuse UI
+text measurement, clipping and font fallback. Decoration owns one font/fallback
+set loaded by the existing UI loader, independent of tab fonts, and uses its own
+horizontal padding for title and text-button measurement. Fonts are allocated
+only when decoration is enabled and freed with its UI resources.
+Both maximize-state label widths
+are reserved so state changes do not move adjacent buttons.
+
+A fixed-button press records its part in the existing transient input lifetime,
+but bypasses title gestures and bindings. Motion only updates the cursor; release
+must hit the same part in the current owner layout before calling maximize or
+`client_close()`. The input is detached before execution. Hide, unmanage and
+shutdown use the same cancellation/ungrab path as title gestures. No hover or
+pressed visual state is stored. Pointer projection uses the shared Xcursor loader
+(`pointer`, fallback `hand2`); redraw checks the pointer against current layout so
+a stationary pointer also follows geometry/title/maximize changes. Hidden strips
+reset their cursor to the normal one.
 
 ### Borders
 

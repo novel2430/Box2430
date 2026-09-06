@@ -34,6 +34,13 @@ unfocused = "#3f3f36"
 urgent = "#bf616a"
 
 [appearance.decoration]
+font = "monospace:size=10"
+padding = 8
+layout = ["title", "space", "maximize", "close"]
+# Optional nonempty text/glyph overrides; omitted labels use built-in primitives.
+# close_label = "X"
+# maximize_label = "MAX"
+# restore_label = "RES"
 enabled = false
 height = 24
 bg = "#222222"
@@ -197,6 +204,13 @@ inherit_defaults = true
 [bindings.mouse]
 "Super+Button1" = "mouse move-window"
 "Super+Button3" = "mouse resize-window"
+
+# Finite titlebar actions; independent of inherit_defaults. Drag always moves.
+[bindings.decoration]
+click = "raise"
+double_click = "maximize-toggle"
+middle_click = "lower"
+right_click = "none"
 
 [bindings.tabbar]
 "Button1" = "tab focus"

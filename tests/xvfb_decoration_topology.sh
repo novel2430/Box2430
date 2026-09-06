@@ -77,7 +77,7 @@ assert_geometry "$db" '500 96 224 24 0' 'right titlebar'
 # Move through the existing titlebar drag path across the monitor boundary.
 xdotool mousemove --window "$db" 30 12 mousedown 1
 sleep 0.05
-xdotool mousemove --sync 200 300
+xdotool mousemove --sync 118 216
 assert_geometry "$b" '88 228 220 140 2' 'cross-monitor motion'
 xdotool mouseup 1
 wait_until active "$b" || fail 'cross-monitor drag focus'

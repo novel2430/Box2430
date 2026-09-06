@@ -7,7 +7,7 @@
 
 int main(int argc, char **argv)
 {
-    if (argc != 2) return 2;
+    if (argc != 2 && argc != 6) return 2;
     Display *display = XOpenDisplay(NULL);
     if (!display) return 1;
     Window window = (Window)strtoul(argv[1], NULL, 0);
@@ -17,7 +17,15 @@ int main(int argc, char **argv)
         XCloseDisplay(display);
         return 1;
     }
-    XImage *image = XGetImage(display, window, 0, 0, (unsigned int)attrs.width,
+    int x_offset = 0, y_offset = 0;
+    if (argc == 6) {
+        x_offset = atoi(argv[2]); y_offset = atoi(argv[3]);
+        int width = atoi(argv[4]), height = atoi(argv[5]);
+        if (x_offset < 0 || y_offset < 0 || width <= 0 || height <= 0 ||
+            width > attrs.width - x_offset || height > attrs.height - y_offset) return 2;
+        attrs.width = width; attrs.height = height;
+    }
+    XImage *image = XGetImage(display, window, x_offset, y_offset, (unsigned int)attrs.width,
                               (unsigned int)attrs.height, AllPlanes, ZPixmap);
     if (!image) {
         XCloseDisplay(display);

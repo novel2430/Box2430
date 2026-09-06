@@ -140,8 +140,17 @@ decoration = "none"
 
 Decoration is non-reparenting: each titlebar is a sibling of its original
 client window. It appears only in FREE mode, never in MONOCLE or real
-fullscreen. Dragging a titlebar with Button1 uses the existing window-move
-behavior. Rules accept `auto` (default), `force`, and `none`. AUTO decorates
+fullscreen. By default titlebar Button1 click raises, dragging moves without
+pointer warp, and double-click toggles maximize; Button2 lowers and Button3 does
+nothing. Click actions are configurable in `[bindings.decoration]` (see
+[Reference](docs/REFERENCE.md#decoration-bindings)); drag always moves.
+The default layout is `["title", "space", "maximize", "close"]`. Buttons use
+built-in primitive icons, with optional `close_label`, `maximize_label` and
+`restore_label` text/glyph overrides under `[appearance.decoration]`.
+Decoration has independent `font` (default `monospace:size=10`) and `padding`
+(default `8`) settings; they do not change tab typography or titlebar height.
+Rules accept `auto` (default), `force`, and
+`none`. AUTO decorates
 Normal/Dialog clients and respects `_MOTIF_WM_HINTS` no-decoration requests,
 including runtime changes. `force` overrides type/Motif policy but cannot
 override the global switch or FREE-only restriction.

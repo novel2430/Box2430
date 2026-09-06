@@ -133,6 +133,11 @@ void config_set_defaults(Config *config)
         .decoration = {
             .enabled = false,
             .height = 24,
+            .padding = 8,
+            .font = "monospace:size=10",
+            .layout = {DECORATION_ITEM_TITLE, DECORATION_ITEM_SPACE,
+                       DECORATION_ITEM_MAXIMIZE, DECORATION_ITEM_CLOSE},
+            .layout_count = 4,
             .bg = "#222222",
             .fg = "#aaaaaa",
             .focused_bg = "#3b4252",
@@ -168,6 +173,12 @@ void config_set_defaults(Config *config)
         },
         .bspwm_compat = {.enabled = false},
         .inherit_default_bindings = true,
+        .decoration_bindings = {
+            .click = DECORATION_ACTION_RAISE,
+            .double_click = DECORATION_ACTION_MAXIMIZE_TOGGLE,
+            .middle_click = DECORATION_ACTION_LOWER,
+            .right_click = DECORATION_ACTION_NONE,
+        },
     };
     memcpy(config->background, "#000000", 8);
     memcpy(config->border.free.focused, "#89b4fa", 8);
@@ -777,6 +788,25 @@ static bool parse_workspacebar_bindings(Config *candidate, toml_datum_t table)
                              &candidate->workspacebar_binding_count);
 }
 
+static bool parse_decoration_bindings(Config *candidate, toml_datum_t table)
+{
+    static const char *keys[] = {"click", "double_click", "middle_click", "right_click"};
+    static const char *actions[] = {"none", "raise", "lower", "maximize-toggle"};
+    DecorationBindings *bindings = &candidate->decoration_bindings;
+    DecorationAction *fields[] = {
+        &bindings->click, &bindings->double_click,
+        &bindings->middle_click, &bindings->right_click,
+    };
+    if (!validate_keys(table, "bindings.decoration", keys, 4)) return false;
+    for (unsigned int i = 0; i < 4; ++i) {
+        unsigned int selected = (unsigned int)*fields[i];
+        if (!read_enum(table, "bindings.decoration", keys[i], actions, 4, &selected))
+            return false;
+        *fields[i] = (DecorationAction)selected;
+    }
+    return true;
+}
+
 static void prune_invalid_default_bindings(Config *candidate)
 {
     for (unsigned int i = 0; i < candidate->key_binding_count;) {
@@ -953,13 +983,49 @@ static bool parse_tabs(Config *candidate, toml_datum_t tabs)
                              &candidate->tabs.urgent);
 }
 
+static bool read_decoration_layout(DecorationConfig *config, toml_datum_t table)
+{
+    toml_datum_t array = toml_get(table, "layout");
+    if (array.type == TOML_UNKNOWN) return true;
+    static const char *names[] = {"title", "space", "maximize", "close"};
+    if (array.type != TOML_ARRAY || array.u.arr.size < 1 ||
+        array.u.arr.size > DECORATION_ITEM_COUNT) goto invalid;
+    bool seen[DECORATION_ITEM_COUNT] = {0};
+    config->layout_count = (unsigned int)array.u.arr.size;
+    for (unsigned int i = 0; i < config->layout_count; ++i) {
+        toml_datum_t item = array.u.arr.elem[i];
+        unsigned int j = 0;
+        if (item.type != TOML_STRING) goto invalid;
+        while (j < DECORATION_ITEM_COUNT && strcmp(item.u.s, names[j])) ++j;
+        if (j == DECORATION_ITEM_COUNT || seen[j]) goto invalid;
+        seen[j] = true;
+        config->layout[i] = (DecorationItem)j;
+    }
+    return true;
+invalid:
+    fprintf(stderr, "box2430: appearance.decoration.layout requires 1..4 unique "
+                    "items: title, space, maximize, close\n");
+    return false;
+}
+
 static bool parse_decoration(Config *candidate, toml_datum_t table)
 {
     static const char *keys[] = {
         "enabled", "height", "bg", "fg", "focused_bg", "focused_fg",
+        "layout", "close_label", "maximize_label", "restore_label",
+        "font", "padding",
     };
     DecorationConfig *config = &candidate->decoration;
-    return validate_keys(table, "appearance.decoration", keys, 6) &&
+    return validate_keys(table, "appearance.decoration", keys, 12) &&
+           read_text(table, "appearance.decoration", "font", config->font, sizeof(config->font)) &&
+           read_uint(table, "appearance.decoration", "padding", 0, 128, &config->padding) &&
+           read_decoration_layout(config, table) &&
+           read_text(table, "appearance.decoration", "close_label",
+                     config->close_label, sizeof(config->close_label)) &&
+           read_text(table, "appearance.decoration", "maximize_label",
+                     config->maximize_label, sizeof(config->maximize_label)) &&
+           read_text(table, "appearance.decoration", "restore_label",
+                     config->restore_label, sizeof(config->restore_label)) &&
            read_bool(table, "appearance.decoration", "enabled", &config->enabled) &&
            read_uint(table, "appearance.decoration", "height", 12, 128,
                      &config->height) &&
@@ -1214,9 +1280,9 @@ static bool parse_supported_config(Config *candidate, toml_datum_t root)
     prune_invalid_default_bindings(candidate);
     toml_datum_t bindings = toml_get(root, "bindings");
     static const char *binding_keys[] = {
-        "inherit_defaults", "keys", "mouse", "tabbar", "workspacebar",
+        "inherit_defaults", "keys", "mouse", "tabbar", "workspacebar", "decoration",
     };
-    if (!validate_keys(bindings, "bindings", binding_keys, 5) ||
+    if (!validate_keys(bindings, "bindings", binding_keys, 6) ||
         !read_bool(bindings, "bindings", "inherit_defaults",
                    &candidate->inherit_default_bindings)) return false;
     if (!candidate->inherit_default_bindings) {
@@ -1229,6 +1295,7 @@ static bool parse_supported_config(Config *candidate, toml_datum_t root)
            parse_mouse_bindings(candidate, toml_get(bindings, "mouse")) &&
            parse_tab_bindings(candidate, toml_get(bindings, "tabbar")) &&
            parse_workspacebar_bindings(candidate, toml_get(bindings, "workspacebar")) &&
+           parse_decoration_bindings(candidate, toml_get(bindings, "decoration")) &&
            parse_rules(candidate, toml_get(root, "rules"));
 }
 

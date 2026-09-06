@@ -57,6 +57,20 @@ typedef enum ClientDecorationPolicy {
     CLIENT_DECORATION_NONE,
 } ClientDecorationPolicy;
 
+typedef enum DecorationAction {
+    DECORATION_ACTION_NONE,
+    DECORATION_ACTION_RAISE,
+    DECORATION_ACTION_LOWER,
+    DECORATION_ACTION_MAXIMIZE_TOGGLE,
+} DecorationAction;
+
+typedef struct DecorationBindings {
+    DecorationAction click;
+    DecorationAction double_click;
+    DecorationAction middle_click;
+    DecorationAction right_click;
+} DecorationBindings;
+
 typedef enum UIFontStyle {
     UI_FONT_NORMAL,
     UI_FONT_BOLD,
@@ -133,9 +147,31 @@ typedef struct BorderConfig {
     BorderStyleConfig monocle;
 } BorderConfig;
 
+typedef enum DecorationItem {
+    DECORATION_ITEM_TITLE,
+    DECORATION_ITEM_SPACE,
+    DECORATION_ITEM_MAXIMIZE,
+    DECORATION_ITEM_CLOSE,
+    DECORATION_ITEM_COUNT,
+} DecorationItem;
+
+typedef enum DecorationPart {
+    DECORATION_PART_TITLE,
+    DECORATION_PART_MAXIMIZE,
+    DECORATION_PART_CLOSE,
+    DECORATION_PART_NONE,
+} DecorationPart;
+
 typedef struct DecorationConfig {
     bool enabled;
     unsigned int height;
+    unsigned int padding;
+    char font[128];
+    DecorationItem layout[DECORATION_ITEM_COUNT];
+    unsigned int layout_count;
+    char close_label[128];
+    char maximize_label[128];
+    char restore_label[128];
     char bg[8];
     char fg[8];
     char focused_bg[8];
@@ -281,6 +317,7 @@ typedef struct Config {
     BarConfig bar;
     BspwmCompatConfig bspwm_compat;
     bool inherit_default_bindings;
+    DecorationBindings decoration_bindings;
     unsigned int key_binding_count;
     KeyBinding key_bindings[BOX2430_MAX_KEY_BINDINGS];
     unsigned int mouse_binding_count;
@@ -438,6 +475,22 @@ struct Monitor {
     XftDraw *tab_draw;
 };
 
+/* Single-seat title gesture or fixed-button press; transient runtime, not authority. */
+typedef struct DecorationInputState {
+    Client *client;
+    Window titlebar;
+    DecorationPart part;
+    unsigned int button;
+    int press_x, press_y;
+    Time press_time;
+    bool dragging;
+    bool click_cancelled; /* Button2/3 motion cancels their simple click. */
+    Client *last_client;
+    Window last_titlebar;
+    int last_x, last_y;
+    Time last_time;
+} DecorationInputState;
+
 typedef struct Atoms {
     Atom wm_protocols;
     Atom wm_delete_window;
@@ -506,6 +559,7 @@ typedef struct WM {
     UIBorderPixels monocle_border;
     unsigned int numlock_mask;
     Cursor cursor_normal;
+    Cursor cursor_pointer;
     Cursor cursor_move;
     Cursor cursor_resize;
     bool running;
@@ -521,6 +575,7 @@ typedef struct WM {
         Monitor *preview_monitor;
         bool preview_maximized;
     } drag;
+    DecorationInputState decoration_input;
     Window ui_snap_preview_windows[4];
     unsigned long ui_snap_preview_color;
     bool ui_snap_preview_color_allocated;
@@ -554,6 +609,8 @@ typedef struct WM {
     char clock_text[BOX2430_MAX_CLOCK_TEXT];
     bool tab_resources_ready;
     bool bar_resources_ready;
+    XftFont *decoration_fonts[BOX2430_MAX_TAB_FONTS];
+    unsigned int decoration_font_count;
     XftColor decoration_fg;
     XftColor decoration_bg;
     XftColor decoration_focused_fg;

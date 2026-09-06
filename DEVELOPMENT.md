@@ -39,6 +39,11 @@ Useful X11 test/debug tools include:
 
 Useful general debugging tools include `gdb`, `strace`, and Valgrind.
 
+`make test-tools` additionally requires the `xfixes` development library for the
+cursor-image observation helper. This is test-only; the WM has no new runtime
+library dependency. The decoration button cursor scenario uses the Adwaita
+cursor theme and compares server pixels against Xcursor's theme-loaded image.
+
 ## Build profiles
 
 Debug build:
@@ -242,6 +247,15 @@ bspwm node semantics.
 height bounds, all three ordered-rule policy values, Motif flag interpretation,
 AUTO type eligibility, force/master-switch/FREE/fullscreen precedence, and
 content/outer/titlebar geometry conversions with and without X borders.
+It also checks the 4-pixel threshold and double-click owner/region/position/time
+criteria, including the 300 ms boundary and 32-bit X timestamp wrap.
+Decoration binding tests cover all finite actions/fields, defaults and partial
+overrides, independence from `inherit_defaults`, and atomic rejection of invalid
+actions, types, tables and unsupported drag configuration.
+Layout tests cover default/reordered/removed items, invalid arrays and labels,
+independent decoration font/padding defaults, bounds and atomic validation,
+and all 24 item permutations across widths 0..399, checking allocation and hit
+regions without overlap or negative geometry.
 
 The decoration Xvfb scenario also runs `decoration-test --x11-types` against
 real properties: custom-type Normal/Dialog fallbacks, standard-type precedence,
@@ -259,7 +273,7 @@ directly:
 tests/run_xvfb.sh
 ```
 
-The current runner executes 42 scenarios:
+The current runner executes 45 scenarios:
 
 ```text
 xvfb_randr_monitor.sh
@@ -271,6 +285,9 @@ xvfb_config.sh
 xvfb_v2_config.sh
 xvfb_border_modes.sh
 xvfb_decoration.sh
+xvfb_decoration_input.sh
+xvfb_decoration_actions.sh
+xvfb_decoration_buttons.sh
 xvfb_decoration_topology.sh
 xvfb_rules.sh
 xvfb_special_windows.sh
@@ -309,6 +326,27 @@ xvfb_spawn.sh
 Some test/fixture names still contain `v2` because they were introduced during
 that development phase. The name is historical; the tested native-UI
 configuration is part of the current repository behavior.
+
+`xvfb_decoration_input.sh` exercises titlebar press/click/drag/double-click through
+real pointer events, immediate single-click raise, no-warp threshold entry,
+snap/maximize completion/restore and cancellation on hiding/unmanage/shutdown.
+Another X11 connection attempts a pointer grab to verify cleanup, rather than
+inferring it only from geometry. `xvfb_mouse.sh` separately protects the original
+client-binding center/corner warp and move/resize behavior.
+
+`xvfb_decoration_actions.sh` covers custom click/double-click/secondary bindings,
+explicit owner targets even when ICCCM input policy keeps another client focused,
+secondary motion cancellation, no-warp drag/snap with custom bindings, and
+pending-action cleanup on hiding/unmanage. The input scenario also verifies
+default middle-click lower and right-click no-op without a binding table.
+
+`xvfb_decoration_buttons.sh` checks title/space dragging, fixed button actions,
+press/release cancellation, owner-specific WM_DELETE_WINDOW, primitive/text
+maximize/restore redraw, reordered/removed/narrow layouts, theme cursor pixels,
+and button cleanup across hiding/unmanage. `x11-window-hash` accepts an optional
+`x y width height` crop for inspecting a button independently of window size.
+The text-button fixture uses a larger decoration font and smaller padding than
+its disabled tabs, checking that measurement/hit regions use decoration settings.
 
 The Xvfb suite currently covers areas including:
 

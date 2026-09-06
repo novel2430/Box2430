@@ -319,6 +319,9 @@ Optional non-reparenting sibling titlebars are disabled by default:
 [appearance.decoration]
 enabled = false
 height = 24
+font = "monospace:size=10"
+padding = 8
+layout = ["title", "space", "maximize", "close"]
 bg = "#222222"
 fg = "#aaaaaa"
 focused_bg = "#3b4252"
@@ -327,9 +330,51 @@ focused_fg = "#ffffff"
 
 `height` is an integer in `12..128`; colors use the existing `#RRGGBB` syntax.
 Invalid values reject the whole configuration. Text uses the cached client title
-and the normal `appearance.tabs.font` font/fallback set and `tabs.padding`, even
-when tabs are disabled. The configured titlebar height is fixed; oversized text
-is clipped, not used to enlarge it.
+and decoration's own `font` and `padding`, independent of tabs, even when tabs
+are disabled. `font` is a nonempty Xft font name of at most 127 bytes; it uses
+the existing UI font/fallback loader. `padding` is an integer in `0..128`;
+its existing horizontal text-inset semantics are unchanged. The defaults above
+apply independently of tab configuration. The configured titlebar height is
+fixed; oversized text is clipped, not used to enlarge it.
+
+`layout` accepts 1..4 unique items from `title`, `space`, `maximize`, and `close`.
+Unknown/duplicate items and an empty layout are invalid. Items appear in array
+order; for example `["close", "maximize", "space", "title"]` puts buttons on
+the left. Omit an item to remove it; `["title"]` retains a plain titlebar.
+`space` takes flexible remaining width. Buttons have priority under pressure:
+title is ellipsized/clipped within its region and space can shrink to zero.
+If buttons alone cannot fit, their widths are clipped in configured order;
+later buttons may have zero width and no hit region. Rectangles never overlap.
+
+Maximize/restore and close buttons have fixed Button1 actions, independent of
+`bindings.decoration`. A press does not execute an action; release must still
+hit the same owner/button in its current layout, otherwise it cancels. Moving
+from a button never starts title dragging, and buttons interrupt title double-click
+history. Other mouse buttons have no action on these fixed buttons.
+Close uses the existing `WM_DELETE_WINDOW` path and force-close fallback.
+
+By default X/rectangle/overlapping-rectangle primitives are drawn without font
+glyph dependencies. Optional nonempty strings override each visual separately:
+
+```toml
+[appearance.decoration]
+close_label = "X"
+maximize_label = "MAX"
+restore_label = "RES"
+```
+
+Labels use the same Xft normal font/fallback pipeline as the title (Nerd Font
+glyphs are optional), with a limit of 127 UTF-8 bytes each. Empty strings are
+invalid; omit a label for the builtin icon, or remove the layout item to hide
+the button. Builtin buttons are square (`height` wide). Text buttons reserve
+at least that width or text width plus twice `decoration.padding`, whichever is larger.
+Maximize reserves the larger of maximize/restore label widths to avoid shifting
+neighboring buttons on state changes. Extreme width pressure can still clip text.
+
+All button states inherit the decoration's current foreground/background;
+there are no hover/pressed color changes. Hover uses the existing theme-loaded
+Xcursor `pointer` (fallback `hand2`), returning to `left_ptr` on title/space.
+`XCURSOR_THEME` and `XCURSOR_SIZE` apply normally.
 
 Decoration is a FREE-mode-only presentation feature. It is never visible in
 MONOCLE or real fullscreen, regardless of rules. Fake client fullscreen retains
@@ -354,10 +399,33 @@ reconcile decoration, but do not reapply rules. There are no toolkit/class-name,
 `_GTK_FRAME_EXTENTS`, or pixel-based CSD heuristics; Motif opt-out does not imply
 that a client actually draws its own titlebar.
 
-Unmodified Button1 on the titlebar starts the existing move interaction, with
-the same focus/raise policy, center pointer warp, monitor crossing, and snap
-preview/release behavior as a client move binding. This input is built in, not
-a new binding table. There are no titlebar buttons or resize handles.
+Titlebar Button1 uses the following input semantics:
+
+* Press activates the owner under existing focus policy and waits; it does not
+  move geometry or warp the pointer.
+* A release without reaching 4 pixels of movement on either root-coordinate
+  axis immediately executes the click binding (default: raise the owner).
+  Small movements remain clicks.
+* Reaching 4 pixels starts the existing move runtime with the press anchor,
+  without pointer warp. Monitor crossing, snap preview and release still use
+  the common move path. Moving a snapped/maximized client restores normal size
+  while preserving the titlebar anchor, then commits ordinary FREE movement.
+* Two completed clicks within 300 ms on the same owner's same titlebar, with
+  press positions less than 4 pixels apart on both axes and no intervening drag,
+  execute the double-click binding (default: maximize-toggle). The first click
+  is never delayed; the second executes the click binding before the double-click
+  binding. A recognized pair clears click history.
+
+Button2/3 execute simple click bindings on release, with no implicit activation,
+drag or double-click recognition. Movement reaching the same threshold cancels
+their click. See [Decoration bindings](#decoration-bindings) below.
+
+Hiding/destroying the titlebar or unmanaging its owner cancels pending input and
+active titlebar drag, removes preview and releases the pointer grab. Cancellation
+keeps geometry already committed by motion; it does not apply a release snap.
+Other mouse surfaces interrupt titlebar click history. Client move/resize
+bindings retain their original center/corner pointer warp. There are no
+titlebar buttons, Button2/Button3 actions, or resize handles.
 
 Floating client content geometry is unchanged: the titlebar extends above the
 original window. Existing X border behavior is independent (`border = false`
@@ -609,6 +677,9 @@ With `inherit_defaults = true`, custom bindings replace matching built-ins and
 mouse, tab-bar, and workspace-bar bindings are cleared before custom bindings
 are parsed.
 
+Decoration bindings retain their own defaults even with `inherit_defaults = false`;
+set individual decoration actions to `"none"` to disable them.
+
 ### Keyboard bindings
 
 Keyboard specs use X11 keysym names plus zero or more modifiers:
@@ -663,6 +734,34 @@ These UI tables take unmodified buttons only:
 Accepted names are `Button1` through `Button5`, plus the aliases `WheelUp`
 (`Button4`) and `WheelDown` (`Button5`). Modifiers are not accepted in these UI
 binding tables.
+
+### Decoration bindings
+
+```toml
+[bindings.decoration]
+click = "raise"
+double_click = "maximize-toggle"
+middle_click = "lower"
+right_click = "none"
+```
+
+These are the defaults, also used when this table or an individual field is
+omitted. Each field accepts exactly `none`, `raise`, `lower`, or
+`maximize-toggle`. Unknown actions, non-string values and unknown keys reject
+the configuration atomically with a diagnostic, like other config errors.
+This is a finite action set, not a command launcher.
+
+Actions always target the clicked titlebar's owner: `raise` activates under
+existing focus policy and raises its semantic stack unit, `lower` lowers it
+without selecting another focus target, and `maximize-toggle` uses normal
+maximize/restore. `none` performs no action; Button1 press still performs the
+existing activation independently of its release binding. Button1 drag remains
+fixed move/no-warp and cannot be configured here. Threshold (4 px) and
+double-click interval (300 ms) are not configurable.
+
+These bindings apply only to visible FREE-mode decorations, never to MONOCLE
+tabs, real fullscreen, or clients without a decoration. Client mouse and native
+bar binding tables remain separate.
 
 ### Built-in bindings
 
