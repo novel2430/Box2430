@@ -23,7 +23,7 @@ The main source layout is:
 | `src/main.c` | CLI parsing, fresh-session/restart distinction, WM lifecycle, and re-exec |
 | `src/wm.c` | Main state machine: events, clients, workspaces, focus, stacking, geometry, monitor reconciliation, dragging, ICCCM/EWMH reactions |
 | `src/ui.c` / `src/ui.h` | Borders, native bars, widget layout/drawing, status/clock text, MONOCLE tabs, snap preview |
-| `src/decoration.c` / `src/decoration.h` | FREE-only decoration decision, content/outer/titlebar geometry, sibling projection lifecycle and drawing |
+| `src/decoration.c` / `src/decoration.h` | FREE-only decoration decision, content/outer/titlebar geometry, layout/hit testing, sibling projection lifecycle and drawing |
 | `src/tray.c` / `src/tray.h` | XEmbed system-tray selection, owner/host windows, icon lifecycle and geometry |
 | `src/bspwm_compat.c` / `src/bspwm_compat.h` | Optional Polybar `internal/bspwm` wire adapter, Unix socket lifecycle, bounded clients, command parsing, and report projection |
 | `src/monitor.c` | Pure geometry-first logical-monitor continuity matching and metadata comparison |
@@ -1106,8 +1106,8 @@ Important ordinary event families include:
 * `DestroyNotify` / `UnmapNotify` -> unmanage/withdrawal;
 * `KeyPress` -> keyboard binding dispatch;
 * `MappingNotify` -> rebuild keyboard mapping/grabs and client button grabs;
-* `ButtonPress` -> bar/tab/client mouse contexts;
-* `MotionNotify` / `ButtonRelease` -> interactive drag;
+* `ButtonPress` -> decoration/bar/tab/client mouse contexts;
+* `MotionNotify` / `ButtonRelease` -> decoration gesture/button state and interactive drag;
 * `EnterNotify` -> sloppy focus;
 * `FocusIn` -> semantic-focus compatibility enforcement;
 * `PropertyNotify` -> status, hints, protocol capability, metadata, and Dock strut refresh;

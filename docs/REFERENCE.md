@@ -424,8 +424,8 @@ Hiding/destroying the titlebar or unmanaging its owner cancels pending input and
 active titlebar drag, removes preview and releases the pointer grab. Cancellation
 keeps geometry already committed by motion; it does not apply a release snap.
 Other mouse surfaces interrupt titlebar click history. Client move/resize
-bindings retain their original center/corner pointer warp. There are no
-titlebar buttons, Button2/Button3 actions, or resize handles.
+bindings retain their original center/corner pointer warp. Decoration does
+not currently provide resize handles.
 
 Floating client content geometry is unchanged: the titlebar extends above the
 original window. Existing X border behavior is independent (`border = false`

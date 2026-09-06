@@ -25,17 +25,17 @@ and multi-monitor topology reconciliation.
 * Per-monitor workspaces
 * FREE and MONOCLE workspace modes
 * Configurable FREE/MONOCLE client borders
-* Optional FREE-only sibling window titlebars, disabled by default
+* Optional FREE-only sibling window decoration with configurable titlebar actions and button layout
 * Per-monitor native bar with workspace, mode, title, status, clock, and tray widgets
 * Configurable top/bottom MONOCLE tab bar
 * XEmbed system tray integrated with the selected monitor's bar
 * Click-to-focus and sloppy-focus modes
 * Stable client-order focus cycling with separate focus history and stack order
 * Edge/corner snapping, maximize, and fullscreen
-* Configurable keyboard, client-mouse, tab-bar, and workspace-bar bindings
+* Configurable keyboard, client-mouse, decoration, tab-bar, and workspace-bar bindings
 * Direct program spawning and shell-backed commands from bindings
-* Window rules for placement, monitor/workspace assignment, borders, focus/raise,
-  and client fullscreen policy
+* Window rules for placement, monitor/workspace assignment, borders, decoration,
+  focus/raise, and client fullscreen policy
 * Cold-start root background and optional one-shot autostart executable
 * Startup discovery of existing windows
 * Practical ICCCM/EWMH support for focus, window state, docks/struts, active window,

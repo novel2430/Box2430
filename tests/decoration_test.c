@@ -4,6 +4,7 @@
 
 #include <X11/Xatom.h>
 #include <assert.h>
+#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -26,6 +27,24 @@ static bool load_text(Config *config, const char *text)
     assert(fclose(file) == 0);
     bool valid = config_load(config, path);
     assert(unlink(path) == 0);
+    return valid;
+}
+
+static bool load_invalid_text(Config *config, const char *text)
+{
+    assert(fflush(stderr) == 0);
+    int saved_stderr = dup(STDERR_FILENO);
+    assert(saved_stderr >= 0);
+    int null_fd = open("/dev/null", O_WRONLY);
+    assert(null_fd >= 0);
+    assert(dup2(null_fd, STDERR_FILENO) >= 0);
+    assert(close(null_fd) == 0);
+
+    bool valid = load_text(config, text);
+
+    assert(fflush(stderr) == 0);
+    assert(dup2(saved_stderr, STDERR_FILENO) >= 0);
+    assert(close(saved_stderr) == 0);
     return valid;
 }
 
@@ -75,15 +94,15 @@ static void test_config(void)
         snprintf(text, sizeof(text),
                  "[workspaces]\ncount = 3\n[appearance.decoration]\n%s\n", invalid[i]);
         config = defaults;
-        assert(!load_text(&config, text));
+        assert(!load_invalid_text(&config, text));
         assert(memcmp(&config, &defaults, sizeof(config)) == 0);
     }
     config = defaults;
-    assert(!load_text(&config,
+    assert(!load_invalid_text(&config,
         "[appearance.decoration]\nenabled = true\n"
         "[[rules]]\nclass = 'A'\ndecoration = 'maybe'\n"));
     assert(memcmp(&config, &defaults, sizeof(config)) == 0);
-    assert(!load_text(&config,
+    assert(!load_invalid_text(&config,
         "[[rules]]\nclass = 'A'\ndecoration = true\n"));
     assert(memcmp(&config, &defaults, sizeof(config)) == 0);
 }
@@ -109,7 +128,7 @@ static void test_decoration_typography(void)
     Config previous = config;
     char invalid[256];
     snprintf(invalid, sizeof(invalid), "[appearance.decoration]\nfont = '%0128d'\n", 0);
-    assert(!load_text(&config, invalid));
+    assert(!load_invalid_text(&config, invalid));
     assert(!memcmp(&config, &previous, sizeof(config)));
 }
 
@@ -171,7 +190,7 @@ static void test_layout(void)
     snprintf(invalid_label, sizeof(invalid_label),
              "[appearance.decoration]\nclose_label = '%0128d'\n", 0);
     Config previous = config;
-    assert(!load_text(&config, invalid_label));
+    assert(!load_invalid_text(&config, invalid_label));
     assert(memcmp(&config, &previous, sizeof(config)) == 0);
 }
 
@@ -217,10 +236,10 @@ static void test_bindings(void)
         snprintf(text, sizeof(text),
             "[workspaces]\ncount = 3\n[bindings.decoration]\n%s\n", invalid[i]);
         config = defaults;
-        assert(!load_text(&config, text));
+        assert(!load_invalid_text(&config, text));
         assert(memcmp(&config, &defaults, sizeof(config)) == 0);
     }
-    assert(!load_text(&config, "[bindings]\ndecoration = 'raise'\n"));
+    assert(!load_invalid_text(&config, "[bindings]\ndecoration = 'raise'\n"));
     assert(memcmp(&config, &defaults, sizeof(config)) == 0);
 }
 
