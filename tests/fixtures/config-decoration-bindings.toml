@@ -1,0 +1,18 @@
+[placement]
+normal = "client"
+
+[focus]
+active_window = "focus"
+
+[appearance.decoration]
+enabled = true
+
+[bindings.decoration]
+click = "lower"
+double_click = "none"
+middle_click = "maximize-toggle"
+right_click = "raise"
+
+[bindings.keys]
+"Super+r" = "window raise"
+"Super+n" = "snap none"

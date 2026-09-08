@@ -1,0 +1,5 @@
+[placement]
+normal = "client"
+[appearance.decoration]
+enabled = true
+layout = ["title"]

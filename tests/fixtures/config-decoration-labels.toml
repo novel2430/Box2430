@@ -1,0 +1,23 @@
+[placement]
+normal = "client"
+[focus]
+active_window = "focus"
+[appearance.decoration]
+enabled = true
+font = "monospace:size=18"
+padding = 3
+layout = ["close", "maximize", "space", "title"]
+close_label = "CloseWindow"
+maximize_label = "MAXIMIZE"
+restore_label = "RESTORE"
+
+# Deliberately different: decoration must not measure/draw with these values,
+# and must have its own fonts even when MONOCLE tabs are disabled.
+[appearance.tabs]
+enabled = false
+font = "monospace:size=7"
+padding = 42
+
+[bindings.decoration]
+click = "none"
+double_click = "none"
