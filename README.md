@@ -1,75 +1,171 @@
 # Box2430
 
-Box2430 is a small, non-reparenting X11 stacking window manager written in C with Xlib.
-It keeps a traditional mouse-friendly stacking model while providing per-monitor
-workspaces, a MONOCLE mode, a lightweight native UI, snapping, configurable
-bindings, and practical ICCCM/EWMH compatibility.
+**A small X11 stacking window manager with per-monitor workspaces.**
 
-> With QuickShell
+Box2430 is a non-reparenting X11 window manager written in C with Xlib. It keeps a traditional, mouse-friendly stacking workflow while giving each monitor its own independent set of workspaces.
 
-![img](https://github.com/novel2430/Box2430/blob/main/res/03.png?raw=true)
+Every workspace can use one of two presentation modes:
 
-> Native bar
+* **FREE** — normal overlapping windows with moving, resizing, snapping, maximizing, and stacking.
+* **MONOCLE** — one client fills the workarea, with an optional tab bar for switching between windows.
 
-![img](https://github.com/novel2430/Box2430/blob/main/res/02.png?raw=true)
+Box2430 also includes a lightweight native bar and tray, configurable window decorations, practical ICCCM/EWMH support, and an optional bspwm compatibility adapter that lets **Polybar's existing `internal/bspwm` module work directly with Box2430**.
 
-> Polybar
+<p align="center">
+  <img src="res/03.png" alt="Box2430 with Quickshell" width="900">
+</p>
 
-![img](https://github.com/novel2430/Box2430/blob/main/res/04.png?raw=true)
+## Why Box2430?
 
-> Monocle Tabview
+Box2430 started from a simple gap in the desktop setup I wanted to use.
 
-![img](https://github.com/novel2430/Box2430/blob/main/res/01.png?raw=true)
+On X11, I wanted a lightweight **stacking** window manager where workspaces belong to monitors rather than to one global desktop set. Traditional stacking WMs such as Openbox do not use that workspace model.
 
+On Wayland, Wayfire already gives me the kind of independent multi-output workflow I want. Box2430 is not an attempt to recreate Wayfire; it fills that particular workflow gap for my X11 systems.
 
+The resulting model is intentionally simple:
 
-## Current state
+```text
+Monitor A:  [1] [2] [3] [4] ...
+Monitor B:  [1] [2] [3] [4] ...
+```
 
-The repository is an actively developed working baseline rather than a frozen
-release branch. The checked-in implementation and regression tests define the
-current behavior.
+Changing the active workspace on one monitor does not mean changing the workspace on every monitor.
 
-The main runtime pieces are already integrated: window management, per-monitor
-workspaces, FREE/MONOCLE modes, native bars and MONOCLE tabs, XEmbed system tray,
-focus/stacking policy, snapping/maximize/fullscreen, rules, startup discovery,
-and multi-monitor topology reconciliation.
+Inside each workspace, Box2430 remains stacking-first. There is no automatic tiling tree to manage. When a workspace needs a more focused layout, it can switch to MONOCLE instead.
+
+## Screenshots
+
+<table>
+  <tr>
+    <td align="center">
+      <img src="res/02.png" alt="Native Box2430 bar"><br>
+      <b>Native UI</b>
+    </td>
+    <td align="center">
+      <img src="res/04.png" alt="Box2430 with Polybar"><br>
+      <b>Polybar</b>
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <img src="res/01.png" alt="Box2430 MONOCLE tab view"><br>
+      <b>MONOCLE</b>
+    </td>
+    <td align="center">
+      <img src="res/03.png" alt="Box2430 with Quickshell"><br>
+      <b>With Quickshell</b>
+    </td>
+  </tr>
+</table>
 
 ## Features
 
-* Non-reparenting X11 stacking window management
+### Window management
+
+* Traditional non-reparenting X11 stacking model
 * Per-monitor workspaces
-* FREE and MONOCLE workspace modes
-* Configurable FREE/MONOCLE client borders
-* Optional FREE-only sibling window decoration with configurable titlebar actions and button layout
-* Per-monitor native bar with workspace, mode, title, status, clock, and tray widgets
-* Configurable top/bottom MONOCLE tab bar
-* XEmbed system tray integrated with the selected monitor's bar
-* Click-to-focus and sloppy-focus modes
-* Stable client-order focus cycling with separate focus history and stack order
-* Edge/corner snapping, maximize, and fullscreen
-* Configurable keyboard, client-mouse, decoration, tab-bar, and workspace-bar bindings
-* Direct program spawning and shell-backed commands from bindings
-* Window rules for placement, monitor/workspace assignment, borders, decoration,
-  focus/raise, and client fullscreen policy
-* Cold-start root background and optional one-shot autostart executable
-* Startup discovery of existing windows
-* Practical ICCCM/EWMH support for focus, window state, docks/struts, active window,
-  client lists, maximize/fullscreen, and special window types
-* RandR 1.5 logical-monitor discovery and topology reconciliation
-* Optional Polybar workspace integration through Polybar's built-in bspwm module
+* Per-workspace **FREE** and **MONOCLE** modes
+* Click-to-focus and sloppy-focus policies
+* Stable client-order focus cycling
+* Independent focus history and stacking order
+* Edge and corner snapping
+* Maximize and fullscreen
+* Configurable FREE/MONOCLE borders
+* Optional FREE-mode window decorations
+* Rules for placement, monitor/workspace assignment, borders, decoration, focus, raise behavior, and fullscreen policy
 
-Box2430 intentionally has no minimize workflow and does not model workspaces as a
-single global EWMH desktop set. Workspaces belong to monitors.
+### Multi-monitor
 
-Polybar integration is an optional, disabled-by-default compatibility adapter
-for the small bspwm IPC subset used by `internal/bspwm`. It is not general bspwm
-or `bspc` compatibility. See `docs/REFERENCE.md` for setup.
+* RandR 1.5 logical-monitor discovery
+* Independent workspace state for every monitor
+* Runtime monitor topology reconciliation
+* Monitor-aware snapping, bars, tabs, placement, and workspace interaction
+
+### Native UI
+
+Box2430 can provide the basic pieces needed for a usable desktop without requiring an external panel:
+
+* Per-monitor bar
+* Workspace indicator
+* FREE / MONOCLE mode indicator
+* Focused window title
+* Root status text
+* Clock
+* XEmbed system tray
+* MONOCLE tab bar
+* Configurable top/bottom placement and widget layout
+
+The native UI is optional. Box2430 is also intended to work well with external desktop components.
+
+### Polybar compatibility
+
+Box2430 has a small optional compatibility adapter for the subset of the bspwm IPC protocol used by Polybar's built-in `internal/bspwm` module.
+
+That means **no custom Polybar workspace script or Box2430-specific Polybar module is required**.
+
+Enable the adapter:
+
+```toml
+[bspwm_compat]
+enabled = true
+```
+
+Then configure Polybar normally:
+
+```ini
+[module/workspaces]
+type = internal/bspwm
+
+pin-workspaces = true
+enable-click = true
+enable-scroll = true
+
+format = <label-state>
+
+label-focused = %name%
+label-occupied = %name%
+label-urgent = %name%!
+label-empty = %name%
+```
+
+Polybar receives Box2430's per-monitor workspace state and can switch workspaces through its normal bspwm module interface.
+
+If desired, the workspace mode can also be displayed:
+
+```ini
+format = <label-state> <label-mode>
+
+label-monocle = MONOCLE
+label-tiled = FREE
+```
+
+`FREE` is only mapped onto Polybar's existing `label-tiled` presentation slot; Box2430 does not acquire bspwm tiling semantics.
+
+This compatibility layer is intentionally small. It does **not** provide general bspwm or `bspc` compatibility.
+
+See [`docs/REFERENCE.md`](docs/REFERENCE.md#polybar-workspace-integration) for the full contract and socket behavior.
+
+### X11 compatibility
+
+Box2430 implements the ICCCM/EWMH behavior needed for normal desktop use, including:
+
+* focus protocols
+* active-window tracking
+* client lists
+* maximize and fullscreen state
+* docks and struts
+* special window types
+* startup discovery of existing clients
+* urgency
+* normal size hints
+* client-initiated fullscreen policy
 
 ## Build
 
-Required development packages:
+Dependencies:
 
-* C11 compiler (GCC or Clang)
+* C11 compiler such as GCC or Clang
 * GNU Make
 * `pkg-config`
 * X11
@@ -83,124 +179,224 @@ Build a debug binary:
 make
 ```
 
-Build and install a release binary:
+The binary is created at:
+
+```text
+build/debug/box2430
+```
+
+Build a release binary:
 
 ```sh
 make release
+```
+
+Install it:
+
+```sh
 sudo make install
 ```
 
-The installed binary is `box2430`.
+The installed executable is:
 
-## Run
+```text
+box2430
+```
 
-Start Box2430 as the window manager for an X11 session, for example from
-`.xinitrc`:
+## Quick start
+
+Box2430 can run with built-in defaults, so a configuration file is not required for the first launch.
+
+From `.xinitrc`:
 
 ```sh
 exec box2430
 ```
 
-To run one executable once after the WM initializes and scans existing windows:
+Or specify a configuration explicitly:
+
+```sh
+exec box2430 -c ~/.config/box2430/config.toml
+```
+
+To start a session script after Box2430 initializes and discovers existing windows:
 
 ```sh
 exec box2430 --autostart ~/.config/box2430/autostart.sh
 ```
 
-The autostart file must be executable and should provide its own shebang. It is
-not rerun by `wm restart`.
+The autostart file must be executable and provide its own shebang.
 
-Command-line options:
-
-```text
-box2430 [-d display] [-c config.toml] [-a path|--autostart path]
-```
-
-Box2430 loads its root, native-UI, move, and resize pointers through Xcursor.
-Set `XCURSOR_THEME` and `XCURSOR_SIZE` before starting the WM to use a cursor
-theme and size consistently with other X11 applications.
-
-Without `-c`, Box2430 looks for:
+Without `-c`, Box2430 searches for:
 
 ```text
 $XDG_CONFIG_HOME/box2430/config.toml
 ```
 
-or, if `XDG_CONFIG_HOME` is unset:
+or:
 
 ```text
 ~/.config/box2430/config.toml
 ```
 
-If no configuration file is present, built-in defaults are used. Invalid
-configuration is rejected as a whole and Box2430 falls back to those defaults.
+A complete example is available in [`config.example.toml`](config.example.toml).
 
-`appearance.background` sets the root fallback color only for a fresh WM
-session. Box2430 does not continuously own the background, so wallpaper tools
-such as `feh` can replace it normally. `wm restart` does not repaint it.
-
-## Window decoration
-
-Window decoration is optional and disabled by default. Enable it with:
-
-```toml
-[appearance.decoration]
-enabled = true
-height = 24
-
-[[rules]]
-class = "mpv"
-decoration = "none"
-```
-
-Decoration is non-reparenting: each titlebar is a sibling of its original
-client window. It appears only in FREE mode, never in MONOCLE or real
-fullscreen. By default titlebar Button1 click raises, dragging moves without
-pointer warp, and double-click toggles maximize; Button2 lowers and Button3 does
-nothing. Click actions are configurable in `[bindings.decoration]` (see
-[Reference](docs/REFERENCE.md#decoration-bindings)); drag always moves.
-The default layout is `["title", "space", "maximize", "close"]`. Buttons use
-built-in primitive icons, with optional `close_label`, `maximize_label` and
-`restore_label` text/glyph overrides under `[appearance.decoration]`.
-Decoration has independent `font` (default `monospace:size=10`) and `padding`
-(default `8`) settings; they do not change tab typography or titlebar height.
-Rules accept `auto` (default), `force`, and
-`none`. AUTO decorates
-Normal/Dialog clients and respects `_MOTIF_WM_HINTS` no-decoration requests,
-including runtime changes. `force` overrides type/Motif policy but cannot
-override the global switch or FREE-only restriction.
+Invalid configuration is rejected as a whole and Box2430 falls back to its built-in defaults.
 
 ## Default controls
 
-A few useful built-in bindings:
+The defaults are intended to make a fresh build immediately usable.
 
-| Binding | Action |
-| --- | --- |
-| `Super+Return` | Spawn `kitty` |
-| `Super+q` | Close focused window |
-| `Super+1` … `Super+9` | Switch workspace |
-| `Super+Shift+1` … `Super+Shift+9` | Move focused window to workspace |
-| `Alt+Tab` | Cycle windows in stable client order |
-| `Super+j` / `Super+k` | Focus next / previous client |
-| `Super+m` | Toggle MONOCLE mode |
-| `Super+Left` / `Super+Right` | Snap left / right |
-| `Super+Up` | Toggle maximize |
-| `Super+f` | Toggle user fullscreen |
-| `Super+Ctrl+Left` / `Super+Ctrl+Right` | Select previous / next monitor |
-| `Super+Button1` | Move window |
-| `Super+Button3` | Resize window |
-| Root background `Button1` | Select monitor under pointer |
-| MONOCLE tab `Button1` / `Button2` | Focus / close tab |
-| Workspace label `Button1` | Activate that workspace |
+| Binding                                | Action                           |
+| -------------------------------------- | -------------------------------- |
+| `Super+Return`                         | Spawn `kitty`                    |
+| `Super+q`                              | Close focused window             |
+| `Super+1` … `Super+9`                  | Switch workspace                 |
+| `Super+Shift+1` … `Super+Shift+9`      | Move focused window to workspace |
+| `Alt+Tab`                              | Cycle windows                    |
+| `Super+j` / `Super+k`                  | Focus next / previous client     |
+| `Super+m`                              | Toggle FREE / MONOCLE            |
+| `Super+Left` / `Super+Right`           | Snap left / right                |
+| `Super+Up`                             | Toggle maximize                  |
+| `Super+f`                              | Toggle fullscreen                |
+| `Super+Ctrl+Left` / `Super+Ctrl+Right` | Select previous / next monitor   |
+| `Super+Button1`                        | Move window                      |
+| `Super+Button3`                        | Resize window                    |
+| `Super+Shift+r`                        | Restart Box2430                  |
+| `Super+Shift+e`                        | Exit Box2430                     |
 
-See `config.example.toml` for a complete configuration example and
-`docs/REFERENCE.md` for the command/configuration reference.
+Keyboard, client mouse, decoration, tab-bar, and workspace-bar bindings are configurable.
+
+## Configuration
+
+Box2430 uses TOML configuration.
+
+Major configuration areas include:
+
+```toml
+[workspaces]
+[bspwm_compat]
+[focus]
+[placement]
+[fullscreen]
+
+[appearance]
+[appearance.border.free]
+[appearance.border.monocle]
+[appearance.decoration]
+[appearance.bar]
+[appearance.tabs]
+[appearance.snap_preview]
+
+[snap]
+
+[bindings]
+[bindings.keys]
+[bindings.mouse]
+[bindings.decoration]
+[bindings.tabbar]
+[bindings.workspacebar]
+
+[[rules]]
+```
+
+Window decorations are optional and disabled by default. They are implemented as sibling windows rather than by reparenting clients, and are only shown in FREE mode.
+
+For the complete configuration and command reference, see [`docs/REFERENCE.md`](docs/REFERENCE.md).
+
+## Desktop integration
+
+Box2430 deliberately does not try to be a complete desktop environment.
+
+You can use the built-in UI, replace individual parts, or build a more complete shell around the WM.
+
+Typical setups include:
+
+```text
+Box2430 + native bar/tray
+Box2430 + Polybar
+Box2430 + Quickshell
+Box2430 + picom + external launcher / notification daemon
+```
+
+Wallpaper programs such as `feh` can own the root background normally. Box2430 only paints its configured fallback root color when starting a fresh WM session.
+
+Cursor themes are loaded through Xcursor, so normal variables such as:
+
+```sh
+export XCURSOR_THEME="Bibata-Modern-Classic"
+export XCURSOR_SIZE=24
+```
+
+work as expected.
+
+## Design choices
+
+Some behaviors are intentional rather than missing features.
+
+### Workspaces belong to monitors
+
+Box2430 does not model its workspaces as one global EWMH desktop set.
+
+The monitor/workspace relationship is part of the WM's core model rather than a presentation trick layered on top.
+
+### Stacking first
+
+Box2430 does not have an automatic tiling tree.
+
+FREE mode is a conventional overlapping desktop. MONOCLE provides a focused one-window-at-a-time alternative when desired.
+
+### No minimize workflow
+
+Box2430 intentionally has no minimize/iconify workflow. Workspaces and MONOCLE are the primary ways to organize windows that are not currently visible.
+
+### The shell is replaceable
+
+The native bar, tray, tabs, Polybar adapter, and external shell integrations sit around the same WM core.
+
+Using Polybar or Quickshell should not require turning Box2430 into a different window manager.
+
+### X11 is intentional
+
+Box2430 targets X11 because that is where the workflow it was created for was missing.
+
+It is not intended to become a Wayland compositor through a compatibility layer. A Wayland implementation would be a separate architectural problem.
+
+## Development
+
+The repository includes regression coverage for the window-management behavior rather than relying only on manual desktop testing.
+
+The test suite covers areas including:
+
+* client lifecycle
+* focus and urgency
+* workspace transitions
+* stacking
+* fullscreen and maximize
+* snapping and geometry
+* decorations
+* native bars and tabs
+* XEmbed tray behavior
+* RandR topology changes
+* rules and configuration
+* bspwm/Polybar compatibility
+* restart and startup behavior
+
+See [`DEVELOPMENT.md`](DEVELOPMENT.md) for build profiles, Xvfb/Xephyr testing, sanitizers, debugging, and real-session verification.
 
 ## Documentation
 
+* [`docs/REFERENCE.md`](docs/REFERENCE.md) — commands, configuration, bindings, widgets, rules, and integration behavior
+* [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — runtime model, X11 behavior, and architectural invariants
+* [`docs/IMPLEMENTATION_STYLE.md`](docs/IMPLEMENTATION_STYLE.md) — long-lived implementation principles
+* [`DEVELOPMENT.md`](DEVELOPMENT.md) — testing, debugging, and development workflow
 
-* [`REFERENCE.md`](https://github.com/novel2430/Box2430/blob/main/docs/REFERENCE.md) — commands, configuration, bindings, widgets, and rules
-* [`ARCHITECTURE.md`](https://github.com/novel2430/Box2430/blob/main/docs/ARCHITECTURE.md) — runtime state model, X11 behavior, and architectural invariants
-* [`IMPLEMENTATION_STYLE.md`](https://github.com/novel2430/Box2430/blob/main/docs/IMPLEMENTATION_STYLE.md) — long-lived engineering principles
-* [`DEVELOPMENT.md`](https://github.com/novel2430/Box2430/blob/main/DEVELOPMENT.md) — build, testing, debugging, and verification
-* [`AGENTS.md`](https://github.com/novel2430/Box2430/blob/main/AGENTS.md) — repository instructions for coding agents
+## Status
+
+Box2430 is actively developed and used as a working window manager.
+
+Behavior described by the checked-in implementation and regression tests should be treated as authoritative when documentation and code disagree.
+
+## License
+
+Box2430 is released under the GNU General Public License v2.0. See [`LICENSE`](LICENSE).
