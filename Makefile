@@ -26,8 +26,8 @@ RIVER_LAYER_HEADER = $(RIVER_GEN_DIR)/river-layer-shell-v1-client-protocol.h
 RIVER_LAYER_CODE = $(RIVER_GEN_DIR)/river-layer-shell-v1-protocol.c
 RIVER_XKB_HEADER = $(RIVER_GEN_DIR)/river-xkb-bindings-v1-client-protocol.h
 RIVER_XKB_CODE = $(RIVER_GEN_DIR)/river-xkb-bindings-v1-protocol.c
-RIVER_SOURCES = src/river/main.c src/river/runtime.c src/core.c \
-	$(RIVER_WM_CODE) $(RIVER_LAYER_CODE) $(RIVER_XKB_CODE)
+RIVER_SOURCES = src/river/main.c src/river/runtime.c src/river/config.c src/core.c \
+	vendor/tomlc17/tomlc17.c $(RIVER_WM_CODE) $(RIVER_LAYER_CODE) $(RIVER_XKB_CODE)
 SOURCES = src/main.c src/core.c src/wm.c src/ui.c src/decoration.c src/tray.c src/bspwm_compat.c src/monitor.c src/monitor_randr.c src/command.c src/config.c src/x11.c \
 	vendor/tomlc17/tomlc17.c
 OBJECTS = $(SOURCES:%.c=$(BUILD_DIR)/%.o)
@@ -42,8 +42,8 @@ river: $(RIVER_TARGET)
 river-check-deps:
 	@command -v wayland-scanner >/dev/null 2>&1 || { \
 		echo 'box2430: make river requires wayland-scanner' >&2; exit 1; }
-	@$(PKG_CONFIG) --exists wayland-client || { \
-		echo 'box2430: make river requires the wayland-client development package' >&2; exit 1; }
+	@$(PKG_CONFIG) --exists wayland-client xkbcommon || { \
+		echo 'box2430: make river requires wayland-client and xkbcommon development packages' >&2; exit 1; }
 	@test -f "$(RIVER_WM_XML)" || { \
 		echo 'box2430: river-window-management-v1.xml not found.' >&2; \
 		echo 'Set RIVER_PROTOCOLS_DIR=/path/to/river/protocol or install river-protocols.' >&2; exit 1; }
@@ -82,9 +82,9 @@ $(RIVER_TARGET): $(RIVER_SOURCES) $(RIVER_WM_HEADER) $(RIVER_LAYER_HEADER) $(RIV
 	@mkdir -p $(dir $@)
 	$(CC) -D_POSIX_C_SOURCE=200809L -Isrc -I$(RIVER_GEN_DIR) \
 		-std=c11 -Wall -Wextra -Wpedantic -Wshadow -Wformat=2 \
-		$(shell $(PKG_CONFIG) --cflags wayland-client 2>/dev/null) $(CFLAGS) \
+		$(shell $(PKG_CONFIG) --cflags wayland-client xkbcommon 2>/dev/null) $(CFLAGS) \
 		$(LDFLAGS) -o $@ $(RIVER_SOURCES) \
-		$(shell $(PKG_CONFIG) --libs wayland-client 2>/dev/null)
+		$(shell $(PKG_CONFIG) --libs wayland-client xkbcommon 2>/dev/null)
 
 release:
 	$(MAKE) PROFILE=release CFLAGS='-O2 -DNDEBUG' all

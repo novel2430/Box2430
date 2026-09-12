@@ -241,10 +241,12 @@ typedef struct BspwmCompatConfig {
 } BspwmCompatConfig;
 
 typedef struct Rule {
+    bool has_app_id;
     bool has_class;
     bool has_instance;
     bool has_title;
     bool has_window_type;
+    char app_id_pattern[BOX2430_MAX_RULE_PATTERN];
     char class_pattern[BOX2430_MAX_RULE_PATTERN];
     char instance_pattern[BOX2430_MAX_RULE_PATTERN];
     char title_pattern[BOX2430_MAX_RULE_PATTERN];

@@ -103,9 +103,9 @@ normal X11 build:
 make river
 ```
 
-This additionally requires `wayland-scanner`, the `wayland-client` development
-package, and river's window-management, layer-shell, and xkb-binding protocol
-XML files. A current river install exposes the protocol location through
+This additionally requires `wayland-scanner`, the `wayland-client` and
+`xkbcommon` development packages, and river's window-management, layer-shell,
+and xkb-binding protocol XML files. A current river install exposes the protocol location through
 `river-protocols.pc`. For an uninstalled river source checkout, override it
 explicitly:
 
@@ -113,12 +113,12 @@ explicitly:
 make river RIVER_PROTOCOLS_DIR=/path/to/river/protocol
 ```
 
-The binary is `build/debug/box2430-river`. Phase 4 adds a real river shell
-surface for the MONOCLE tabbar on top of the Phase 3 MONOCLE semantics, but it
-is not yet a feature-complete Wayland Box2430. See `docs/WAYLAND_PHASE1.md` for
-the runtime foundation, `docs/WAYLAND_PHASE2.md` for FREE interaction,
-`docs/WAYLAND_PHASE3.md` for MONOCLE semantics, and `docs/WAYLAND_PHASE4.md`
-for tabbar surface/input scope and smoke tests.
+The binary is `build/debug/box2430-river`. Phase 5 adds snap/maximize/real and
+fake fullscreen plus a thin adapter for the shared Box configuration/rules
+vocabulary. The native X11 bar, tray, and SSD remain intentionally frontend
+specific. See `docs/WAYLAND_PHASE1.md` through `docs/WAYLAND_PHASE4.md` for the
+migration foundation and `docs/WAYLAND_PHASE5.md` for current parity, known
+differences, and smoke tests.
 
 A staged install can be checked without modifying the host system:
 

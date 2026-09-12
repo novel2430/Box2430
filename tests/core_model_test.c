@@ -173,6 +173,63 @@ int main(void)
                sizeof(Rect)) != 0)
         return fail("latent geometry translation is not backend-neutral");
 
+    Client state_client = {
+        .geometry = {100, 100, 500, 400},
+        .normal_geometry = {100, 100, 500, 400},
+        .fullscreen_policy = CLIENT_FULLSCREEN_FAKE,
+    };
+    Rect original = state_client.geometry;
+    Rect left = {0, 0, 600, 900};
+    client_set_snap_authority(&state_client, SNAP_LEFT, left);
+    if (state_client.snap_state != SNAP_LEFT || state_client.maximized ||
+        memcmp(&state_client.geometry, &left, sizeof(Rect)) != 0 ||
+        memcmp(&state_client.normal_geometry, &original, sizeof(Rect)) != 0)
+        return fail("snap authority lost the restore geometry");
+
+    Rect right = {600, 0, 600, 900};
+    client_set_snap_authority(&state_client, SNAP_RIGHT, right);
+    if (memcmp(&state_client.normal_geometry, &original, sizeof(Rect)) != 0)
+        return fail("snap-to-snap transition overwrote restore geometry");
+    client_set_snap_authority(&state_client, SNAP_NONE, original);
+    if (state_client.snap_state != SNAP_NONE || state_client.maximized ||
+        memcmp(&state_client.geometry, &original, sizeof(Rect)) != 0)
+        return fail("snap restore did not return to persistent FREE geometry");
+
+    Rect maximized = {0, 0, 1200, 900};
+    client_set_maximized_authority(&state_client, true, maximized);
+    if (!state_client.maximized || state_client.snap_state != SNAP_NONE ||
+        memcmp(&state_client.geometry, &maximized, sizeof(Rect)) != 0 ||
+        memcmp(&state_client.normal_geometry, &original, sizeof(Rect)) != 0)
+        return fail("maximize authority lost the restore geometry");
+    client_set_maximized_authority(&state_client, false, maximized);
+    if (state_client.maximized ||
+        memcmp(&state_client.geometry, &original, sizeof(Rect)) != 0)
+        return fail("unmaximize did not restore persistent FREE geometry");
+
+    if (client_set_requested_fullscreen_authority(&state_client, true) ||
+        state_client.fullscreen || !state_client.client_fullscreen)
+        return fail("fake client fullscreen became real fullscreen");
+    if (!client_set_user_fullscreen_authority(&state_client, true) ||
+        !state_client.fullscreen || !state_client.user_fullscreen)
+        return fail("user fullscreen did not force real fullscreen");
+    if (!client_set_user_fullscreen_authority(&state_client, false) ||
+        state_client.fullscreen || state_client.user_fullscreen ||
+        !state_client.client_fullscreen)
+        return fail("leaving user fullscreen lost fake client fullscreen state");
+
+    state_client.fullscreen_policy = CLIENT_FULLSCREEN_ALLOW;
+    if (!client_set_requested_fullscreen_authority(&state_client, true) ||
+        !state_client.fullscreen)
+        return fail("allow client fullscreen did not become real fullscreen");
+    if (!client_set_requested_fullscreen_authority(&state_client, false) ||
+        state_client.fullscreen || state_client.client_fullscreen)
+        return fail("client fullscreen exit did not leave real fullscreen");
+
+    state_client.fullscreen_policy = CLIENT_FULLSCREEN_DENY;
+    if (client_set_requested_fullscreen_authority(&state_client, true) ||
+        state_client.fullscreen || state_client.client_fullscreen)
+        return fail("deny client fullscreen retained a client fullscreen request");
+
     puts("PASS: backend-neutral Box model, presentation, and topology semantics");
     return 0;
 }

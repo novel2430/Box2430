@@ -226,6 +226,8 @@ right_click = "none"
 "WheelUp" = "workspace prev"
 "WheelDown" = "workspace next"
 
+# On the river frontend, `app_id` is the native Wayland identity. Existing
+# `class` patterns are also matched against app_id for config compatibility.
 [[rules]]
 class = "Firefox"
 fullscreen_policy = "fake"

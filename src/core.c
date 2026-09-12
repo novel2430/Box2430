@@ -109,6 +109,23 @@ void workspace_raise_client(Workspace *workspace, Client *client)
     workspace->stack_tail = client;
 }
 
+void workspace_lower_client(Workspace *workspace, Client *client)
+{
+    if (!workspace || !client || client->workspace != workspace ||
+        workspace->stack_head == client)
+        return;
+
+    if (client->stack_prev) client->stack_prev->stack_next = client->stack_next;
+    if (client->stack_next) client->stack_next->stack_prev = client->stack_prev;
+    else if (workspace->stack_tail == client) workspace->stack_tail = client->stack_prev;
+
+    client->stack_prev = NULL;
+    client->stack_next = workspace->stack_head;
+    if (workspace->stack_head) workspace->stack_head->stack_prev = client;
+    else workspace->stack_tail = client;
+    workspace->stack_head = client;
+}
+
 Client *workspace_focus_relative_target(Workspace *workspace,
                                         Client *current, bool forward)
 {
@@ -305,6 +322,68 @@ void client_translate_latent_geometry(Client *client, Rect old_monitor,
     client->geometry.y += dy;
     client->normal_geometry.x += dx;
     client->normal_geometry.y += dy;
+}
+
+
+void client_set_snap_authority(Client *client, SnapState state, Rect geometry)
+{
+    if (!client || client->fullscreen) return;
+    if (state == SNAP_NONE) {
+        if (client->snap_state == SNAP_NONE && !client->maximized) return;
+        client->snap_state = SNAP_NONE;
+        client->maximized = false;
+        client->geometry = client->normal_geometry;
+        return;
+    }
+    if (client->snap_state == SNAP_NONE && !client->maximized)
+        client->normal_geometry = client->geometry;
+    client->maximized = false;
+    client->snap_state = state;
+    client->geometry = geometry;
+}
+
+void client_set_maximized_authority(Client *client, bool maximized, Rect geometry)
+{
+    if (!client || client->fullscreen || client->maximized == maximized) return;
+    if (maximized) {
+        if (client->snap_state == SNAP_NONE) client->normal_geometry = client->geometry;
+        client->snap_state = SNAP_NONE;
+        client->maximized = true;
+        client->geometry = geometry;
+    } else {
+        client->maximized = false;
+        client->snap_state = SNAP_NONE;
+        client->geometry = client->normal_geometry;
+    }
+}
+
+static bool client_fullscreen_target(const Client *client)
+{
+    if (!client) return false;
+    return client->user_fullscreen ||
+        (client->client_fullscreen &&
+         client->fullscreen_policy == CLIENT_FULLSCREEN_ALLOW);
+}
+
+bool client_set_user_fullscreen_authority(Client *client, bool requested)
+{
+    if (!client) return false;
+    client->user_fullscreen = requested;
+    bool target = client_fullscreen_target(client);
+    bool changed = client->fullscreen != target;
+    client->fullscreen = target;
+    return changed;
+}
+
+bool client_set_requested_fullscreen_authority(Client *client, bool requested)
+{
+    if (!client) return false;
+    client->client_fullscreen =
+        client->fullscreen_policy == CLIENT_FULLSCREEN_DENY ? false : requested;
+    bool target = client_fullscreen_target(client);
+    bool changed = client->fullscreen != target;
+    client->fullscreen = target;
+    return changed;
 }
 
 Rect workspace_monocle_content_area(const Workspace *workspace,

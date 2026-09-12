@@ -1,8 +1,8 @@
 # Box2430
 
-**A small X11 stacking window manager with per-monitor workspaces.**
+**A small stacking window manager with per-monitor workspaces.**
 
-Box2430 is a non-reparenting X11 window manager written in C with Xlib. It keeps a traditional, mouse-friendly stacking workflow while giving each monitor its own independent set of workspaces.
+Box2430 is written in C and keeps a traditional, mouse-friendly stacking workflow while giving each monitor its own independent set of workspaces. The mature frontend is a non-reparenting X11/Xlib WM; the repository also contains an experimental river external-WM frontend that reuses the same backend-neutral Box core.
 
 Every workspace can use one of two presentation modes:
 
@@ -356,11 +356,11 @@ The native bar, tray, tabs, Polybar adapter, and external shell integrations sit
 
 Using Polybar or Quickshell should not require turning Box2430 into a different window manager.
 
-### X11 is intentional
+### X11 stays first-class; Wayland is a separate frontend
 
-Box2430 targets X11 because that is where the workflow it was created for was missing.
+Box2430 started on X11 because that is where the workflow it was created for was missing. The X11 frontend remains a first-class implementation rather than a compatibility layer.
 
-It is not intended to become a Wayland compositor through a compatibility layer. A Wayland implementation would be a separate architectural problem.
+The experimental Wayland path does not turn Box2430 into a compositor. It runs as an external window manager for river: river owns the compositor/rendering plumbing while Box2430 supplies workspace, focus, stacking, FREE/MONOCLE, tab, snap, maximize, fullscreen, rule, and binding policy through the shared core.
 
 ## Development
 

@@ -797,7 +797,10 @@ shell-style `fnmatch` patterns.
 
 Match fields:
 
-* `class`
+* `app_id` — Wayland application ID; accepted by the shared config parser and
+  ignored as a match source by ordinary X11 clients
+* `class` — X11 `WM_CLASS`; the river frontend also treats this as an `app_id`
+  compatibility match so existing class rules remain useful
 * `instance`
 * `title`
 * `window_type`: parser values are `normal`, `dialog`, `dock`, `desktop`, or `notification`

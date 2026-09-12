@@ -1628,7 +1628,9 @@ typedef struct InitialPolicy {
 
 static bool rule_matches(const Rule *rule, const Client *client)
 {
-    return (!rule->has_class || fnmatch(rule->class_pattern, client->class_name, 0) == 0) &&
+    return (!rule->has_app_id ||
+            (client->app_id && fnmatch(rule->app_id_pattern, client->app_id, 0) == 0)) &&
+           (!rule->has_class || fnmatch(rule->class_pattern, client->class_name, 0) == 0) &&
            (!rule->has_instance || fnmatch(rule->instance_pattern, client->instance, 0) == 0) &&
            (!rule->has_title || fnmatch(rule->title_pattern, client->title, 0) == 0) &&
            (!rule->has_window_type || rule->window_type == client->window_type);

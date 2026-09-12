@@ -871,11 +871,12 @@ static bool read_rule_uint(toml_datum_t table, const char *key, unsigned int max
 static bool parse_rule(Config *candidate, toml_datum_t table, Rule *rule)
 {
     static const char *keys[] = {
-        "class", "instance", "title", "window_type", "workspace", "monitor",
+        "app_id", "class", "instance", "title", "window_type", "workspace", "monitor",
         "focus_on_map", "raise_on_map", "border", "fullscreen_policy", "placement",
         "decoration",
     };
-    if (!validate_keys(table, "rule", keys, 12) ||
+    if (!validate_keys(table, "rule", keys, 13) ||
+        !read_rule_pattern(table, "app_id", &rule->has_app_id, rule->app_id_pattern) ||
         !read_rule_pattern(table, "class", &rule->has_class, rule->class_pattern) ||
         !read_rule_pattern(table, "instance", &rule->has_instance,
                            rule->instance_pattern) ||
@@ -921,8 +922,8 @@ static bool parse_rule(Config *candidate, toml_datum_t table, Rule *rule)
         rule->has_decoration = true;
         rule->decoration = (ClientDecorationPolicy)selected;
     }
-    bool has_match = rule->has_class || rule->has_instance || rule->has_title ||
-                     rule->has_window_type;
+    bool has_match = rule->has_app_id || rule->has_class || rule->has_instance ||
+                     rule->has_title || rule->has_window_type;
     bool has_action = rule->has_workspace || rule->has_monitor ||
                       rule->has_focus_on_map || rule->has_raise_on_map ||
                       rule->has_border || rule->has_fullscreen_policy ||

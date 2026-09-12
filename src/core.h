@@ -172,6 +172,7 @@ void workspace_attach_client(Workspace *workspace, Client *client);
 void workspace_detach_client(Workspace *workspace, Client *client);
 void workspace_promote_focus(Workspace *workspace, Client *client);
 void workspace_raise_client(Workspace *workspace, Client *client);
+void workspace_lower_client(Workspace *workspace, Client *client);
 Client *workspace_focus_relative_target(Workspace *workspace,
                                         Client *current, bool forward);
 void client_reassign_workspace(Client *client, Workspace *workspace);
@@ -187,6 +188,11 @@ MonitorTopologyPlanResult model_plan_monitor_topology(
 void model_free_monitor_topology_plan(MonitorTopologyPlan *plan);
 void client_translate_latent_geometry(Client *client, Rect old_monitor,
                                       Rect new_monitor);
+void client_set_snap_authority(Client *client, SnapState state, Rect geometry);
+void client_set_maximized_authority(Client *client, bool maximized, Rect geometry);
+bool client_set_user_fullscreen_authority(Client *client, bool requested);
+bool client_set_requested_fullscreen_authority(Client *client, bool requested);
+
 Rect workspace_monocle_content_area(const Workspace *workspace,
                                     bool reserve_tab_strip, bool tab_at_top,
                                     int tab_height);
