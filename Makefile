@@ -13,7 +13,7 @@ BINDIR ?= $(PREFIX)/bin
 DATADIR ?= $(PREFIX)/share
 BUILD_DIR = build/$(PROFILE)
 TARGET = $(BUILD_DIR)/box2430
-SOURCES = src/main.c src/wm.c src/ui.c src/decoration.c src/tray.c src/bspwm_compat.c src/monitor.c src/monitor_randr.c src/command.c src/config.c src/x11.c \
+SOURCES = src/main.c src/core.c src/wm.c src/ui.c src/decoration.c src/tray.c src/bspwm_compat.c src/monitor.c src/monitor_randr.c src/command.c src/config.c src/x11.c \
 	vendor/tomlc17/tomlc17.c
 OBJECTS = $(SOURCES:%.c=$(BUILD_DIR)/%.o)
 DEPS = $(OBJECTS:.o=.d)
@@ -62,6 +62,7 @@ test-tools: $(BUILD_DIR)/x11-test-client $(BUILD_DIR)/x11-set-urgency \
 	$(BUILD_DIR)/x11-cursor-shape \
 	$(BUILD_DIR)/x11-tray-test-client $(BUILD_DIR)/x11-randr-monitor \
 	$(BUILD_DIR)/randr-monitor-test \
+	$(BUILD_DIR)/core-model-test \
 	$(BUILD_DIR)/monitor-geometry-test \
 	$(BUILD_DIR)/ui-label-test \
 	$(BUILD_DIR)/bspwm-compat-test \
@@ -69,6 +70,7 @@ test-tools: $(BUILD_DIR)/x11-test-client $(BUILD_DIR)/x11-set-urgency \
 	$(BUILD_DIR)/bspwm-compat-client
 
 test: all test-tools
+	$(BUILD_DIR)/core-model-test
 	$(BUILD_DIR)/monitor-geometry-test
 	$(BUILD_DIR)/ui-label-test
 	$(BUILD_DIR)/bspwm-compat-test
@@ -162,6 +164,11 @@ $(BUILD_DIR)/randr-monitor-test: tests/randr_monitor_test.c \
 $(BUILD_DIR)/x11-randr-monitor: tests/x11_randr_monitor.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CPPFLAGS) $(CFLAGS_COMMON) $(CFLAGS) -o $@ $< $(LDLIBS)
+
+$(BUILD_DIR)/core-model-test: tests/core_model_test.c src/core.c src/core.h
+	@mkdir -p $(dir $@)
+	$(CC) -Isrc -std=c11 -Wall -Wextra -Wpedantic -Wshadow -Wformat=2 \
+		$(CFLAGS) -o $@ tests/core_model_test.c src/core.c
 
 $(BUILD_DIR)/monitor-geometry-test: tests/monitor_geometry_test.c src/monitor.c \
 	src/box2430.h

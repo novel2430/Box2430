@@ -110,12 +110,11 @@ int main(void)
         return fail("disabled tabs were materialized");
 
     WM wm = {0};
-    Monitor clock_monitor = {
-        .bar_geometry = {0, 0, 800, 24},
-        .bar = (Window)101,
-        .tab_bar = (Window)102,
-    };
+    Monitor clock_monitor = {0};
     wm.model.monitors = &clock_monitor;
+    wm.x11_monitors[0].bar_geometry = (Rect){0, 0, 800, 24};
+    wm.x11_monitors[0].bar = (Window)101;
+    wm.x11_monitors[0].tab_bar = (Window)102;
     wm.model.monitor_count = 1;
     wm.ui_snap_preview_windows[0] = (Window)103;
     if (!ui_is_internal_window(&wm, (Window)101) ||
@@ -133,10 +132,10 @@ int main(void)
     wm.config.bar.right_count = 1;
     if (!ui_clock_visible(&wm))
         return fail("configured visible clock widget was not detected");
-    clock_monitor.bar_geometry.height = 0;
+    wm.x11_monitors[0].bar_geometry.height = 0;
     if (ui_clock_visible(&wm))
         return fail("zero-height native bar incorrectly requests clock wakeups");
-    clock_monitor.bar_geometry.height = 24;
+    wm.x11_monitors[0].bar_geometry.height = 24;
     wm.config.bar.enabled = false;
     if (ui_clock_visible(&wm))
         return fail("disabled native bar incorrectly requests clock wakeups");

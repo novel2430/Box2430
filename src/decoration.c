@@ -80,7 +80,7 @@ DecorationPart decoration_hit_test(const DecorationLayout *layout, int x, int y)
 
 DecorationPart decoration_part_at(const WM *wm, const Client *client, int root_x, int root_y)
 {
-    if (!client->decoration_mapped) return DECORATION_PART_NONE;
+    if (!x11_client_const(client)->decoration_mapped) return DECORATION_PART_NONE;
     Rect rect = client_decoration_rect(wm, client);
     DecorationLayout layout = decoration_layout(wm, client);
     return decoration_hit_test(&layout, root_x - rect.x, root_y - rect.y);
@@ -91,7 +91,7 @@ void decoration_pointer_cursor(WM *wm, Client *client, int root_x, int root_y)
     DecorationPart part = decoration_part_at(wm, client, root_x, root_y);
     Cursor cursor = part == DECORATION_PART_MAXIMIZE || part == DECORATION_PART_CLOSE
         ? wm->cursor_pointer : wm->cursor_normal;
-    XDefineCursor(wm->display, client->decoration, cursor);
+    XDefineCursor(wm->display, x11_client(client)->decoration, cursor);
     if (wm->decoration_input.client == client && !wm->decoration_input.dragging)
         XChangeActivePointerGrab(wm->display,
             ButtonPressMask | ButtonReleaseMask | PointerMotionMask, cursor, CurrentTime);
@@ -176,18 +176,18 @@ Client *decoration_client_for_window(const WM *wm, Window window)
 {
     if (!window) return NULL;
     for (Client *client = wm->model.clients; client; client = client->next)
-        if (client->decoration == window) return client;
+        if (x11_client(client)->decoration == window) return client;
     return NULL;
 }
 
 void decoration_destroy(WM *wm, Client *client)
 {
     decoration_input_cancel(wm, client);
-    if (client->decoration_draw) XftDrawDestroy(client->decoration_draw);
-    if (client->decoration) XDestroyWindow(wm->display, client->decoration);
-    client->decoration_draw = NULL;
-    client->decoration = None;
-    client->decoration_mapped = false;
+    if (x11_client(client)->decoration_draw) XftDrawDestroy(x11_client(client)->decoration_draw);
+    if (x11_client(client)->decoration) XDestroyWindow(wm->display, x11_client(client)->decoration);
+    x11_client(client)->decoration_draw = NULL;
+    x11_client(client)->decoration = None;
+    x11_client(client)->decoration_mapped = false;
 }
 
 static bool decoration_create(WM *wm, Client *client, Rect rect)
@@ -200,22 +200,22 @@ static bool decoration_create(WM *wm, Client *client, Rect rect)
         .cursor = wm->cursor_normal,
     };
     Visual *visual = DefaultVisual(wm->display, wm->screen);
-    client->decoration = XCreateWindow(
+    x11_client(client)->decoration = XCreateWindow(
         wm->display, wm->root, rect.x, rect.y,
         (unsigned int)rect.width, (unsigned int)rect.height, 0,
         DefaultDepth(wm->display, wm->screen), InputOutput, visual,
         CWOverrideRedirect | CWBackPixel | CWEventMask | CWCursor, &attributes);
-    if (!client->decoration) return false;
-    client->decoration_draw = XftDrawCreate(
-        wm->display, client->decoration, visual,
+    if (!x11_client(client)->decoration) return false;
+    x11_client(client)->decoration_draw = XftDrawCreate(
+        wm->display, x11_client(client)->decoration, visual,
         DefaultColormap(wm->display, wm->screen));
-    if (!client->decoration_draw) {
+    if (!x11_client(client)->decoration_draw) {
         decoration_destroy(wm, client);
         return false;
     }
     char name[64];
-    snprintf(name, sizeof(name), "box2430-decoration-0x%lx", client->window);
-    XStoreName(wm->display, client->decoration, name);
+    snprintf(name, sizeof(name), "box2430-decoration-0x%lx", x11_client(client)->window);
+    XStoreName(wm->display, x11_client(client)->decoration, name);
     return true;
 }
 
@@ -239,7 +239,7 @@ static void draw_button(WM *wm, Client *client, const XftColor *fg,
                                                 wm->decoration_font_count, label);
         unsigned int padding = text_width < (unsigned int)rect.width
             ? ((unsigned int)rect.width - text_width) / 2 : 0;
-        ui_draw_text(wm->display, client->decoration_draw, fg, wm->decoration_fonts,
+        ui_draw_text(wm->display, x11_client(client)->decoration_draw, fg, wm->decoration_fonts,
                      wm->decoration_font_count, rect.x, rect.y, (unsigned int)rect.width,
                      (unsigned int)rect.height, padding, label);
         return;
@@ -251,28 +251,28 @@ static void draw_button(WM *wm, Client *client, const XftColor *fg,
     int x = rect.x + (rect.width - size) / 2, y = (rect.height - size) / 2;
     if (item == DECORATION_ITEM_CLOSE) {
         for (int i = 0; i < size; ++i) {
-            XftDrawRect(client->decoration_draw, fg, x + i, y + i, 1, 1);
-            XftDrawRect(client->decoration_draw, fg, x + size - 1 - i, y + i, 1, 1);
+            XftDrawRect(x11_client(client)->decoration_draw, fg, x + i, y + i, 1, 1);
+            XftDrawRect(x11_client(client)->decoration_draw, fg, x + size - 1 - i, y + i, 1, 1);
         }
     } else if (client->maximized) {
-        outline(client->decoration_draw, fg, x + 3, y, (unsigned int)size - 3);
-        outline(client->decoration_draw, fg, x, y + 3, (unsigned int)size - 3);
-    } else outline(client->decoration_draw, fg, x, y, (unsigned int)size);
+        outline(x11_client(client)->decoration_draw, fg, x + 3, y, (unsigned int)size - 3);
+        outline(x11_client(client)->decoration_draw, fg, x, y + 3, (unsigned int)size - 3);
+    } else outline(x11_client(client)->decoration_draw, fg, x, y, (unsigned int)size);
 }
 
 void decoration_draw(WM *wm, Client *client)
 {
-    if (!client->decoration_mapped || !client->decoration_draw) return;
+    if (!x11_client(client)->decoration_mapped || !x11_client(client)->decoration_draw) return;
     bool focused = wm->model.focused_client == client;
     const XftColor *bg = focused ? &wm->decoration_focused_bg : &wm->decoration_bg;
     const XftColor *fg = focused ? &wm->decoration_focused_fg : &wm->decoration_fg;
     Rect rect = client_decoration_rect(wm, client);
     if (rect.height <= 0) return;
-    XftDrawRect(client->decoration_draw, bg, 0, 0,
+    XftDrawRect(x11_client(client)->decoration_draw, bg, 0, 0,
                 (unsigned int)rect.width, (unsigned int)rect.height);
     DecorationLayout layout = decoration_layout(wm, client);
     Rect title = layout.items[DECORATION_ITEM_TITLE];
-    ui_draw_text(wm->display, client->decoration_draw, fg,
+    ui_draw_text(wm->display, x11_client(client)->decoration_draw, fg,
                  wm->decoration_fonts, wm->decoration_font_count, title.x, title.y,
                  (unsigned int)title.width, (unsigned int)title.height,
                  wm->config.decoration.padding, ui_client_label(client, UI_LABEL_TITLE));
@@ -282,7 +282,7 @@ void decoration_draw(WM *wm, Client *client)
     Window root, child;
     int root_x, root_y, x, y;
     unsigned int mask;
-    if (XQueryPointer(wm->display, client->decoration, &root, &child,
+    if (XQueryPointer(wm->display, x11_client(client)->decoration, &root, &child,
                       &root_x, &root_y, &x, &y, &mask))
         decoration_pointer_cursor(wm, client, root_x, root_y);
 }
@@ -290,32 +290,32 @@ void decoration_draw(WM *wm, Client *client)
 void decoration_reconcile(WM *wm, Client *client)
 {
     bool eligible = client_should_decorate(wm, client);
-    bool visible = eligible && client->mapped &&
+    bool visible = eligible && x11_client(client)->mapped &&
         client->workspace == client->workspace->monitor->active_workspace;
     if (!visible) {
         decoration_input_cancel(wm, client);
-        if (client->decoration) XDefineCursor(wm->display, client->decoration, wm->cursor_normal);
-        if (client->decoration_mapped) XUnmapWindow(wm->display, client->decoration);
-        client->decoration_mapped = false;
+        if (x11_client(client)->decoration) XDefineCursor(wm->display, x11_client(client)->decoration, wm->cursor_normal);
+        if (x11_client(client)->decoration_mapped) XUnmapWindow(wm->display, x11_client(client)->decoration);
+        x11_client(client)->decoration_mapped = false;
         return;
     }
     if (!wm->decoration_resources_ready) return;
     Rect rect = client_decoration_rect(wm, client);
-    if (!client->decoration && !decoration_create(wm, client, rect)) {
+    if (!x11_client(client)->decoration && !decoration_create(wm, client, rect)) {
         fprintf(stderr, "box2430: cannot create client decoration\n");
         wm->running = false;
         return;
     }
-    XMoveResizeWindow(wm->display, client->decoration, rect.x, rect.y,
+    XMoveResizeWindow(wm->display, x11_client(client)->decoration, rect.x, rect.y,
                       (unsigned int)rect.width, (unsigned int)rect.height);
-    if (!client->decoration_mapped) {
+    if (!x11_client(client)->decoration_mapped) {
         /* The owner may have moved in the X stack while its strip was hidden
          * (MONOCLE/fullscreen). Reinsert it adjacent to the owner before map. */
-        XWindowChanges changes = {.sibling = client->window, .stack_mode = Above};
-        XConfigureWindow(wm->display, client->decoration,
+        XWindowChanges changes = {.sibling = x11_client(client)->window, .stack_mode = Above};
+        XConfigureWindow(wm->display, x11_client(client)->decoration,
                          CWSibling | CWStackMode, &changes);
-        XMapWindow(wm->display, client->decoration);
+        XMapWindow(wm->display, x11_client(client)->decoration);
     }
-    client->decoration_mapped = true;
+    x11_client(client)->decoration_mapped = true;
     decoration_draw(wm, client);
 }

@@ -88,8 +88,8 @@ static bool window_owned_elsewhere(const WM *wm, Window window)
         return true;
 
     for (const Client *client = wm->model.clients; client; client = client->next)
-        if (client->window == window || client->decoration == window) return true;
-    for (const SpecialWindow *special = wm->model.special_windows; special;
+        if (x11_client_const(client)->window == window || x11_client_const(client)->decoration == window) return true;
+    for (const SpecialWindow *special = wm->special_windows; special;
          special = special->next)
         if (special->window == window) return true;
     if (ui_is_internal_window(wm, window)) return true;
@@ -105,9 +105,9 @@ static unsigned int icon_width_limit(unsigned int bar_width)
 static unsigned int selected_icon_width_limit(const WM *wm)
 {
     if (wm && wm->model.selected_monitor &&
-        wm->model.selected_monitor->bar_geometry.width > 0)
+        x11_monitor_const(wm, wm->model.selected_monitor)->bar_geometry.width > 0)
         return icon_width_limit(
-            (unsigned int)wm->model.selected_monitor->bar_geometry.width);
+            (unsigned int)x11_monitor_const(wm, wm->model.selected_monitor)->bar_geometry.width);
     if (wm && wm->display) {
         int width = DisplayWidth(wm->display, wm->screen);
         if (width > 0) return icon_width_limit((unsigned int)width);
@@ -428,8 +428,8 @@ static bool dock_icon(WM *wm, Window window, Time timestamp)
     read_xembed_info(wm, icon, &icon->xembed_version, &icon->mapped);
     unsigned int slot_height = tray->slot_height;
     if (!slot_height && wm->model.selected_monitor &&
-        wm->model.selected_monitor->bar_geometry.height > 0)
-        slot_height = (unsigned int)wm->model.selected_monitor->bar_geometry.height;
+        x11_monitor_const(wm, wm->model.selected_monitor)->bar_geometry.height > 0)
+        slot_height = (unsigned int)x11_monitor_const(wm, wm->model.selected_monitor)->bar_geometry.height;
     if (!slot_height) slot_height = wm->config.bar.height ? wm->config.bar.height : 1U;
     unsigned int width_limit = selected_icon_width_limit(wm);
     normalize_icon(wm, icon, slot_height, width_limit);
@@ -595,20 +595,20 @@ void tray_prepare_layout(WM *wm, const Monitor *monitor)
 {
     Tray *tray = wm ? wm->tray : NULL;
     if (!tray || !tray->active || monitor != wm->model.selected_monitor ||
-        monitor->bar_geometry.width <= 0 || monitor->bar_geometry.height <= 0)
+        x11_monitor_const(wm, monitor)->bar_geometry.width <= 0 || x11_monitor_const(wm, monitor)->bar_geometry.height <= 0)
         return;
-    normalize_all_icons(wm, (unsigned int)monitor->bar_geometry.height,
+    normalize_all_icons(wm, (unsigned int)x11_monitor_const(wm, monitor)->bar_geometry.height,
                         icon_width_limit(
-                            (unsigned int)monitor->bar_geometry.width));
+                            (unsigned int)x11_monitor_const(wm, monitor)->bar_geometry.width));
 }
 
 unsigned int tray_widget_width(const WM *wm, const Monitor *monitor)
 {
     const Tray *tray = wm ? wm->tray : NULL;
     if (!tray || !tray->active || !monitor || monitor != wm->model.selected_monitor ||
-        monitor->bar_geometry.width <= 0 || monitor->bar_geometry.height <= 0)
+        x11_monitor_const(wm, monitor)->bar_geometry.width <= 0 || x11_monitor_const(wm, monitor)->bar_geometry.height <= 0)
         return 0;
-    return icon_width_sum(tray, (unsigned int)monitor->bar_geometry.width);
+    return icon_width_sum(tray, (unsigned int)x11_monitor_const(wm, monitor)->bar_geometry.width);
 }
 
 void tray_set_allocation(WM *wm, const Monitor *monitor, Rect rect)
@@ -617,10 +617,10 @@ void tray_set_allocation(WM *wm, const Monitor *monitor, Rect rect)
     if (!tray || !tray->active || !monitor || monitor != wm->model.selected_monitor)
         return;
 
-    unsigned int bar_width = monitor->bar_geometry.width > 0
-        ? (unsigned int)monitor->bar_geometry.width : 0U;
-    unsigned int bar_height = monitor->bar_geometry.height > 0
-        ? (unsigned int)monitor->bar_geometry.height : 0U;
+    unsigned int bar_width = x11_monitor_const(wm, monitor)->bar_geometry.width > 0
+        ? (unsigned int)x11_monitor_const(wm, monitor)->bar_geometry.width : 0U;
+    unsigned int bar_height = x11_monitor_const(wm, monitor)->bar_geometry.height > 0
+        ? (unsigned int)x11_monitor_const(wm, monitor)->bar_geometry.height : 0U;
     if (rect.width <= 0 || rect.height <= 0 ||
         !icon_width_sum(tray, bar_width)) {
         if (tray->host_mapped) XUnmapWindow(wm->display, tray->host);
@@ -632,8 +632,8 @@ void tray_set_allocation(WM *wm, const Monitor *monitor, Rect rect)
     if ((unsigned int)rect.width > bar_width) rect.width = (int)bar_width;
     if ((unsigned int)rect.height > bar_height) rect.height = (int)bar_height;
     Rect allocation = {
-        monitor->bar_geometry.x + rect.x,
-        monitor->bar_geometry.y + rect.y,
+        x11_monitor_const(wm, monitor)->bar_geometry.x + rect.x,
+        x11_monitor_const(wm, monitor)->bar_geometry.y + rect.y,
         rect.width,
         rect.height,
     };

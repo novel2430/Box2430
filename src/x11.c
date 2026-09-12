@@ -445,7 +445,7 @@ void x11_update_client_lists(WM *wm)
     for (Client *client = wm->model.clients; client; client = client->next) {
         ++count;
     }
-    for (SpecialWindow *special = wm->model.special_windows; special; special = special->next)
+    for (SpecialWindow *special = wm->special_windows; special; special = special->next)
         ++count;
 
     Window *windows = NULL;
@@ -462,30 +462,30 @@ void x11_update_client_lists(WM *wm)
         }
         unsigned long i = 0;
         for (Client *client = wm->model.clients; client; client = client->next) {
-            windows[i++] = client->window;
+            windows[i++] = x11_client(client)->window;
         }
-        for (SpecialWindow *special = wm->model.special_windows; special; special = special->next)
+        for (SpecialWindow *special = wm->special_windows; special; special = special->next)
             windows[i++] = special->window;
         i = 0;
-        for (SpecialWindow *special = wm->model.special_windows; special; special = special->next)
+        for (SpecialWindow *special = wm->special_windows; special; special = special->next)
             if (special->type == WINDOW_TYPE_DESKTOP) stacking[i++] = special->window;
         for (unsigned int monitor = 0; monitor < wm->model.monitor_count; ++monitor) {
             for (unsigned int workspace = 0; workspace < wm->config.workspace_count;
                  ++workspace) {
                 for (Client *client = wm->model.monitors[monitor].workspaces[workspace].stack_head;
                      client; client = client->stack_next) {
-                    if (!client->fullscreen) stacking[i++] = client->window;
+                    if (!client->fullscreen) stacking[i++] = x11_client(client)->window;
                 }
             }
         }
-        for (SpecialWindow *special = wm->model.special_windows; special; special = special->next)
+        for (SpecialWindow *special = wm->special_windows; special; special = special->next)
             if (special->type != WINDOW_TYPE_DESKTOP) stacking[i++] = special->window;
         for (unsigned int monitor = 0; monitor < wm->model.monitor_count; ++monitor)
             for (unsigned int workspace = 0; workspace < wm->config.workspace_count;
                  ++workspace)
                 for (Client *client = wm->model.monitors[monitor].workspaces[workspace].stack_head;
                      client; client = client->stack_next)
-                    if (client->fullscreen) stacking[i++] = client->window;
+                    if (client->fullscreen) stacking[i++] = x11_client(client)->window;
     }
 
     XChangeProperty(wm->display, wm->root, wm->atoms.net_client_list,
@@ -500,7 +500,7 @@ void x11_update_client_lists(WM *wm)
 
 void x11_update_active_window(WM *wm)
 {
-    Window active = wm->model.focused_client ? wm->model.focused_client->window : None;
+    Window active = wm->model.focused_client ? x11_client(wm->model.focused_client)->window : None;
     XChangeProperty(wm->display, wm->root, wm->atoms.net_active_window,
                     XA_WINDOW, 32, PropModeReplace, (unsigned char *)&active, 1);
 }

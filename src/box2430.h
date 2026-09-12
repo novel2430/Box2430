@@ -1,6 +1,8 @@
 #ifndef BOX2430_H
 #define BOX2430_H
 
+#include "core.h"
+
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
 #include <X11/Xft/Xft.h>
@@ -12,8 +14,6 @@ enum {
     BOX2430_MAX_COMMAND_ARG_LENGTH = 128,
     BOX2430_MAX_RULES = 64,
     BOX2430_MAX_RULE_PATTERN = 256,
-    BOX2430_MAX_MONITORS = 32,
-    BOX2430_MAX_WORKSPACES = 32,
     BOX2430_MAX_TAB_FONTS = 16,
     BOX2430_MAX_UI_FORMAT = 128,
     BOX2430_MAX_UI_LABEL = 128,
@@ -44,19 +44,6 @@ typedef enum ActiveWindowPolicy {
     ACTIVE_WINDOW_URGENT,
     ACTIVE_WINDOW_FOCUS,
 } ActiveWindowPolicy;
-typedef enum PlacementPolicy { PLACEMENT_CENTER, PLACEMENT_CLIENT } PlacementPolicy;
-typedef enum ClientFullscreenPolicy {
-    CLIENT_FULLSCREEN_ALLOW,
-    CLIENT_FULLSCREEN_FAKE,
-    CLIENT_FULLSCREEN_DENY,
-} ClientFullscreenPolicy;
-
-typedef enum ClientDecorationPolicy {
-    CLIENT_DECORATION_AUTO,
-    CLIENT_DECORATION_FORCE,
-    CLIENT_DECORATION_NONE,
-} ClientDecorationPolicy;
-
 typedef enum DecorationAction {
     DECORATION_ACTION_NONE,
     DECORATION_ACTION_RAISE,
@@ -257,14 +244,6 @@ typedef struct BspwmCompatConfig {
     bool enabled;
 } BspwmCompatConfig;
 
-typedef enum WindowType {
-    WINDOW_TYPE_NORMAL,
-    WINDOW_TYPE_DIALOG,
-    WINDOW_TYPE_DOCK,
-    WINDOW_TYPE_DESKTOP,
-    WINDOW_TYPE_NOTIFICATION,
-} WindowType;
-
 typedef struct Rule {
     bool has_class;
     bool has_instance;
@@ -330,13 +309,6 @@ typedef struct Config {
     Rule rules[BOX2430_MAX_RULES];
 } Config;
 
-typedef struct Rect {
-    int x;
-    int y;
-    int width;
-    int height;
-} Rect;
-
 typedef struct RandROutputObservation {
     unsigned long id;
     char *name;
@@ -366,24 +338,6 @@ void match_monitor_observations(
 bool randr_monitor_snapshots_equal(const RandRMonitorSnapshot *left,
                                    const RandRMonitorSnapshot *right);
 
-typedef enum WorkspaceMode {
-    WORKSPACE_FREE,
-    WORKSPACE_MONOCLE,
-} WorkspaceMode;
-
-typedef enum SnapState {
-    SNAP_NONE,
-    SNAP_LEFT,
-    SNAP_RIGHT,
-    SNAP_TOP_LEFT,
-    SNAP_TOP_RIGHT,
-    SNAP_BOTTOM_LEFT,
-    SNAP_BOTTOM_RIGHT,
-} SnapState;
-
-typedef struct Client Client;
-typedef struct Workspace Workspace;
-typedef struct Monitor Monitor;
 typedef struct SpecialWindow SpecialWindow;
 typedef struct Tray Tray;
 typedef struct BspwmCompat BspwmCompat;
@@ -396,42 +350,19 @@ struct SpecialWindow {
     SpecialWindow *next;
 };
 
-struct Client {
+/* X11-only attachment. Client is the first member so an X11-owned Client* can
+ * be converted without adding a backend pointer to the Core object. */
+typedef struct X11Client {
+    Client core;
     Window window;
-    /* X11 projection attachments, never members of semantic orders. */
     bool mapped;
     Window decoration;
     XftDraw *decoration_draw;
     bool decoration_mapped;
-    Workspace *workspace;
-    Rect geometry;
-    Rect normal_geometry;
-    SnapState snap_state;
-    Client *next;
-    Client *workspace_next;
-    Client *tab_prev;
-    Client *tab_next;
-    Client *stack_prev;
-    Client *stack_next;
-    Client *focus_prev;
-    Client *focus_next;
-    bool urgent;
     bool accepts_input;
     bool takes_focus;
     unsigned int ignored_unmaps;
-    bool maximized;
-    bool fullscreen;
-    bool user_fullscreen;
-    bool client_fullscreen;
-    char *title;
-    char *class_name;
-    char *instance;
-    WindowType window_type;
-    bool requests_no_decoration;
-    bool auto_decoration_eligible;
-    ClientDecorationPolicy decoration_policy;
     Window transient_for;
-    bool border_enabled;
     unsigned int original_border_width;
     bool size_hints_valid;
     int base_width;
@@ -444,36 +375,27 @@ struct Client {
     int height_increment;
     double minimum_aspect;
     double maximum_aspect;
-    ClientFullscreenPolicy fullscreen_policy;
-};
+} X11Client;
 
-struct Workspace {
-    Monitor *monitor;
-    unsigned int index;
-    WorkspaceMode mode;
-    Client *clients;
-    Client *tab_head;
-    Client *tab_tail;
-    Client *stack_head;
-    Client *stack_tail;
-    Client *focus_head;
-    Client *focus_tail;
-};
+static inline X11Client *x11_client(Client *client)
+{
+    return (X11Client *)client;
+}
 
-struct Monitor {
-    unsigned int index;
-    Rect geometry;
-    Rect workarea;
-    Rect bar_geometry;
-    Workspace *workspaces;
-    Workspace *active_workspace;
+static inline const X11Client *x11_client_const(const Client *client)
+{
+    return (const X11Client *)client;
+}
+
+typedef struct X11MonitorAttachment {
     Window bar;
     XftDraw *bar_draw;
+    Rect bar_geometry;
     Rect bar_widget_rects[UI_WIDGET_COUNT];
     Rect bar_workspace_rects[BOX2430_MAX_WORKSPACES];
     Window tab_bar;
     XftDraw *tab_draw;
-};
+} X11MonitorAttachment;
 
 /* Single-seat title gesture or fixed-button press; transient runtime, not authority. */
 typedef struct DecorationInputState {
@@ -531,18 +453,6 @@ typedef struct UIBorderPixels {
     bool urgent_allocated;
 } UIBorderPixels;
 
-/* Authoritative root of Box2430's modeled desktop world.  Existing Monitor
- * and Client entities intentionally remain X11-aware; this boundary makes the
- * model root explicit without introducing a backend-neutral object graph. */
-typedef struct WMModel {
-    Monitor *monitors;
-    unsigned int monitor_count;
-    Monitor *selected_monitor;
-    Client *clients;
-    Client *focused_client;
-    SpecialWindow *special_windows;
-} WMModel;
-
 typedef struct WM {
     Display *display;
     int screen;
@@ -552,6 +462,8 @@ typedef struct WM {
     Atoms atoms;
     Config config;
     WMModel model;
+    SpecialWindow *special_windows;
+    X11MonitorAttachment x11_monitors[BOX2430_MAX_MONITORS];
     RandRMonitorSnapshot monitor_snapshot;
     Tray *tray;
     BspwmCompat *bspwm_compat;
@@ -618,6 +530,19 @@ typedef struct WM {
     bool decoration_resources_ready;
 } WM;
 
+static inline X11MonitorAttachment *x11_monitor(WM *wm, Monitor *monitor)
+{
+    return monitor && monitor->index < BOX2430_MAX_MONITORS
+        ? &wm->x11_monitors[monitor->index] : NULL;
+}
+
+static inline const X11MonitorAttachment *x11_monitor_const(
+    const WM *wm, const Monitor *monitor)
+{
+    return monitor && monitor->index < BOX2430_MAX_MONITORS
+        ? &wm->x11_monitors[monitor->index] : NULL;
+}
+
 bool randr_check_version(WM *wm);
 bool randr_query_monitor_snapshot(WM *wm, RandRMonitorSnapshot *snapshot);
 void randr_free_monitor_snapshot(RandRMonitorSnapshot *snapshot);
@@ -626,7 +551,6 @@ bool wm_init(WM *wm, const char *display_name, const char *config_path,
              bool session_start);
 void wm_run(WM *wm, const char *autostart_path);
 void wm_destroy(WM *wm);
-Client *workspace_focus_target(Workspace *workspace);
 void workspace_activate(WM *wm, Monitor *monitor, Workspace *workspace);
 void monitor_select(WM *wm, Monitor *monitor);
 void client_close(WM *wm, Client *client);

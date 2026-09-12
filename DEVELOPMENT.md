@@ -198,6 +198,7 @@ make test
 The Makefile performs:
 
 ```text
+build/debug/core-model-test
 build/debug/monitor-geometry-test
 build/debug/ui-label-test
 build/debug/bspwm-compat-test
@@ -205,8 +206,17 @@ build/debug/decoration-test
 tests/run_xvfb.sh
 ```
 
-So `make test` contains four focused local tests followed by the Xvfb integration
+So `make test` contains five focused local tests followed by the Xvfb integration
 suite.
+
+### Core model test
+
+`tests/core_model_test.c` compiles only with `src/core.c`/`src/core.h`; the target
+deliberately does not use X11/Xft/RandR compiler or linker flags. It is both a
+behavior test and an architecture boundary test. Coverage includes semantic
+FREE/MONOCLE visibility, normalized focusability/focus fallback, MONOCLE tab
+content reservation, protocol-neutral monitor-topology planning, and latent
+geometry translation.
 
 ### Monitor geometry test
 

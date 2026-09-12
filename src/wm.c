@@ -76,12 +76,8 @@ static void materialize_client_geometry(WM *wm, Client *client);
 static void grab_client_buttons(WM *wm, Client *client, bool focused);
 static void project_client_mapped(WM *wm, Client *client);
 static void project_client_unmapped(WM *wm, Client *client);
-static bool client_workspace_is_active(const Client *client);
-static bool client_should_be_mapped(const Client *client);
 static void reconcile_client_mapping(WM *wm, Client *client);
 static void reconcile_workspace_mapping(WM *wm, Workspace *workspace);
-static void translate_client_latent_geometry(Client *client, Rect old_monitor,
-                                             Rect new_monitor);
 static void clamp_client_latent_geometry(WM *wm, Client *client, Rect workarea);
 
 #ifndef NDEBUG
@@ -313,14 +309,14 @@ static void wm_check_invariants(const WM *wm)
             invariant_failure("globally owned client is not owned by one workspace");
         if (client->snap_state != SNAP_NONE && client->maximized)
             invariant_failure("client is both snapped and maximized");
-        if (client->decoration_mapped &&
-            (!client->decoration || !client->mapped ||
+        if (x11_client_const(client)->decoration_mapped &&
+            (!x11_client_const(client)->decoration || !x11_client_const(client)->mapped ||
              !client_should_decorate(wm, client) || !client_workspace_is_active(client)))
             invariant_failure("decoration is mapped outside FREE-visible presentation");
-        if (client->decoration) {
+        if (x11_client_const(client)->decoration) {
             for (const Client *other = model->clients; other; other = other->next) {
-                if (other->window == client->decoration ||
-                    (other != client && other->decoration == client->decoration))
+                if (x11_client_const(other)->window == x11_client_const(client)->decoration ||
+                    (other != client && x11_client_const(other)->decoration == x11_client_const(client)->decoration))
                     invariant_failure("decoration has ambiguous client ownership");
             }
         }
@@ -329,7 +325,7 @@ static void wm_check_invariants(const WM *wm)
     const DecorationInputState *input = &wm->decoration_input;
     if (input->client &&
         (global_client_occurrences(model, input->client) != 1 ||
-         !input->client->decoration_mapped || input->titlebar != input->client->decoration))
+         !x11_client(input->client)->decoration_mapped || input->titlebar != x11_client(input->client)->decoration))
         invariant_failure("titlebar input has no visible managed owner");
     if (input->last_client && global_client_occurrences(model, input->last_client) != 1)
         invariant_failure("titlebar click history has no managed owner");
@@ -420,19 +416,16 @@ static bool init_monitors(WM *wm)
     return true;
 }
 
-static Client *find_client(const WMModel *model, Window window)
+static Client *find_client(WM *wm, Window window)
 {
-    for (Client *client = model->clients; client; client = client->next) {
-        if (client->window == window) {
-            return client;
-        }
-    }
+    for (Client *client = wm->model.clients; client; client = client->next)
+        if (x11_client(client)->window == window) return client;
     return NULL;
 }
 
-static SpecialWindow *find_special_window(const WMModel *model, Window window)
+static SpecialWindow *find_special_window(WM *wm, Window window)
 {
-    for (SpecialWindow *special = model->special_windows; special; special = special->next)
+    for (SpecialWindow *special = wm->special_windows; special; special = special->next)
         if (special->window == window) return special;
     return NULL;
 }
@@ -472,12 +465,12 @@ static void append_native_stack(WM *wm, Window window, Window ceiling,
  * Returning the client window gives the next lower unit its ceiling. */
 static Window project_client_stack(WM *wm, Client *client, Window upper)
 {
-    Window top = client->decoration_mapped ? client->decoration : client->window;
+    Window top = x11_client(client)->decoration_mapped ? x11_client(client)->decoration : x11_client(client)->window;
     if (upper) stack_relative(wm, top, upper, Below);
     else XRaiseWindow(wm->display, top);
-    if (top != client->window)
-        stack_relative(wm, client->window, top, Below);
-    return client->window;
+    if (top != x11_client(client)->window)
+        stack_relative(wm, x11_client(client)->window, top, Below);
+    return x11_client(client)->window;
 }
 
 static void enforce_stacking_below(WM *wm, Window ceiling)
@@ -488,15 +481,15 @@ static void enforce_stacking_below(WM *wm, Window ceiling)
      * absolute bottom.  Higher tiers are ordered relative to known siblings
      * so restacking Box2430 windows does not repeatedly jump over unrelated
      * override-redirect overlays such as dunst notifications. */
-    for (SpecialWindow *special = wm->model.special_windows; special; special = special->next)
+    for (SpecialWindow *special = wm->special_windows; special; special = special->next)
         if (special->type == WINDOW_TYPE_DESKTOP)
             XLowerWindow(wm->display, special->window);
 
     Window native_base = None;
     Window native_top = None;
     for (unsigned int i = 0; i < wm->model.monitor_count; ++i)
-        if (wm->config.bar.enabled && wm->model.monitors[i].bar)
-            append_native_stack(wm, wm->model.monitors[i].bar, ceiling,
+        if (wm->config.bar.enabled && wm->x11_monitors[i].bar)
+            append_native_stack(wm, wm->x11_monitors[i].bar, ceiling,
                                 &native_base, &native_top);
 
     Window tray_host = tray_host_window(wm);
@@ -505,9 +498,9 @@ static void enforce_stacking_below(WM *wm, Window ceiling)
                             &native_base, &native_top);
 
     for (unsigned int i = 0; i < wm->model.monitor_count; ++i)
-        if (wm->model.monitors[i].tab_bar && ui_tabs_should_materialize(
+        if (wm->x11_monitors[i].tab_bar && ui_tabs_should_materialize(
                 wm, wm->model.monitors[i].active_workspace))
-            append_native_stack(wm, wm->model.monitors[i].tab_bar, ceiling,
+            append_native_stack(wm, wm->x11_monitors[i].tab_bar, ceiling,
                                 &native_base, &native_top);
 
     /* stack_head -> stack_tail is bottom -> top.  Walk backwards from the
@@ -523,7 +516,7 @@ static void enforce_stacking_below(WM *wm, Window ceiling)
     }
 
     Window known_top = native_top;
-    for (SpecialWindow *special = wm->model.special_windows; special; special = special->next) {
+    for (SpecialWindow *special = wm->special_windows; special; special = special->next) {
         if (special->type == WINDOW_TYPE_DESKTOP) continue;
         if (known_top) stack_relative(wm, special->window, known_top, Above);
         else XRaiseWindow(wm->display, special->window);
@@ -533,9 +526,9 @@ static void enforce_stacking_below(WM *wm, Window ceiling)
         if (!client->fullscreen ||
             client->workspace != client->workspace->monitor->active_workspace)
             continue;
-        if (known_top) stack_relative(wm, client->window, known_top, Above);
-        else XRaiseWindow(wm->display, client->window);
-        known_top = client->window;
+        if (known_top) stack_relative(wm, x11_client(client)->window, known_top, Above);
+        else XRaiseWindow(wm->display, x11_client(client)->window);
+        known_top = x11_client(client)->window;
     }
     discard_enter_events(wm);
 }
@@ -643,7 +636,7 @@ static bool client_supports_protocol(WM *wm, Client *client, Atom protocol)
     Atom *protocols = NULL;
     int count = 0;
     bool found = false;
-    if (XGetWMProtocols(wm->display, client->window, &protocols, &count)) {
+    if (XGetWMProtocols(wm->display, x11_client(client)->window, &protocols, &count)) {
         for (int i = 0; i < count; ++i) {
             if (protocols[i] == protocol) {
                 found = true;
@@ -659,13 +652,13 @@ static void set_client_urgent(WM *wm, Client *client, bool urgent)
 {
     bool changed = client->urgent != urgent;
     client->urgent = urgent;
-    XWMHints *hints = XGetWMHints(wm->display, client->window);
+    XWMHints *hints = XGetWMHints(wm->display, x11_client(client)->window);
     if (hints) {
         bool hinted = (hints->flags & XUrgencyHint) != 0;
         if (hinted != urgent) {
             if (urgent) hints->flags |= XUrgencyHint;
             else hints->flags &= ~XUrgencyHint;
-            XSetWMHints(wm->display, client->window, hints);
+            XSetWMHints(wm->display, x11_client(client)->window, hints);
         }
         XFree(hints);
     }
@@ -675,10 +668,18 @@ static void set_client_urgent(WM *wm, Client *client, bool urgent)
     }
 }
 
+static void update_client_focusable(Client *client)
+{
+    const X11Client *xclient = x11_client_const(client);
+    client->focusable = xclient->accepts_input || xclient->takes_focus;
+}
+
 static void read_wm_hints(WM *wm, Client *client)
 {
-    XWMHints *hints = XGetWMHints(wm->display, client->window);
-    client->accepts_input = !hints || !(hints->flags & InputHint) || hints->input;
+    XWMHints *hints = XGetWMHints(wm->display, x11_client(client)->window);
+    x11_client(client)->accepts_input =
+        !hints || !(hints->flags & InputHint) || hints->input;
+    update_client_focusable(client);
     bool urgent = hints && (hints->flags & XUrgencyHint);
     if (hints) XFree(hints);
     set_client_urgent(wm, client, urgent && wm->model.focused_client != client);
@@ -686,62 +687,33 @@ static void read_wm_hints(WM *wm, Client *client)
 
 static void read_wm_protocols(WM *wm, Client *client)
 {
-    client->takes_focus = client_supports_protocol(wm, client, wm->atoms.wm_take_focus);
+    x11_client(client)->takes_focus =
+        client_supports_protocol(wm, client, wm->atoms.wm_take_focus);
+    update_client_focusable(client);
 }
 
 static void read_transient_for(WM *wm, Client *client)
 {
     Window transient = None;
-    if (XGetTransientForHint(wm->display, client->window, &transient))
-        client->transient_for = transient;
+    if (XGetTransientForHint(wm->display, x11_client(client)->window, &transient))
+        x11_client(client)->transient_for = transient;
     else
-        client->transient_for = None;
-}
-
-static bool client_can_focus(const Client *client)
-{
-    return client && (client->accepts_input || client->takes_focus);
-}
-
-static Client *workspace_stable_focus_fallback(Workspace *workspace, Client *removed)
-{
-    if (removed) {
-        for (Client *client = removed->tab_next; client; client = client->tab_next)
-            if (client_can_focus(client)) return client;
-        for (Client *client = removed->tab_prev; client; client = client->tab_prev)
-            if (client_can_focus(client)) return client;
-        return NULL;
-    }
-    for (Client *client = workspace->tab_tail; client; client = client->tab_prev)
-        if (client_can_focus(client)) return client;
-    return NULL;
-}
-
-static Client *workspace_focus_fallback(Workspace *workspace, Client *removed)
-{
-    for (Client *client = workspace->focus_head; client; client = client->focus_next)
-        if (client != removed && client_can_focus(client)) return client;
-    return workspace_stable_focus_fallback(workspace, removed);
-}
-
-Client *workspace_focus_target(Workspace *workspace)
-{
-    return workspace_focus_fallback(workspace, NULL);
+        x11_client(client)->transient_for = None;
 }
 
 static void project_client_input_focus(WM *wm, Client *client, Time time)
 {
-    if (client->accepts_input)
-        XSetInputFocus(wm->display, client->window, RevertToPointerRoot, time);
-    if (client->takes_focus) {
+    if (x11_client(client)->accepts_input)
+        XSetInputFocus(wm->display, x11_client(client)->window, RevertToPointerRoot, time);
+    if (x11_client(client)->takes_focus) {
         XEvent message = {0};
         message.xclient.type = ClientMessage;
-        message.xclient.window = client->window;
+        message.xclient.window = x11_client(client)->window;
         message.xclient.message_type = wm->atoms.wm_protocols;
         message.xclient.format = 32;
         message.xclient.data.l[0] = (long)wm->atoms.wm_take_focus;
         message.xclient.data.l[1] = (long)time;
-        XSendEvent(wm->display, client->window, False, NoEventMask, &message);
+        XSendEvent(wm->display, x11_client(client)->window, False, NoEventMask, &message);
     }
 }
 
@@ -830,7 +802,7 @@ static void resolve_focus_before_client_removal(WM *wm, Client *client)
 
 static void present_client_geometry(WM *wm, Client *client, Rect geometry)
 {
-    XMoveResizeWindow(wm->display, client->window, geometry.x, geometry.y,
+    XMoveResizeWindow(wm->display, x11_client(client)->window, geometry.x, geometry.y,
                       (unsigned int)geometry.width, (unsigned int)geometry.height);
     decoration_reconcile(wm, client);
 }
@@ -872,14 +844,12 @@ static Rect fit_workarea(WM *wm, const Client *client, Rect area)
 
 static Rect monocle_content_area(const WM *wm, const Workspace *workspace)
 {
-    const Monitor *monitor = workspace->monitor;
-    Rect area = monitor->workarea;
-    if (!ui_tabs_should_materialize(wm, workspace)) return area;
-    int tab_height = (int)ui_tab_height(wm, monitor);
-    if (wm->config.tabs.position == UI_EDGE_TOP)
-        area.y += tab_height;
-    area.height -= tab_height;
-    return area;
+    bool reserve_tabs = ui_tabs_should_materialize(wm, workspace);
+    int tab_height = reserve_tabs
+        ? (int)ui_tab_height(wm, workspace->monitor) : 0;
+    return workspace_monocle_content_area(
+        workspace, reserve_tabs, wm->config.tabs.position == UI_EDGE_TOP,
+        tab_height);
 }
 
 static void update_net_wm_state(WM *wm, Client *client)
@@ -893,11 +863,11 @@ static void update_net_wm_state(WM *wm, Client *client)
         states[count++] = wm->atoms.net_wm_state_maximized_vert;
     }
     if (count > 0) {
-        XChangeProperty(wm->display, client->window, wm->atoms.net_wm_state,
+        XChangeProperty(wm->display, x11_client(client)->window, wm->atoms.net_wm_state,
                         XA_ATOM, 32, PropModeReplace,
                         (unsigned char *)states, count);
     } else {
-        XDeleteProperty(wm->display, client->window, wm->atoms.net_wm_state);
+        XDeleteProperty(wm->display, x11_client(client)->window, wm->atoms.net_wm_state);
     }
 }
 
@@ -941,14 +911,14 @@ void client_close(WM *wm, Client *client)
     if (client_supports_protocol(wm, client, wm->atoms.wm_delete_window)) {
         XEvent message = {0};
         message.xclient.type = ClientMessage;
-        message.xclient.window = client->window;
+        message.xclient.window = x11_client(client)->window;
         message.xclient.message_type = wm->atoms.wm_protocols;
         message.xclient.format = 32;
         message.xclient.data.l[0] = (long)wm->atoms.wm_delete_window;
         message.xclient.data.l[1] = CurrentTime;
-        XSendEvent(wm->display, client->window, False, NoEventMask, &message);
+        XSendEvent(wm->display, x11_client(client)->window, False, NoEventMask, &message);
     } else {
-        XKillClient(wm->display, client->window);
+        XKillClient(wm->display, x11_client(client)->window);
     }
 }
 
@@ -1052,7 +1022,7 @@ static Rect snap_geometry(WM *wm, Client *client, SnapState state)
 static void materialize_client_geometry(WM *wm, Client *client)
 {
     Monitor *monitor = client->workspace->monitor;
-    XSetWindowBorderWidth(wm->display, client->window,
+    XSetWindowBorderWidth(wm->display, x11_client(client)->window,
                           client_border_width(wm, client));
     ui_client_border_refresh(wm, client);
     if (client->fullscreen) {
@@ -1094,7 +1064,7 @@ static void calculate_workareas(WM *wm)
         Rect area = monitor->geometry;
         int right = area.x + area.width;
         int bottom = area.y + area.height;
-        for (SpecialWindow *dock = wm->model.special_windows; dock; dock = dock->next) {
+        for (SpecialWindow *dock = wm->special_windows; dock; dock = dock->next) {
             if (dock->type != WINDOW_TYPE_DOCK || !dock->has_strut) continue;
             unsigned long *s = dock->strut;
             if (s[0] && ranges_overlap(area.y, bottom, s[4], s[5]) &&
@@ -1113,7 +1083,7 @@ static void calculate_workareas(WM *wm)
         if (area.width < 1) area.width = 1;
         if (area.height < 1) area.height = 1;
 
-        monitor->bar_geometry = (Rect){
+        x11_monitor(wm, monitor)->bar_geometry = (Rect){
             .x = area.x,
             .y = area.y,
             .width = area.width,
@@ -1123,12 +1093,12 @@ static void calculate_workareas(WM *wm)
             unsigned int height = wm->config.bar.height;
             if (height >= (unsigned int)area.height)
                 height = (unsigned int)area.height - 1;
-            monitor->bar_geometry.height = (int)height;
+            x11_monitor(wm, monitor)->bar_geometry.height = (int)height;
             if (wm->config.bar.position == UI_EDGE_TOP) {
-                monitor->bar_geometry.y = area.y;
+                x11_monitor(wm, monitor)->bar_geometry.y = area.y;
                 area.y += (int)height;
             } else {
-                monitor->bar_geometry.y = area.y + area.height - (int)height;
+                x11_monitor(wm, monitor)->bar_geometry.y = area.y + area.height - (int)height;
             }
             area.height -= (int)height;
         }
@@ -1393,7 +1363,7 @@ static void execute_decoration_action(WM *wm, Client *client,
 
 static void decoration_button_press(WM *wm, Client *client, const XButtonEvent *event)
 {
-    if (event->button < Button1 || event->button > Button3 || !client->decoration_mapped)
+    if (event->button < Button1 || event->button > Button3 || !x11_client(client)->decoration_mapped)
         return;
     DecorationPart part = decoration_part_at(wm, client, event->x_root, event->y_root);
     if (part != DECORATION_PART_TITLE) {
@@ -1538,8 +1508,8 @@ static void client_set_requested_fullscreen(WM *wm, Client *client, bool request
 
 static void project_client_mapped(WM *wm, Client *client)
 {
-    XMapWindow(wm->display, client->window);
-    client->mapped = true;
+    XMapWindow(wm->display, x11_client(client)->window);
+    x11_client(client)->mapped = true;
     decoration_reconcile(wm, client);
 }
 
@@ -1547,33 +1517,18 @@ static void project_client_mapped(WM *wm, Client *client)
  * observation of WM projection rather than a client-withdrawal transition. */
 static void project_client_unmapped(WM *wm, Client *client)
 {
-    ++client->ignored_unmaps;
-    XUnmapWindow(wm->display, client->window);
-    client->mapped = false;
+    ++x11_client(client)->ignored_unmaps;
+    XUnmapWindow(wm->display, x11_client(client)->window);
+    x11_client(client)->mapped = false;
     decoration_reconcile(wm, client);
-}
-
-static bool client_workspace_is_active(const Client *client)
-{
-    return client && client->workspace == client->workspace->monitor->active_workspace;
-}
-
-/* MONOCLE keeps exactly one ordinary client mapped: the current workspace
- * focus target.  FREE keeps every client on the active workspace mapped.
- * Hidden workspaces keep all clients unmapped. */
-static bool client_should_be_mapped(const Client *client)
-{
-    if (!client_workspace_is_active(client)) return false;
-    if (client->workspace->mode == WORKSPACE_FREE) return true;
-    return workspace_focus_target(client->workspace) == client;
 }
 
 static void reconcile_client_mapping(WM *wm, Client *client)
 {
     XWindowAttributes attrs;
-    if (!XGetWindowAttributes(wm->display, client->window, &attrs)) return;
-    client->mapped = attrs.map_state != IsUnmapped;
-    bool should_map = client_should_be_mapped(client);
+    if (!XGetWindowAttributes(wm->display, x11_client(client)->window, &attrs)) return;
+    x11_client(client)->mapped = attrs.map_state != IsUnmapped;
+    bool should_map = client_should_be_visible(client);
     if (should_map && attrs.map_state == IsUnmapped) {
         project_client_mapped(wm, client);
     } else if (!should_map && attrs.map_state != IsUnmapped) {
@@ -1685,11 +1640,11 @@ void client_move_to_workspace(WM *wm, Client *client, Workspace *workspace,
 
     bool keep_mapped_for_follow = follow && old_monitor == new_monitor &&
         workspace != new_monitor->active_workspace;
-    bool was_mapped_projection = client_should_be_mapped(client);
+    bool was_mapped_projection = client_should_be_visible(client);
     if (was_mapped_projection && !keep_mapped_for_follow)
         project_client_unmapped(wm, client);
     if (translate_monitor_geometry && old_monitor != new_monitor) {
-        translate_client_latent_geometry(client, old_monitor->geometry,
+        client_translate_latent_geometry(client, old_monitor->geometry,
                                          new_monitor->geometry);
         clamp_client_latent_geometry(wm, client, new_monitor->workarea);
     }
@@ -1843,92 +1798,92 @@ static void update_size_hints(WM *wm, Client *client)
 {
     XSizeHints hints = {0};
     long supplied;
-    if (!XGetWMNormalHints(wm->display, client->window, &hints, &supplied))
+    if (!XGetWMNormalHints(wm->display, x11_client(client)->window, &hints, &supplied))
         hints.flags = 0;
 
     if (hints.flags & PBaseSize) {
-        client->base_width = hints.base_width;
-        client->base_height = hints.base_height;
+        x11_client(client)->base_width = hints.base_width;
+        x11_client(client)->base_height = hints.base_height;
     } else if (hints.flags & PMinSize) {
-        client->base_width = hints.min_width;
-        client->base_height = hints.min_height;
+        x11_client(client)->base_width = hints.min_width;
+        x11_client(client)->base_height = hints.min_height;
     } else {
-        client->base_width = 0;
-        client->base_height = 0;
+        x11_client(client)->base_width = 0;
+        x11_client(client)->base_height = 0;
     }
     if (hints.flags & PMinSize) {
-        client->minimum_width = hints.min_width;
-        client->minimum_height = hints.min_height;
+        x11_client(client)->minimum_width = hints.min_width;
+        x11_client(client)->minimum_height = hints.min_height;
     } else if (hints.flags & PBaseSize) {
-        client->minimum_width = hints.base_width;
-        client->minimum_height = hints.base_height;
+        x11_client(client)->minimum_width = hints.base_width;
+        x11_client(client)->minimum_height = hints.base_height;
     } else {
-        client->minimum_width = 0;
-        client->minimum_height = 0;
+        x11_client(client)->minimum_width = 0;
+        x11_client(client)->minimum_height = 0;
     }
     if (hints.flags & PMaxSize) {
-        client->maximum_width = hints.max_width;
-        client->maximum_height = hints.max_height;
+        x11_client(client)->maximum_width = hints.max_width;
+        x11_client(client)->maximum_height = hints.max_height;
     } else {
-        client->maximum_width = 0;
-        client->maximum_height = 0;
+        x11_client(client)->maximum_width = 0;
+        x11_client(client)->maximum_height = 0;
     }
     if (hints.flags & PResizeInc) {
-        client->width_increment = hints.width_inc;
-        client->height_increment = hints.height_inc;
+        x11_client(client)->width_increment = hints.width_inc;
+        x11_client(client)->height_increment = hints.height_inc;
     } else {
-        client->width_increment = 0;
-        client->height_increment = 0;
+        x11_client(client)->width_increment = 0;
+        x11_client(client)->height_increment = 0;
     }
     if ((hints.flags & PAspect) &&
         hints.min_aspect.x > 0 && hints.min_aspect.y > 0 &&
         hints.max_aspect.x > 0 && hints.max_aspect.y > 0) {
-        client->minimum_aspect =
+        x11_client(client)->minimum_aspect =
             (double)hints.min_aspect.y / hints.min_aspect.x;
-        client->maximum_aspect =
+        x11_client(client)->maximum_aspect =
             (double)hints.max_aspect.x / hints.max_aspect.y;
     } else {
-        client->minimum_aspect = 0.0;
-        client->maximum_aspect = 0.0;
+        x11_client(client)->minimum_aspect = 0.0;
+        x11_client(client)->maximum_aspect = 0.0;
     }
-    client->size_hints_valid = true;
+    x11_client(client)->size_hints_valid = true;
 }
 
 static void apply_normal_hints(WM *wm, Client *client, int *width, int *height)
 {
-    if (!client->size_hints_valid) update_size_hints(wm, client);
-    bool base_is_min = client->base_width == client->minimum_width &&
-                       client->base_height == client->minimum_height;
+    if (!x11_client(client)->size_hints_valid) update_size_hints(wm, client);
+    bool base_is_min = x11_client(client)->base_width == x11_client(client)->minimum_width &&
+                       x11_client(client)->base_height == x11_client(client)->minimum_height;
 
     if (*width < 1) *width = 1;
     if (*height < 1) *height = 1;
     if (!base_is_min) {
-        *width -= client->base_width;
-        *height -= client->base_height;
+        *width -= x11_client(client)->base_width;
+        *height -= x11_client(client)->base_height;
     }
-    if (client->minimum_aspect > 0.0 && client->maximum_aspect > 0.0 &&
+    if (x11_client(client)->minimum_aspect > 0.0 && x11_client(client)->maximum_aspect > 0.0 &&
         *width > 0 && *height > 0) {
-        if (client->maximum_aspect < (double)*width / *height)
-            *width = (int)(*height * client->maximum_aspect + 0.5);
-        else if (client->minimum_aspect < (double)*height / *width)
-            *height = (int)(*width * client->minimum_aspect + 0.5);
+        if (x11_client(client)->maximum_aspect < (double)*width / *height)
+            *width = (int)(*height * x11_client(client)->maximum_aspect + 0.5);
+        else if (x11_client(client)->minimum_aspect < (double)*height / *width)
+            *height = (int)(*width * x11_client(client)->minimum_aspect + 0.5);
     }
     if (base_is_min) {
-        *width -= client->base_width;
-        *height -= client->base_height;
+        *width -= x11_client(client)->base_width;
+        *height -= x11_client(client)->base_height;
     }
-    if (client->width_increment > 0)
-        *width -= *width % client->width_increment;
-    if (client->height_increment > 0)
-        *height -= *height % client->height_increment;
-    *width += client->base_width;
-    *height += client->base_height;
-    if (*width < client->minimum_width) *width = client->minimum_width;
-    if (*height < client->minimum_height) *height = client->minimum_height;
-    if (client->maximum_width > 0 && *width > client->maximum_width)
-        *width = client->maximum_width;
-    if (client->maximum_height > 0 && *height > client->maximum_height)
-        *height = client->maximum_height;
+    if (x11_client(client)->width_increment > 0)
+        *width -= *width % x11_client(client)->width_increment;
+    if (x11_client(client)->height_increment > 0)
+        *height -= *height % x11_client(client)->height_increment;
+    *width += x11_client(client)->base_width;
+    *height += x11_client(client)->base_height;
+    if (*width < x11_client(client)->minimum_width) *width = x11_client(client)->minimum_width;
+    if (*height < x11_client(client)->minimum_height) *height = x11_client(client)->minimum_height;
+    if (x11_client(client)->maximum_width > 0 && *width > x11_client(client)->maximum_width)
+        *width = x11_client(client)->maximum_width;
+    if (x11_client(client)->maximum_height > 0 && *height > x11_client(client)->maximum_height)
+        *height = x11_client(client)->maximum_height;
 }
 
 static Rect initial_geometry(WM *wm, Client *client, const Monitor *monitor,
@@ -1973,9 +1928,9 @@ static Rect initial_geometry(WM *wm, Client *client, const Monitor *monitor,
 static void grab_client_buttons(WM *wm, Client *client, bool focused)
 {
     unsigned int event_mask = ButtonPressMask | ButtonReleaseMask | PointerMotionMask;
-    XUngrabButton(wm->display, AnyButton, AnyModifier, client->window);
+    XUngrabButton(wm->display, AnyButton, AnyModifier, x11_client(client)->window);
     if (wm->config.focus_mode == FOCUS_CLICK && !focused) {
-        XGrabButton(wm->display, AnyButton, AnyModifier, client->window, False,
+        XGrabButton(wm->display, AnyButton, AnyModifier, x11_client(client)->window, False,
                     event_mask, GrabModeSync, GrabModeAsync, None, None);
         return;
     }
@@ -1986,7 +1941,7 @@ static void grab_client_buttons(WM *wm, Client *client, bool focused)
         MouseBinding *mouse = &wm->config.mouse_bindings[binding];
         for (size_t i = 0; i < sizeof(ignored) / sizeof(ignored[0]); ++i)
             XGrabButton(wm->display, mouse->button,
-                        mouse->modifiers | ignored[i], client->window, False,
+                        mouse->modifiers | ignored[i], x11_client(client)->window, False,
                         event_mask, GrabModeSync, GrabModeAsync, None, None);
     }
 }
@@ -1994,7 +1949,7 @@ static void grab_client_buttons(WM *wm, Client *client, bool focused)
 static void manage_special_window(WM *wm, Window window, WindowType type,
                                   bool map_window)
 {
-    if (find_special_window(&wm->model, window)) {
+    if (find_special_window(wm, window)) {
         if (map_window) XMapWindow(wm->display, window);
         return;
     }
@@ -2008,8 +1963,8 @@ static void manage_special_window(WM *wm, Window window, WindowType type,
     special->type = type;
     if (type == WINDOW_TYPE_DOCK)
         special->has_strut = x11_read_strut(wm, window, special->strut);
-    special->next = wm->model.special_windows;
-    wm->model.special_windows = special;
+    special->next = wm->special_windows;
+    wm->special_windows = special;
     XSelectInput(wm->display, window, PropertyChangeMask);
     XSetWindowBorderWidth(wm->display, window, 0);
     x11_set_wm_state(wm, window, NormalState);
@@ -2021,7 +1976,7 @@ static void manage_special_window(WM *wm, Window window, WindowType type,
 
 static void unmanage_special_window(WM *wm, SpecialWindow *special, bool withdrawn)
 {
-    SpecialWindow **link = &wm->model.special_windows;
+    SpecialWindow **link = &wm->special_windows;
     while (*link && *link != special) link = &(*link)->next;
     if (*link) *link = special->next;
     bool was_dock = special->type == WINDOW_TYPE_DOCK;
@@ -2034,7 +1989,7 @@ static void unmanage_special_window(WM *wm, SpecialWindow *special, bool withdra
 
 static void manage_window(WM *wm, Window window, bool map_window)
 {
-    Client *existing = find_client(&wm->model, window);
+    Client *existing = find_client(wm, window);
     if (existing) {
         if (map_window) reconcile_client_mapping(wm, existing);
         return;
@@ -2052,14 +2007,15 @@ static void manage_window(WM *wm, Window window, bool map_window)
         return;
     }
 
-    Client *client = calloc(1, sizeof(*client));
-    if (!client) {
+    X11Client *xclient = calloc(1, sizeof(*xclient));
+    if (!xclient) {
         fprintf(stderr, "box2430: out of memory managing window 0x%lx\n", window);
         wm->running = false;
         return;
     }
-    client->window = window;
-    client->mapped = attrs.map_state != IsUnmapped;
+    Client *client = &xclient->core;
+    xclient->window = window;
+    x11_client(client)->mapped = attrs.map_state != IsUnmapped;
     client->title = x11_read_window_title(wm, window);
     x11_read_window_class(wm, window, &client->instance, &client->class_name);
     client->window_type = type;
@@ -2071,15 +2027,16 @@ static void manage_window(WM *wm, Window window, bool map_window)
         free(client->title);
         free(client->instance);
         free(client->class_name);
-        free(client);
+        free(xclient);
         wm->running = false;
         return;
     }
-    Client *transient_parent = find_client(&wm->model, client->transient_for);
+    Client *transient_parent = find_client(wm, xclient->transient_for);
+    client->parent = transient_parent;
     InitialPolicy policy = initial_policy(wm, client, transient_parent);
     client->workspace = &policy.monitor->workspaces[policy.workspace_index];
     client->border_enabled = policy.border;
-    client->original_border_width = (unsigned int)attrs.border_width;
+    x11_client(client)->original_border_width = (unsigned int)attrs.border_width;
     client->fullscreen_policy = policy.fullscreen_policy;
     client->decoration_policy = policy.decoration;
     unsigned int border_width = client_free_border_width(wm, client);
@@ -2124,7 +2081,7 @@ static void manage_window(WM *wm, Window window, bool map_window)
     if (x11_window_requests_fullscreen(wm, window))
         client_set_requested_fullscreen(wm, client, true);
     ui_update(wm);
-    if (client->decoration_mapped) enforce_stacking(wm);
+    if (x11_client(client)->decoration_mapped) enforce_stacking(wm);
     x11_update_client_lists(wm);
 }
 
@@ -2146,166 +2103,31 @@ static void unmanage_client(WM *wm, Client *client, bool withdrawn)
     if (*link) {
         *link = client->next;
     }
+    for (Client *other = wm->model.clients; other; other = other->next)
+        if (other->parent == client) other->parent = NULL;
     decoration_destroy(wm, client);
     if (withdrawn) {
         XWindowChanges changes = {
-            .border_width = (int)client->original_border_width,
+            .border_width = (int)x11_client(client)->original_border_width,
         };
         XGrabServer(wm->display);
         XErrorHandler previous_handler = XSetErrorHandler(ignore_x11_error);
-        XSelectInput(wm->display, client->window, NoEventMask);
-        XConfigureWindow(wm->display, client->window, CWBorderWidth, &changes);
-        XUngrabButton(wm->display, AnyButton, AnyModifier, client->window);
-        x11_set_wm_state(wm, client->window, WithdrawnState);
+        XSelectInput(wm->display, x11_client(client)->window, NoEventMask);
+        XConfigureWindow(wm->display, x11_client(client)->window, CWBorderWidth, &changes);
+        XUngrabButton(wm->display, AnyButton, AnyModifier, x11_client(client)->window);
+        x11_set_wm_state(wm, x11_client(client)->window, WithdrawnState);
         XSync(wm->display, False);
         XSetErrorHandler(previous_handler);
         XUngrabServer(wm->display);
     }
     free(client->title);
+    free(client->app_id);
     free(client->class_name);
     free(client->instance);
-    free(client);
+    free(x11_client(client));
     ui_bar_update(wm);
     enforce_stacking(wm);
     x11_update_client_lists(wm);
-}
-
-static bool rect_equal(Rect left, Rect right)
-{
-    return left.x == right.x && left.y == right.y &&
-           left.width == right.width && left.height == right.height;
-}
-
-typedef struct TopologyClientPlan {
-    Client *client;
-    unsigned int old_monitor_index;
-    unsigned int new_monitor_index;
-    unsigned int workspace_index;
-    bool migrate;
-    bool adjust_geometry;
-} TopologyClientPlan;
-
-typedef struct MonitorTopologyPlan {
-    unsigned int old_count;
-    unsigned int new_count;
-    Rect old_rects[BOX2430_MAX_MONITORS];
-    Rect new_rects[BOX2430_MAX_MONITORS];
-    int old_for_new[BOX2430_MAX_MONITORS];
-    int new_for_old[BOX2430_MAX_MONITORS];
-    unsigned int fallback_new_index;
-    unsigned int selected_new_index;
-    int preview_new_index;
-    Client *preferred_focus;
-    TopologyClientPlan *clients;
-    unsigned int client_count;
-} MonitorTopologyPlan;
-
-typedef enum MonitorTopologyPlanResult {
-    MONITOR_TOPOLOGY_PLAN_FAILED,
-    MONITOR_TOPOLOGY_NO_CHANGE,
-    MONITOR_TOPOLOGY_METADATA_ONLY,
-    MONITOR_TOPOLOGY_SEMANTIC_CHANGE,
-} MonitorTopologyPlanResult;
-
-static void free_topology_plan(MonitorTopologyPlan *plan)
-{
-    free(plan->clients);
-    plan->clients = NULL;
-    plan->client_count = 0;
-}
-
-static MonitorTopologyPlanResult plan_monitor_topology(
-    WM *wm, const RandRMonitorSnapshot *new_snapshot,
-    MonitorTopologyPlan *plan)
-{
-    memset(plan, 0, sizeof(*plan));
-    if (wm->monitor_snapshot.count != wm->model.monitor_count ||
-        !new_snapshot->count ||
-        new_snapshot->count > BOX2430_MAX_MONITORS) {
-        fprintf(stderr, "box2430: cannot plan invalid RandR monitor snapshot\n");
-        return MONITOR_TOPOLOGY_PLAN_FAILED;
-    }
-    if (randr_monitor_snapshots_equal(&wm->monitor_snapshot, new_snapshot))
-        return MONITOR_TOPOLOGY_NO_CHANGE;
-
-    plan->old_count = wm->model.monitor_count;
-    plan->new_count = new_snapshot->count;
-    for (unsigned int i = 0; i < plan->old_count; ++i)
-        plan->old_rects[i] = wm->model.monitors[i].geometry;
-    for (unsigned int i = 0; i < plan->new_count; ++i)
-        plan->new_rects[i] = new_snapshot->monitors[i].geometry;
-
-    match_monitor_observations(
-        wm->monitor_snapshot.monitors, plan->old_count,
-        new_snapshot->monitors, plan->new_count,
-        plan->old_for_new, plan->new_for_old);
-
-    bool changed = plan->old_count != plan->new_count;
-    for (unsigned int new_index = 0; new_index < plan->new_count; ++new_index) {
-        int old_index = plan->old_for_new[new_index];
-        if (old_index < 0 || old_index != (int)new_index ||
-            !rect_equal(plan->old_rects[old_index], plan->new_rects[new_index])) {
-            changed = true;
-        }
-    }
-    if (!changed) return MONITOR_TOPOLOGY_METADATA_ONLY;
-
-    plan->fallback_new_index = 0;
-    unsigned int selected_old_index = wm->model.selected_monitor
-        ? wm->model.selected_monitor->index : 0;
-    int selected_new_index = selected_old_index < plan->old_count
-        ? plan->new_for_old[selected_old_index] : -1;
-    plan->selected_new_index = selected_new_index >= 0
-        ? (unsigned int)selected_new_index : plan->fallback_new_index;
-
-    plan->preview_new_index = -1;
-    if (wm->drag.preview_monitor) {
-        unsigned int preview_old_index = wm->drag.preview_monitor->index;
-        if (preview_old_index < plan->old_count)
-            plan->preview_new_index = plan->new_for_old[preview_old_index];
-    }
-    plan->preferred_focus = wm->model.focused_client;
-
-    unsigned int client_count = 0;
-    for (Client *client = wm->model.clients; client; client = client->next)
-        ++client_count;
-    if (!client_count) return MONITOR_TOPOLOGY_SEMANTIC_CHANGE;
-
-    plan->clients = calloc(client_count, sizeof(*plan->clients));
-    if (!plan->clients) {
-        fprintf(stderr, "box2430: out of memory planning monitor topology\n");
-        return MONITOR_TOPOLOGY_PLAN_FAILED;
-    }
-    plan->client_count = client_count;
-
-    unsigned int i = 0;
-    for (Client *client = wm->model.clients; client; client = client->next, ++i) {
-        TopologyClientPlan *client_plan = &plan->clients[i];
-        unsigned int old_index = client->workspace->monitor->index;
-        int continued_new = old_index < plan->old_count
-            ? plan->new_for_old[old_index] : -1;
-        unsigned int new_index = continued_new >= 0
-            ? (unsigned int)continued_new : plan->fallback_new_index;
-        client_plan->client = client;
-        client_plan->old_monitor_index = old_index;
-        client_plan->new_monitor_index = new_index;
-        client_plan->workspace_index = client->workspace->index;
-        client_plan->migrate = continued_new < 0;
-        client_plan->adjust_geometry = client_plan->migrate ||
-            !rect_equal(plan->old_rects[old_index], plan->new_rects[new_index]);
-    }
-    return MONITOR_TOPOLOGY_SEMANTIC_CHANGE;
-}
-
-static void translate_client_latent_geometry(Client *client, Rect old_monitor,
-                                             Rect new_monitor)
-{
-    int dx = new_monitor.x - old_monitor.x;
-    int dy = new_monitor.y - old_monitor.y;
-    client->geometry.x += dx;
-    client->geometry.y += dy;
-    client->normal_geometry.x += dx;
-    client->normal_geometry.y += dy;
 }
 
 static void clamp_client_latent_geometry(WM *wm, Client *client, Rect workarea)
@@ -2348,14 +2170,32 @@ static void reconcile_monitors(WM *wm)
     RandRMonitorSnapshot new_snapshot = {0};
     if (!randr_query_monitor_snapshot(wm, &new_snapshot)) return;
 
-    MonitorTopologyPlan plan;
-    MonitorTopologyPlanResult result = plan_monitor_topology(
-        wm, &new_snapshot, &plan);
-    if (result == MONITOR_TOPOLOGY_NO_CHANGE) {
+    if (randr_monitor_snapshots_equal(&wm->monitor_snapshot, &new_snapshot)) {
         randr_free_monitor_snapshot(&new_snapshot);
         return;
     }
-    if (result == MONITOR_TOPOLOGY_METADATA_ONLY) {
+
+    Rect new_rects[BOX2430_MAX_MONITORS] = {0};
+    int old_for_new[BOX2430_MAX_MONITORS];
+    int new_for_old[BOX2430_MAX_MONITORS];
+    for (unsigned int i = 0; i < new_snapshot.count; ++i)
+        new_rects[i] = new_snapshot.monitors[i].geometry;
+    match_monitor_observations(
+        wm->monitor_snapshot.monitors, wm->monitor_snapshot.count,
+        new_snapshot.monitors, new_snapshot.count, old_for_new, new_for_old);
+
+    int preview_new_index = -1;
+    if (wm->drag.preview_monitor) {
+        unsigned int preview_old_index = wm->drag.preview_monitor->index;
+        if (preview_old_index < wm->model.monitor_count)
+            preview_new_index = new_for_old[preview_old_index];
+    }
+
+    MonitorTopologyPlan plan;
+    MonitorTopologyPlanResult result = model_plan_monitor_topology(
+        &wm->model, new_snapshot.count, new_rects, old_for_new, new_for_old, &plan);
+    if (result == MONITOR_TOPOLOGY_NO_CHANGE) {
+        /* The X11 observation changed only in frontend metadata. */
         accept_monitor_snapshot(wm, &new_snapshot);
         return;
     }
@@ -2366,15 +2206,20 @@ static void reconcile_monitors(WM *wm)
 
     Monitor old_monitors[BOX2430_MAX_MONITORS] = {0};
     Monitor staged[BOX2430_MAX_MONITORS] = {0};
+    X11MonitorAttachment old_x11[BOX2430_MAX_MONITORS] = {0};
+    X11MonitorAttachment staged_x11[BOX2430_MAX_MONITORS] = {0};
     bool added[BOX2430_MAX_MONITORS] = {false};
-    for (unsigned int i = 0; i < plan.old_count; ++i)
+    for (unsigned int i = 0; i < plan.old_count; ++i) {
         old_monitors[i] = wm->model.monitors[i];
+        old_x11[i] = wm->x11_monitors[i];
+    }
 
     /* Stage the complete future monitor array before mutating ownership. */
     for (unsigned int new_index = 0; new_index < plan.new_count; ++new_index) {
         int old_index = plan.old_for_new[new_index];
         if (old_index >= 0) {
             staged[new_index] = old_monitors[old_index];
+            staged_x11[new_index] = old_x11[old_index];
             staged[new_index].index = new_index;
             staged[new_index].geometry = plan.new_rects[new_index];
             staged[new_index].workarea = plan.new_rects[new_index];
@@ -2384,7 +2229,7 @@ static void reconcile_monitors(WM *wm)
                 fprintf(stderr, "box2430: cannot create state for added monitor\n");
                 for (unsigned int j = 0; j < new_index; ++j)
                     if (added[j]) free(staged[j].workspaces);
-                free_topology_plan(&plan);
+                model_free_monitor_topology_plan(&plan);
                 randr_free_monitor_snapshot(&new_snapshot);
                 return;
             }
@@ -2398,7 +2243,7 @@ static void reconcile_monitors(WM *wm)
         TopologyClientPlan *client_plan = &plan.clients[i];
         Client *client = client_plan->client;
         if (client_plan->adjust_geometry) {
-            translate_client_latent_geometry(
+            client_translate_latent_geometry(
                 client, plan.old_rects[client_plan->old_monitor_index],
                 plan.new_rects[client_plan->new_monitor_index]);
         }
@@ -2410,10 +2255,18 @@ static void reconcile_monitors(WM *wm)
         }
     }
 
-    for (unsigned int i = 0; i < plan.new_count; ++i)
+    /* Removed UI resources still live in the old index-based X11 sidecars.
+     * Destroy them before the sidecar array is reordered for the new topology. */
+    destroy_removed_monitor_resources(wm, old_monitors, &plan);
+
+    for (unsigned int i = 0; i < plan.new_count; ++i) {
         wm->model.monitors[i] = staged[i];
-    for (unsigned int i = plan.new_count; i < BOX2430_MAX_MONITORS; ++i)
+        wm->x11_monitors[i] = staged_x11[i];
+    }
+    for (unsigned int i = plan.new_count; i < BOX2430_MAX_MONITORS; ++i) {
         memset(&wm->model.monitors[i], 0, sizeof(wm->model.monitors[i]));
+        memset(&wm->x11_monitors[i], 0, sizeof(wm->x11_monitors[i]));
+    }
     wm->model.monitor_count = plan.new_count;
     for (unsigned int i = 0; i < wm->model.monitor_count; ++i) {
         wm->model.monitors[i].index = i;
@@ -2424,12 +2277,10 @@ static void reconcile_monitors(WM *wm)
     accept_monitor_snapshot(wm, &new_snapshot);
 
     ui_snap_preview_hide(wm);
-    wm->drag.preview_monitor = plan.preview_new_index >= 0
-        ? &wm->model.monitors[plan.preview_new_index] : NULL;
+    wm->drag.preview_monitor = preview_new_index >= 0
+        ? &wm->model.monitors[preview_new_index] : NULL;
     wm->drag.preview_snap = SNAP_NONE;
     wm->drag.preview_maximized = false;
-
-    destroy_removed_monitor_resources(wm, old_monitors, &plan);
 
     /* Workareas are computed only after the logical monitor/workspace world is
      * coherent. Added UI windows are then created against final monitor state. */
@@ -2438,14 +2289,14 @@ static void reconcile_monitors(WM *wm)
         if (wm->bar_resources_ready && added[i] &&
             !ui_bar_create_monitor(wm, &wm->model.monitors[i])) {
             fprintf(stderr, "box2430: cannot create bar for added monitor\n");
-            free_topology_plan(&plan);
+            model_free_monitor_topology_plan(&plan);
             wm->running = false;
             return;
         }
         if (wm->tab_resources_ready && added[i] &&
             !ui_tab_create_monitor(wm, &wm->model.monitors[i])) {
             fprintf(stderr, "box2430: cannot create tab bar for added monitor\n");
-            free_topology_plan(&plan);
+            model_free_monitor_topology_plan(&plan);
             wm->running = false;
             return;
         }
@@ -2485,12 +2336,12 @@ static void reconcile_monitors(WM *wm)
     ui_update(wm);
     enforce_stacking(wm);
     x11_update_client_lists(wm);
-    free_topology_plan(&plan);
+    model_free_monitor_topology_plan(&plan);
 }
 
 static void handle_configure_request(WM *wm, XConfigureRequestEvent *event)
 {
-    Client *client = find_client(&wm->model, event->window);
+    Client *client = find_client(wm, event->window);
     XWindowChanges changes = {
         .x = event->x, .y = event->y, .width = event->width,
         .height = event->height, .border_width = event->border_width,
@@ -2521,12 +2372,12 @@ static void handle_configure_request(WM *wm, XConfigureRequestEvent *event)
     /* CWBorderWidth is intentionally ignored for managed clients. */
 
     XWindowAttributes attrs;
-    if (XGetWindowAttributes(wm->display, client->window, &attrs)) {
+    if (XGetWindowAttributes(wm->display, x11_client(client)->window, &attrs)) {
         XEvent notification = {0};
         notification.xconfigure.type = ConfigureNotify;
         notification.xconfigure.display = wm->display;
-        notification.xconfigure.event = client->window;
-        notification.xconfigure.window = client->window;
+        notification.xconfigure.event = x11_client(client)->window;
+        notification.xconfigure.window = x11_client(client)->window;
         notification.xconfigure.x = attrs.x;
         notification.xconfigure.y = attrs.y;
         notification.xconfigure.width = attrs.width;
@@ -2534,7 +2385,7 @@ static void handle_configure_request(WM *wm, XConfigureRequestEvent *event)
         notification.xconfigure.border_width = attrs.border_width;
         notification.xconfigure.above = None;
         notification.xconfigure.override_redirect = False;
-        XSendEvent(wm->display, client->window, False, StructureNotifyMask,
+        XSendEvent(wm->display, x11_client(client)->window, False, StructureNotifyMask,
                    &notification);
     }
 }
@@ -2565,23 +2416,23 @@ static void handle_event(WM *wm, XEvent *event)
     /* Lifecycle observations may consume WM projection causality or trigger
      * the established unmanage transition. */
     case DestroyNotify:
-        client = find_client(&wm->model, event->xdestroywindow.window);
+        client = find_client(wm, event->xdestroywindow.window);
         if (client) unmanage_client(wm, client, false);
         else {
-            special = find_special_window(&wm->model, event->xdestroywindow.window);
+            special = find_special_window(wm, event->xdestroywindow.window);
             if (special) unmanage_special_window(wm, special, false);
         }
         break;
     case UnmapNotify:
-        client = find_client(&wm->model, event->xunmap.window);
+        client = find_client(wm, event->xunmap.window);
         if (client && event->xunmap.send_event) {
             unmanage_client(wm, client, true);
-        } else if (client && client->ignored_unmaps) {
-            --client->ignored_unmaps;
+        } else if (client && x11_client(client)->ignored_unmaps) {
+            --x11_client(client)->ignored_unmaps;
         } else if (client) {
             unmanage_client(wm, client, true);
         } else if (!client && !event->xunmap.send_event) {
-            special = find_special_window(&wm->model, event->xunmap.window);
+            special = find_special_window(wm, event->xunmap.window);
             if (special) unmanage_special_window(wm, special, true);
         }
         break;
@@ -2673,7 +2524,7 @@ static void handle_event(WM *wm, XEvent *event)
             }
             break;
         }
-        client = find_client(&wm->model, event->xbutton.window);
+        client = find_client(wm, event->xbutton.window);
         if (client) {
             unsigned int state = event->xbutton.state &
                                  ~(LockMask | wm->numlock_mask);
@@ -2737,7 +2588,7 @@ static void handle_event(WM *wm, XEvent *event)
                 decoration_pointer_cursor(wm, client, event->xcrossing.x_root, event->xcrossing.y_root);
             break;
         }
-        client = find_client(&wm->model, event->xcrossing.window);
+        client = find_client(wm, event->xcrossing.window);
         if (client && wm->config.focus_mode == FOCUS_SLOPPY &&
             client != wm->model.focused_client &&
             event->xcrossing.mode == NotifyNormal &&
@@ -2746,12 +2597,12 @@ static void handle_event(WM *wm, XEvent *event)
         break;
     case LeaveNotify:
         client = decoration_client_for_window(wm, event->xcrossing.window);
-        if (client) XDefineCursor(wm->display, client->decoration, wm->cursor_normal);
+        if (client) XDefineCursor(wm->display, x11_client(client)->decoration, wm->cursor_normal);
         break;
     case FocusIn:
         /* Observation only: repair X focus from semantic Authority. */
         if (wm->model.focused_client &&
-            event->xfocus.window != wm->model.focused_client->window &&
+            event->xfocus.window != x11_client(wm->model.focused_client)->window &&
             event->xfocus.mode == NotifyNormal &&
             event->xfocus.detail != NotifyPointer &&
             event->xfocus.detail != NotifyPointerRoot &&
@@ -2766,9 +2617,9 @@ static void handle_event(WM *wm, XEvent *event)
             ui_status_refresh(wm);
             break;
         }
-        client = find_client(&wm->model, event->xproperty.window);
+        client = find_client(wm, event->xproperty.window);
         if (client && event->xproperty.atom == XA_WM_NORMAL_HINTS) {
-            client->size_hints_valid = false;
+            x11_client(client)->size_hints_valid = false;
         } else if (client && event->xproperty.atom == XA_WM_HINTS) {
             read_wm_hints(wm, client);
             ui_update(wm);
@@ -2776,7 +2627,7 @@ static void handle_event(WM *wm, XEvent *event)
             read_wm_protocols(wm, client);
         } else if (client && (event->xproperty.atom == wm->atoms.net_wm_name ||
                               event->xproperty.atom == XA_WM_NAME)) {
-            char *title = x11_read_window_title(wm, client->window);
+            char *title = x11_read_window_title(wm, x11_client(client)->window);
             if (title) {
                 free(client->title);
                 client->title = title;
@@ -2786,7 +2637,7 @@ static void handle_event(WM *wm, XEvent *event)
         } else if (client && event->xproperty.atom == XA_WM_CLASS) {
             char *instance = NULL;
             char *class_name = NULL;
-            x11_read_window_class(wm, client->window, &instance, &class_name);
+            x11_read_window_class(wm, x11_client(client)->window, &instance, &class_name);
             if (instance && class_name) {
                 free(client->instance);
                 free(client->class_name);
@@ -2802,14 +2653,17 @@ static void handle_event(WM *wm, XEvent *event)
                               event->xproperty.atom == wm->atoms.motif_wm_hints)) {
             bool decorated = client_should_decorate(wm, client);
             if (event->xproperty.atom == wm->atoms.motif_wm_hints)
-                client->requests_no_decoration = x11_read_no_decoration(wm, client->window);
+                client->requests_no_decoration = x11_read_no_decoration(wm, x11_client(client)->window);
             else {
-                if (event->xproperty.atom == XA_WM_TRANSIENT_FOR)
+                if (event->xproperty.atom == XA_WM_TRANSIENT_FOR) {
                     read_transient_for(wm, client);
-                client->window_type = x11_read_window_type(wm, client->window);
+                    client->parent = find_client(
+                        wm, x11_client(client)->transient_for);
+                }
+                client->window_type = x11_read_window_type(wm, x11_client(client)->window);
                 if (event->xproperty.atom == wm->atoms.net_wm_window_type)
                     client->auto_decoration_eligible =
-                        x11_window_auto_decoration_eligible(wm, client->window);
+                        x11_window_auto_decoration_eligible(wm, x11_client(client)->window);
             }
             if (decorated != client_should_decorate(wm, client)) {
                 materialize_client_geometry(wm, client);
@@ -2817,7 +2671,7 @@ static void handle_event(WM *wm, XEvent *event)
             }
         } else if (!client && (event->xproperty.atom == wm->atoms.net_wm_strut ||
                                event->xproperty.atom == wm->atoms.net_wm_strut_partial)) {
-            special = find_special_window(&wm->model, event->xproperty.window);
+            special = find_special_window(wm, event->xproperty.window);
             if (special && special->type == WINDOW_TYPE_DOCK) {
                 special->has_strut = x11_read_strut(wm, special->window,
                                                     special->strut);
@@ -2827,7 +2681,7 @@ static void handle_event(WM *wm, XEvent *event)
         break;
     case ClientMessage:
         /* EWMH messages remain client requests subject to existing policy. */
-        client = find_client(&wm->model, event->xclient.window);
+        client = find_client(wm, event->xclient.window);
         if (event->xclient.message_type == wm->atoms.net_active_window && client &&
             client != wm->model.focused_client) {
             if (wm->config.active_window_policy == ACTIVE_WINDOW_URGENT) {
@@ -3051,8 +2905,8 @@ void wm_destroy(WM *wm)
     while (wm->model.clients) {
         unmanage_client(wm, wm->model.clients, true);
     }
-    while (wm->model.special_windows)
-        unmanage_special_window(wm, wm->model.special_windows, true);
+    while (wm->special_windows)
+        unmanage_special_window(wm, wm->special_windows, true);
     if (wm->atoms.net_active_window != None)
         XDeleteProperty(wm->display, wm->root, wm->atoms.net_active_window);
     if (wm->atoms.net_client_list != None)

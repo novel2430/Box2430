@@ -342,8 +342,8 @@ bool ui_clock_visible(const WM *wm)
     if (!wm || !wm->config.bar.enabled ||
         !configured_bar_widget(wm, UI_WIDGET_CLOCK)) return false;
     for (unsigned int i = 0; i < wm->model.monitor_count; ++i)
-        if (wm->model.monitors[i].bar_geometry.width > 0 &&
-            wm->model.monitors[i].bar_geometry.height > 0) return true;
+        if (wm->x11_monitors[i].bar_geometry.width > 0 &&
+            wm->x11_monitors[i].bar_geometry.height > 0) return true;
     return false;
 }
 
@@ -634,7 +634,7 @@ static unsigned int proportional_left_width(unsigned int available,
     return (unsigned int)(((uint64_t)available * left) / total);
 }
 
-static void layout_group_left(Monitor *monitor, const UIBarWidget *widgets,
+static void layout_group_left(WM *wm, Monitor *monitor, const UIBarWidget *widgets,
                               unsigned int count,
                               const unsigned int widths[UI_WIDGET_COUNT],
                               unsigned int gap, Rect bounds)
@@ -655,14 +655,14 @@ static void layout_group_left(Monitor *monitor, const UIBarWidget *widgets,
         int remaining = end - cursor;
         int width = remaining > 0 && natural < (unsigned int)remaining
             ? (int)natural : remaining > 0 ? remaining : 0;
-        monitor->bar_widget_rects[widget] = (Rect){cursor, 0, width,
-                                                   monitor->bar_geometry.height};
+        x11_monitor(wm, monitor)->bar_widget_rects[widget] = (Rect){cursor, 0, width,
+                                                   x11_monitor(wm, monitor)->bar_geometry.height};
         cursor += width;
         any = true;
     }
 }
 
-static void layout_group_right(Monitor *monitor, const UIBarWidget *widgets,
+static void layout_group_right(WM *wm, Monitor *monitor, const UIBarWidget *widgets,
                                unsigned int count,
                                const unsigned int widths[UI_WIDGET_COUNT],
                                unsigned int gap, Rect bounds)
@@ -683,17 +683,17 @@ static void layout_group_right(Monitor *monitor, const UIBarWidget *widgets,
         int width = remaining > 0 && natural < (unsigned int)remaining
             ? (int)natural : remaining > 0 ? remaining : 0;
         cursor -= width;
-        monitor->bar_widget_rects[widget] = (Rect){cursor, 0, width,
-                                                   monitor->bar_geometry.height};
+        x11_monitor(wm, monitor)->bar_widget_rects[widget] = (Rect){cursor, 0, width,
+                                                   x11_monitor(wm, monitor)->bar_geometry.height};
         any = true;
     }
 }
 
 static void layout_bar(WM *wm, Monitor *monitor)
 {
-    memset(monitor->bar_widget_rects, 0, sizeof(monitor->bar_widget_rects));
-    memset(monitor->bar_workspace_rects, 0, sizeof(monitor->bar_workspace_rects));
-    int bar_width = monitor->bar_geometry.width;
+    memset(x11_monitor(wm, monitor)->bar_widget_rects, 0, sizeof(x11_monitor(wm, monitor)->bar_widget_rects));
+    memset(x11_monitor(wm, monitor)->bar_workspace_rects, 0, sizeof(x11_monitor(wm, monitor)->bar_workspace_rects));
+    int bar_width = x11_monitor(wm, monitor)->bar_geometry.width;
     if (bar_width <= 0) return;
 
     unsigned int widths[UI_WIDGET_COUNT] = {0};
@@ -704,7 +704,7 @@ static void layout_bar(WM *wm, Monitor *monitor)
     if (padding > (unsigned int)bar_width / 2U)
         padding = (unsigned int)bar_width / 2U;
     Rect content = {(int)padding, 0, bar_width - 2 * (int)padding,
-                    monitor->bar_geometry.height};
+                    x11_monitor(wm, monitor)->bar_geometry.height};
     if (content.width <= 0) return;
 
     unsigned int left_width = group_width(wm->config.bar.left,
@@ -746,9 +746,9 @@ static void layout_bar(WM *wm, Monitor *monitor)
     Rect left_bounds = {content.x, 0, (int)left_alloc, content.height};
     Rect right_bounds = {content.x + content.width - (int)right_alloc, 0,
                          (int)right_alloc, content.height};
-    layout_group_left(monitor, wm->config.bar.left, wm->config.bar.left_count,
+    layout_group_left(wm, monitor, wm->config.bar.left, wm->config.bar.left_count,
                       widths, wm->config.bar.gap, left_bounds);
-    layout_group_right(monitor, wm->config.bar.right, wm->config.bar.right_count,
+    layout_group_right(wm, monitor, wm->config.bar.right, wm->config.bar.right_count,
                        widths, wm->config.bar.gap, right_bounds);
 
     unsigned int center_width = group_width(wm->config.bar.center,
@@ -778,7 +778,7 @@ static void layout_bar(WM *wm, Monitor *monitor)
     }
     Rect center_bounds = {(bar_width - (int)center_width) / 2, 0,
                           (int)center_width, content.height};
-    layout_group_left(monitor, wm->config.bar.center,
+    layout_group_left(wm, monitor, wm->config.bar.center,
                       wm->config.bar.center_count, widths, wm->config.bar.gap,
                       center_bounds);
 }
@@ -786,9 +786,9 @@ static void layout_bar(WM *wm, Monitor *monitor)
 static void fill_bar_rect(WM *wm, Monitor *monitor, Rect rect,
                           const XftColor *color)
 {
-    if (!monitor->bar || rect.width <= 0 || rect.height <= 0) return;
+    if (!x11_monitor(wm, monitor)->bar || rect.width <= 0 || rect.height <= 0) return;
     XSetForeground(wm->display, DefaultGC(wm->display, wm->screen), color->pixel);
-    XFillRectangle(wm->display, monitor->bar,
+    XFillRectangle(wm->display, x11_monitor(wm, monitor)->bar,
                    DefaultGC(wm->display, wm->screen), rect.x, rect.y,
                    (unsigned int)rect.width, (unsigned int)rect.height);
 }
@@ -801,7 +801,7 @@ static void draw_bar_label(WM *wm, Monitor *monitor, Rect rect,
     fill_bar_rect(wm, monitor, rect, bg);
     unsigned int font_count;
     XftFont *const *fonts = bar_fonts(wm, style->font_style, &font_count);
-    ui_draw_text(wm->display, monitor->bar_draw, fg, fonts, font_count,
+    ui_draw_text(wm->display, x11_monitor(wm, monitor)->bar_draw, fg, fonts, font_count,
                  rect.x, rect.y, (unsigned int)rect.width,
                  (unsigned int)rect.height, 0, label);
 }
@@ -816,8 +816,8 @@ static void draw_workspaces(WM *wm, Monitor *monitor, Rect rect)
         int remaining = end - cursor;
         int width = remaining > 0 && natural < (unsigned int)remaining
             ? (int)natural : remaining > 0 ? remaining : 0;
-        Rect item = {cursor, 0, width, monitor->bar_geometry.height};
-        monitor->bar_workspace_rects[i] = item;
+        Rect item = {cursor, 0, width, x11_monitor(wm, monitor)->bar_geometry.height};
+        x11_monitor(wm, monitor)->bar_workspace_rects[i] = item;
         if (width > 0) {
             UIWorkspaceVisualState state = ui_workspace_visual_state(monitor,
                                                                       workspace);
@@ -874,13 +874,13 @@ static void draw_clock(WM *wm, Monitor *monitor, Rect rect)
 
 void ui_bar_draw(WM *wm, Monitor *monitor)
 {
-    if (!wm->bar_resources_ready || !monitor || !monitor->bar_draw) return;
-    XClearWindow(wm->display, monitor->bar);
+    if (!wm->bar_resources_ready || !monitor || !x11_monitor(wm, monitor)->bar_draw) return;
+    XClearWindow(wm->display, x11_monitor(wm, monitor)->bar);
     tray_prepare_layout(wm, monitor);
     layout_bar(wm, monitor);
-    tray_set_allocation(wm, monitor, monitor->bar_widget_rects[UI_WIDGET_TRAY]);
+    tray_set_allocation(wm, monitor, x11_monitor(wm, monitor)->bar_widget_rects[UI_WIDGET_TRAY]);
     for (unsigned int widget = 0; widget < UI_WIDGET_COUNT; ++widget) {
-        Rect rect = monitor->bar_widget_rects[widget];
+        Rect rect = x11_monitor(wm, monitor)->bar_widget_rects[widget];
         switch ((UIBarWidget)widget) {
         case UI_WIDGET_WORKSPACES: draw_workspaces(wm, monitor, rect); break;
         case UI_WIDGET_MODE: draw_mode(wm, monitor, rect); break;
@@ -897,7 +897,7 @@ void ui_bar_draw(WM *wm, Monitor *monitor)
 Monitor *ui_bar_monitor_for_window(WM *wm, Window window)
 {
     for (unsigned int i = 0; i < wm->model.monitor_count; ++i)
-        if (wm->model.monitors[i].bar == window) return &wm->model.monitors[i];
+        if (wm->x11_monitors[i].bar == window) return &wm->model.monitors[i];
     return NULL;
 }
 
@@ -905,7 +905,7 @@ Workspace *ui_bar_workspace_hit_test(WM *wm, Monitor *monitor, int x)
 {
     if (!wm || !monitor) return NULL;
     for (unsigned int i = 0; i < wm->config.workspace_count; ++i) {
-        Rect rect = monitor->bar_workspace_rects[i];
+        Rect rect = x11_monitor(wm, monitor)->bar_workspace_rects[i];
         if (rect.width > 0 && x >= rect.x && x < rect.x + rect.width)
             return &monitor->workspaces[i];
     }
@@ -915,7 +915,7 @@ Workspace *ui_bar_workspace_hit_test(WM *wm, Monitor *monitor, int x)
 bool ui_bar_create_monitor(WM *wm, Monitor *monitor)
 {
     if (!wm->config.bar.enabled) return true;
-    Rect geometry = monitor->bar_geometry;
+    Rect geometry = x11_monitor(wm, monitor)->bar_geometry;
     unsigned int width = geometry.width > 0 ? (unsigned int)geometry.width : 1U;
     unsigned int height = geometry.height > 0 ? (unsigned int)geometry.height : 1U;
     Visual *visual = DefaultVisual(wm->display, wm->screen);
@@ -925,18 +925,18 @@ bool ui_bar_create_monitor(WM *wm, Monitor *monitor)
         .event_mask = ExposureMask | ButtonPressMask,
         .cursor = wm->cursor_normal,
     };
-    monitor->bar = XCreateWindow(
+    x11_monitor(wm, monitor)->bar = XCreateWindow(
         wm->display, wm->root, geometry.x, geometry.y, width, height, 0,
         DefaultDepth(wm->display, wm->screen), InputOutput, visual,
         CWOverrideRedirect | CWBackPixel | CWEventMask | CWCursor, &attributes);
-    if (!monitor->bar) return false;
+    if (!x11_monitor(wm, monitor)->bar) return false;
     ui_bar_name_monitor(wm, monitor);
-    monitor->bar_draw = XftDrawCreate(
-        wm->display, monitor->bar, visual,
+    x11_monitor(wm, monitor)->bar_draw = XftDrawCreate(
+        wm->display, x11_monitor(wm, monitor)->bar, visual,
         DefaultColormap(wm->display, wm->screen));
-    if (!monitor->bar_draw) {
-        XDestroyWindow(wm->display, monitor->bar);
-        monitor->bar = None;
+    if (!x11_monitor(wm, monitor)->bar_draw) {
+        XDestroyWindow(wm->display, x11_monitor(wm, monitor)->bar);
+        x11_monitor(wm, monitor)->bar = None;
         return false;
     }
     return true;
@@ -944,22 +944,22 @@ bool ui_bar_create_monitor(WM *wm, Monitor *monitor)
 
 void ui_bar_destroy_monitor(WM *wm, Monitor *monitor)
 {
-    if (monitor->bar_draw) {
-        XftDrawDestroy(monitor->bar_draw);
-        monitor->bar_draw = NULL;
+    if (x11_monitor(wm, monitor)->bar_draw) {
+        XftDrawDestroy(x11_monitor(wm, monitor)->bar_draw);
+        x11_monitor(wm, monitor)->bar_draw = NULL;
     }
-    if (monitor->bar) {
-        XDestroyWindow(wm->display, monitor->bar);
-        monitor->bar = None;
+    if (x11_monitor(wm, monitor)->bar) {
+        XDestroyWindow(wm->display, x11_monitor(wm, monitor)->bar);
+        x11_monitor(wm, monitor)->bar = None;
     }
 }
 
 void ui_bar_name_monitor(WM *wm, Monitor *monitor)
 {
-    if (!monitor->bar) return;
+    if (!x11_monitor(wm, monitor)->bar) return;
     char name[64];
     snprintf(name, sizeof(name), "box2430-bar-%u", monitor->index);
-    XStoreName(wm->display, monitor->bar, name);
+    XStoreName(wm->display, x11_monitor(wm, monitor)->bar, name);
 }
 
 void ui_bar_update(WM *wm)
@@ -967,18 +967,18 @@ void ui_bar_update(WM *wm)
     if (!wm->bar_resources_ready || !wm->config.bar.enabled) return;
     for (unsigned int i = 0; i < wm->model.monitor_count; ++i) {
         Monitor *monitor = &wm->model.monitors[i];
-        if (!monitor->bar) continue;
-        Rect geometry = monitor->bar_geometry;
+        if (!x11_monitor(wm, monitor)->bar) continue;
+        Rect geometry = x11_monitor(wm, monitor)->bar_geometry;
         bool visible = geometry.width > 0 && geometry.height > 0;
         unsigned int width = visible ? (unsigned int)geometry.width : 1U;
         unsigned int height = visible ? (unsigned int)geometry.height : 1U;
-        XMoveResizeWindow(wm->display, monitor->bar,
+        XMoveResizeWindow(wm->display, x11_monitor(wm, monitor)->bar,
                           geometry.x, geometry.y, width, height);
         if (visible) {
-            XMapWindow(wm->display, monitor->bar);
+            XMapWindow(wm->display, x11_monitor(wm, monitor)->bar);
             ui_bar_draw(wm, monitor);
         } else {
-            XUnmapWindow(wm->display, monitor->bar);
+            XUnmapWindow(wm->display, x11_monitor(wm, monitor)->bar);
             tray_set_allocation(wm, monitor, (Rect){0});
         }
     }
@@ -1003,7 +1003,7 @@ unsigned int ui_tab_height(const WM *wm, const Monitor *monitor)
 Monitor *ui_tab_monitor_for_window(WM *wm, Window window)
 {
     for (unsigned int i = 0; i < wm->model.monitor_count; ++i)
-        if (wm->model.monitors[i].tab_bar == window) return &wm->model.monitors[i];
+        if (wm->x11_monitors[i].tab_bar == window) return &wm->model.monitors[i];
     return NULL;
 }
 
@@ -1021,10 +1021,10 @@ Client *ui_tab_hit_test(WM *wm, Monitor *monitor, int x)
 
 void ui_tab_draw(WM *wm, Monitor *monitor)
 {
-    if (!monitor->tab_draw) return;
+    if (!x11_monitor(wm, monitor)->tab_draw) return;
     unsigned int height = ui_tab_height(wm, monitor);
     if (!height) height = 1;
-    XClearWindow(wm->display, monitor->tab_bar);
+    XClearWindow(wm->display, x11_monitor(wm, monitor)->tab_bar);
     Workspace *workspace = monitor->active_workspace;
     for (Client *client = workspace->tab_head; client; client = client->tab_next) {
         int x;
@@ -1039,13 +1039,13 @@ void ui_tab_draw(WM *wm, Monitor *monitor)
             : state == TAB_VISUAL_ACTIVE ? &wm->tab_active_bg
             : &wm->tab_inactive_bg;
         XSetForeground(wm->display, DefaultGC(wm->display, wm->screen), bg->pixel);
-        XFillRectangle(wm->display, monitor->tab_bar,
+        XFillRectangle(wm->display, x11_monitor(wm, monitor)->tab_bar,
                        DefaultGC(wm->display, wm->screen), x, 0, width, height);
         char *label = tab_label(wm, client, &style);
         if (!label) continue;
         unsigned int font_count;
         XftFont *const *fonts = tab_fonts(wm, style.font_style, &font_count);
-        ui_draw_text(wm->display, monitor->tab_draw, fg, fonts, font_count,
+        ui_draw_text(wm->display, x11_monitor(wm, monitor)->tab_draw, fg, fonts, font_count,
                      x, 0, width, height, wm->config.tabs.padding, label);
         free(label);
     }
@@ -1069,24 +1069,24 @@ void ui_tab_update(WM *wm)
             wm, monitor->active_workspace) && height;
         unsigned int window_height = height ? height : 1;
         int y = tab_window_y(wm, monitor, window_height);
-        XMoveResizeWindow(wm->display, monitor->tab_bar,
+        XMoveResizeWindow(wm->display, x11_monitor(wm, monitor)->tab_bar,
                           monitor->workarea.x, y,
                           (unsigned int)monitor->workarea.width, window_height);
         if (visible) {
-            XMapWindow(wm->display, monitor->tab_bar);
+            XMapWindow(wm->display, x11_monitor(wm, monitor)->tab_bar);
             ui_tab_draw(wm, monitor);
         } else {
-            XUnmapWindow(wm->display, monitor->tab_bar);
+            XUnmapWindow(wm->display, x11_monitor(wm, monitor)->tab_bar);
         }
     }
 }
 
 void ui_tab_name_monitor(WM *wm, Monitor *monitor)
 {
-    if (!monitor->tab_bar) return;
+    if (!x11_monitor(wm, monitor)->tab_bar) return;
     char name[64];
     snprintf(name, sizeof(name), "box2430-tabbar-%u", monitor->index);
-    XStoreName(wm->display, monitor->tab_bar, name);
+    XStoreName(wm->display, x11_monitor(wm, monitor)->tab_bar, name);
 }
 
 bool ui_tab_create_monitor(WM *wm, Monitor *monitor)
@@ -1101,18 +1101,18 @@ bool ui_tab_create_monitor(WM *wm, Monitor *monitor)
     unsigned int height = ui_tab_height(wm, monitor);
     if (!height) height = 1;
     int y = tab_window_y(wm, monitor, height);
-    monitor->tab_bar = XCreateWindow(
+    x11_monitor(wm, monitor)->tab_bar = XCreateWindow(
         wm->display, wm->root, monitor->workarea.x, y,
         (unsigned int)monitor->workarea.width, height, 0,
         DefaultDepth(wm->display, wm->screen), InputOutput, visual,
         CWOverrideRedirect | CWBackPixel | CWEventMask | CWCursor, &attributes);
     ui_tab_name_monitor(wm, monitor);
-    monitor->tab_draw = XftDrawCreate(
-        wm->display, monitor->tab_bar, visual,
+    x11_monitor(wm, monitor)->tab_draw = XftDrawCreate(
+        wm->display, x11_monitor(wm, monitor)->tab_bar, visual,
         DefaultColormap(wm->display, wm->screen));
-    if (!monitor->tab_draw) {
-        XDestroyWindow(wm->display, monitor->tab_bar);
-        monitor->tab_bar = None;
+    if (!x11_monitor(wm, monitor)->tab_draw) {
+        XDestroyWindow(wm->display, x11_monitor(wm, monitor)->tab_bar);
+        x11_monitor(wm, monitor)->tab_bar = None;
         return false;
     }
     return true;
@@ -1120,13 +1120,13 @@ bool ui_tab_create_monitor(WM *wm, Monitor *monitor)
 
 void ui_tab_destroy_monitor(WM *wm, Monitor *monitor)
 {
-    if (monitor->tab_draw) {
-        XftDrawDestroy(monitor->tab_draw);
-        monitor->tab_draw = NULL;
+    if (x11_monitor(wm, monitor)->tab_draw) {
+        XftDrawDestroy(x11_monitor(wm, monitor)->tab_draw);
+        x11_monitor(wm, monitor)->tab_draw = NULL;
     }
-    if (monitor->tab_bar) {
-        XDestroyWindow(wm->display, monitor->tab_bar);
-        monitor->tab_bar = None;
+    if (x11_monitor(wm, monitor)->tab_bar) {
+        XDestroyWindow(wm->display, x11_monitor(wm, monitor)->tab_bar);
+        x11_monitor(wm, monitor)->tab_bar = None;
     }
 }
 
@@ -1287,7 +1287,7 @@ void ui_client_border_refresh(WM *wm, Client *client)
         ? &wm->monocle_border : &wm->free_border;
     unsigned long pixel = client == wm->model.focused_client ? pixels->focused
         : client->urgent ? pixels->urgent : pixels->unfocused;
-    XSetWindowBorder(wm->display, client->window, pixel);
+    XSetWindowBorder(wm->display, x11_client(client)->window, pixel);
 }
 
 unsigned int ui_client_border_width(const WM *wm, const Client *client)
@@ -1391,7 +1391,7 @@ bool ui_is_internal_window(const WM *wm, Window window)
 {
     if (!wm || !window) return false;
     for (unsigned int i = 0; i < wm->model.monitor_count; ++i)
-        if (wm->model.monitors[i].bar == window || wm->model.monitors[i].tab_bar == window)
+        if (wm->x11_monitors[i].bar == window || wm->x11_monitors[i].tab_bar == window)
             return true;
     for (size_t i = 0; i < 4; ++i)
         if (wm->ui_snap_preview_windows[i] == window) return true;

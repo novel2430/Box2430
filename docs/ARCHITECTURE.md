@@ -37,6 +37,11 @@ The implementation deliberately stays close to one X11 event loop and explicit C
 state transitions. See `docs/IMPLEMENTATION_STYLE.md` for the long-lived
 engineering rationale.
 
+The planned X11/Wayland authority split is specified separately in
+`docs/WAYLAND_PHASE0_CONTRACT.md`. That document is a migration contract;
+the remainder of this file continues to describe the V2.3 X11 runtime as it
+exists today.
+
 ## Transition, Authority, and Projection (TAP)
 
 Box2430 organizes state-heavy paths using three responsibility categories:
@@ -92,17 +97,18 @@ focus, mapping, geometry, EWMH, or UI work. The surrounding move or topology
 transition retains responsibility for geometry and ordered projection.
 
 The authoritative root is represented explicitly by `WMModel`. It owns the
-monitor/workspace graph, global managed-client and special-window lists, selected
-monitor, and semantic focused client. `WM` remains the process/runtime
-coordinator around that model: configuration, X11 connection state, native-UI
-resources, tray state, and transient drag state stay outside the model root.
+monitor/workspace graph, global managed-client list, selected monitor, and
+semantic focused client. `Client`, `Workspace`, `Monitor`, and `WMModel` are
+defined by the X11-free `core.h`; protocol handles and projection bookkeeping do
+not live in those authority objects.
 
-`WMModel` is an authority boundary, not a claim that every entity below it is
-backend-independent. Existing `Monitor` and `Client` objects still carry X11/UI
-attachments and cached protocol metadata. Separating those attachments is not
-required for the current TAP model. Pure model helpers take `WMModel *` (or
-`const WMModel *`) where practical, while transitions that coordinate policy and
-ordered projection continue to take the full `WM *`.
+`WM` remains the X11 process/runtime coordinator around that model:
+configuration, X11 connection state, special-window/strut observations, native
+UI resources, tray state, RandR metadata, and transient drag state stay outside
+the model root. X11-owned ordinary clients use an embedding `X11Client` sidecar,
+and monitor-local X11 UI objects live in `X11MonitorAttachment`. Pure model
+helpers take Core objects directly, while transitions that coordinate X11 policy
+and ordered projection continue to take the full `WM *`.
 
 Debug builds check the in-memory model authority after startup and completed X
 event handling. These checks cover monitor/workspace ownership, global and
@@ -221,18 +227,18 @@ member makes the authoritative modeled desktop state explicit:
 
 ```text
 WM
-├── WMModel                     <- authoritative modeled desktop root
+├── WMModel                     <- X11-free authoritative modeled desktop root
 │   ├── Monitor[]
-│   │   ├── geometry / workarea / bar_geometry
+│   │   ├── geometry / workarea
 │   │   ├── Workspace[]
-│   │   ├── active_workspace
-│   │   ├── native bar window + Xft draw state
-│   │   └── MONOCLE tab-bar window + Xft draw state
+│   │   └── active_workspace
 │   ├── global Client list
-│   ├── SpecialWindow list
 │   ├── selected Monitor
 │   └── focused Client
-├── Config                      <- policy / style
+├── X11Client owners           <- XID / map state / ICCCM / size hints / SSD
+├── X11MonitorAttachment[]     <- native bar/tab X windows + Xft state
+├── SpecialWindow list         <- X11 override/special-window + strut observation
+├── Config                     <- policy / style
 ├── X11 connection + atoms     <- runtime / projection mechanism
 ├── accepted RandR snapshot    <- owned platform observation metadata
 ├── Tray
@@ -241,10 +247,11 @@ WM
 └── interactive drag / snap-preview state
 ```
 
-The `WMModel` boundary deliberately stops at the authoritative root. `Monitor`
-and `Client` are not split into separate semantic/runtime objects, so this is not
-a backend-neutral model rewrite. The boundary exists to make model ownership and
-mutation visible in code without obscuring the direct C control flow.
+The `WMModel` boundary deliberately stops at semantic authority. `Monitor` and
+`Client` contain no X11/Xft/RandR handles; X11 runtime ownership is adjacent
+rather than hidden behind a generic backend interface. This keeps direct C
+control flow while allowing another runtime to own different attachment objects
+without reconstructing Box policy from X11 state.
 
 ### Polybar bspwm-module compatibility
 
@@ -974,14 +981,20 @@ untouched.
 
 ### Reconciliation
 
-Topology changes are planned before commit. The plan determines:
+Topology changes are planned before commit. RandR matching remains an X11
+frontend responsibility and resolves an old/new continuity map. The X11-free
+Core planner then consumes only that mapping plus logical rectangles and current
+`WMModel` authority. It determines:
 
-* old/new logical monitor matching;
-* added/removed monitor state;
+* added/removed semantic monitor state;
 * client migration targets;
 * selected-monitor continuity;
 * preferred focused client;
-* geometry translation/rematerialization needs.
+* latent geometry translation/rematerialization needs.
+
+The runtime subsequently reorders/destroys X11 monitor attachments and performs
+projection. A future frontend can supply its own continuity mapping without
+passing RandR metadata into Core.
 
 An accepted query is classified before projection. An identical observation is
 discarded. If monitor count, order/continuity, and geometry are unchanged but
