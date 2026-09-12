@@ -113,11 +113,12 @@ explicitly:
 make river RIVER_PROTOCOLS_DIR=/path/to/river/protocol
 ```
 
-The binary is `build/debug/box2430-river`. Phase 3 adds MONOCLE semantics on
-top of the Phase 2 FREE interaction slice, but it is not yet a feature-complete
-Wayland Box2430. See `docs/WAYLAND_PHASE1.md` for the runtime foundation,
-`docs/WAYLAND_PHASE2.md` for FREE interaction, and `docs/WAYLAND_PHASE3.md`
-for MONOCLE scope and smoke tests.
+The binary is `build/debug/box2430-river`. Phase 4 adds a real river shell
+surface for the MONOCLE tabbar on top of the Phase 3 MONOCLE semantics, but it
+is not yet a feature-complete Wayland Box2430. See `docs/WAYLAND_PHASE1.md` for
+the runtime foundation, `docs/WAYLAND_PHASE2.md` for FREE interaction,
+`docs/WAYLAND_PHASE3.md` for MONOCLE semantics, and `docs/WAYLAND_PHASE4.md`
+for tabbar surface/input scope and smoke tests.
 
 A staged install can be checked without modifying the host system:
 
@@ -723,3 +724,18 @@ changes; MONOCLE transitions wait for the corresponding dimensions event before
 showing the incoming target, while ordinary FREE interactive resize remains
 live.  The Wayland tabbar remains intentionally deferred to Phase 4.  See
 `docs/WAYLAND_PHASE3.md`.
+
+## 2026-09-12 — Wayland Phase 4 MONOCLE tabbar
+
+The experimental `box2430-river` frontend now materializes MONOCLE tabs as a
+`river_shell_surface_v1` per logical output.  A minimal dependency-free
+`wl_shm` renderer exposes stable tab order with active/inactive/urgent states
+and temporary numeric labels; MONOCLE window presentation reserves the same
+tab-strip height without mutating persistent `Client.geometry`.  Tab commits
+use `sync_next_commit` in river render transactions and two shm buffers to keep
+active-client changes frame-aligned.  Direct `wl_pointer` input records tab
+click intent and defers semantic focus/raise to the next manage sequence.
+Output removal retires busy buffers until `wl_buffer.release` so hotplug does
+not invalidate compositor-owned shm.  X11 tabbar font/style/config parity, SSD,
+snap/maximize/fullscreen, and native Wayland bar/tray remain deferred.  See
+`docs/WAYLAND_PHASE4.md`.
