@@ -113,10 +113,11 @@ explicitly:
 make river RIVER_PROTOCOLS_DIR=/path/to/river/protocol
 ```
 
-The binary is `build/debug/box2430-river`. Phase 2 adds the first interactive
-FREE-mode slice, but it is not yet a feature-complete Wayland Box2430. See
-`docs/WAYLAND_PHASE1.md` for the runtime foundation and
-`docs/WAYLAND_PHASE2.md` for current interaction scope and smoke tests.
+The binary is `build/debug/box2430-river`. Phase 3 adds MONOCLE semantics on
+top of the Phase 2 FREE interaction slice, but it is not yet a feature-complete
+Wayland Box2430. See `docs/WAYLAND_PHASE1.md` for the runtime foundation,
+`docs/WAYLAND_PHASE2.md` for FREE interaction, and `docs/WAYLAND_PHASE3.md`
+for MONOCLE scope and smoke tests.
 
 A staged install can be checked without modifying the host system:
 
@@ -710,3 +711,15 @@ manage sequence.  Shared stack-raise and focus-cycle target helpers now live in
 `core.c` and are used by the X11 runtime as well.  MONOCLE/tabbar,
 snap/maximize/fullscreen, SSD, and full Wayland config/command parity remain out
 of scope.  See `docs/WAYLAND_PHASE2.md`.
+
+## 2026-09-12 — Wayland Phase 3 MONOCLE semantics
+
+The experimental `box2430-river` frontend now supports workspace-local
+FREE/MONOCLE switching.  MONOCLE reuses Core focus history and derived
+visibility, while the river frontend derives a temporary workarea-sized
+presentation rectangle rather than overwriting persistent `Client.geometry`.
+Dimension proposals are refreshed when presentation mode/target/workarea
+changes; MONOCLE transitions wait for the corresponding dimensions event before
+showing the incoming target, while ordinary FREE interactive resize remains
+live.  The Wayland tabbar remains intentionally deferred to Phase 4.  See
+`docs/WAYLAND_PHASE3.md`.

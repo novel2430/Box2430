@@ -110,6 +110,10 @@ int main(void)
 
     monitor.workarea = (Rect){0, 20, 800, 580};
     Rect content = workspace_monocle_content_area(
+        &workspaces[1], false, true, 0);
+    if (memcmp(&content, &monitor.workarea, sizeof(Rect)) != 0)
+        return fail("MONOCLE without tab reservation did not preserve workarea");
+    content = workspace_monocle_content_area(
         &workspaces[1], true, true, 24);
     if (memcmp(&content, &(Rect){0, 44, 800, 556}, sizeof(Rect)) != 0)
         return fail("top MONOCLE tab reservation changed content geometry");
