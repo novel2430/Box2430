@@ -32,6 +32,18 @@ int main(void)
         workspace_focus_target(&owned_monitor.workspaces[0]) != &owned_first)
         return fail("core workspace order helpers disagree");
 
+    workspace_raise_client(&owned_monitor.workspaces[0], &owned_first);
+    if (owned_monitor.workspaces[0].stack_head != &owned_second ||
+        owned_monitor.workspaces[0].stack_tail != &owned_first ||
+        owned_second.stack_next != &owned_first ||
+        owned_first.stack_prev != &owned_second)
+        return fail("core stack raise helper lost bottom-to-top authority");
+    if (workspace_focus_relative_target(&owned_monitor.workspaces[0],
+                                        &owned_first, true) != &owned_second ||
+        workspace_focus_relative_target(&owned_monitor.workspaces[0],
+                                        &owned_first, false) != &owned_second)
+        return fail("core focus cycle target disagrees with stable tab order");
+
     client_reassign_workspace(&owned_second, &owned_monitor.workspaces[1]);
     if (owned_second.workspace != &owned_monitor.workspaces[1] ||
         owned_monitor.workspaces[0].tab_tail != &owned_first ||

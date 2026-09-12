@@ -772,16 +772,7 @@ static void update_net_wm_state(WM *wm, Client *client)
 void client_raise(WM *wm, Client *client)
 {
     if (!client) return;
-    Workspace *workspace = client->workspace;
-    if (workspace->stack_tail != client) {
-        if (client->stack_prev) client->stack_prev->stack_next = client->stack_next;
-        else workspace->stack_head = client->stack_next;
-        if (client->stack_next) client->stack_next->stack_prev = client->stack_prev;
-        client->stack_prev = workspace->stack_tail;
-        client->stack_next = NULL;
-        workspace->stack_tail->stack_next = client;
-        workspace->stack_tail = client;
-    }
+    workspace_raise_client(client->workspace, client);
     enforce_stacking(wm);
     x11_update_client_lists(wm);
 }
@@ -823,16 +814,8 @@ void client_close(WM *wm, Client *client)
 void workspace_focus_relative(WM *wm, Workspace *workspace, bool forward)
 {
     if (!workspace || workspace != workspace->monitor->active_workspace) return;
-    Client *target = NULL;
-    Client *cursor = wm->model.focused_client &&
-        wm->model.focused_client->workspace == workspace
-        ? wm->model.focused_client : workspace_focus_target(workspace);
-    unsigned int count = tab_count(workspace);
-    for (unsigned int i = 0; i < count; ++i) {
-        cursor = cursor ? (forward ? cursor->tab_next : cursor->tab_prev) : NULL;
-        if (!cursor) cursor = forward ? workspace->tab_head : workspace->tab_tail;
-        if (client_can_focus(cursor)) { target = cursor; break; }
-    }
+    Client *target = workspace_focus_relative_target(
+        workspace, wm->model.focused_client, forward);
     if (workspace->mode == WORKSPACE_MONOCLE && target)
         client_focus_tab_target(wm, target, CurrentTime);
     else

@@ -92,6 +92,41 @@ void workspace_promote_focus(Workspace *workspace, Client *client)
     workspace->focus_head = client;
 }
 
+void workspace_raise_client(Workspace *workspace, Client *client)
+{
+    if (!workspace || !client || client->workspace != workspace ||
+        workspace->stack_tail == client)
+        return;
+
+    if (client->stack_prev) client->stack_prev->stack_next = client->stack_next;
+    else if (workspace->stack_head == client) workspace->stack_head = client->stack_next;
+    if (client->stack_next) client->stack_next->stack_prev = client->stack_prev;
+
+    client->stack_prev = workspace->stack_tail;
+    client->stack_next = NULL;
+    if (workspace->stack_tail) workspace->stack_tail->stack_next = client;
+    else workspace->stack_head = client;
+    workspace->stack_tail = client;
+}
+
+Client *workspace_focus_relative_target(Workspace *workspace,
+                                        Client *current, bool forward)
+{
+    if (!workspace) return NULL;
+    Client *cursor = current && current->workspace == workspace
+        ? current : workspace_focus_target(workspace);
+
+    unsigned int count = 0;
+    for (Client *client = workspace->tab_head; client; client = client->tab_next)
+        ++count;
+    for (unsigned int i = 0; i < count; ++i) {
+        cursor = cursor ? (forward ? cursor->tab_next : cursor->tab_prev) : NULL;
+        if (!cursor) cursor = forward ? workspace->tab_head : workspace->tab_tail;
+        if (client_can_focus(cursor)) return cursor;
+    }
+    return NULL;
+}
+
 void workspace_detach_client(Workspace *workspace, Client *client)
 {
     if (!workspace || !client) return;

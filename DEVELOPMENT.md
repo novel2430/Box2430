@@ -96,26 +96,27 @@ make clean
 
 ### Experimental river frontend
 
-The Phase 1 Wayland bring-up is an opt-in binary and does not change the normal
-X11 build:
+The experimental Wayland frontend is an opt-in binary and does not change the
+normal X11 build:
 
 ```sh
 make river
 ```
 
 This additionally requires `wayland-scanner`, the `wayland-client` development
-package, and river's protocol XML files. A current river install exposes the
-protocol location through `river-protocols.pc`. For an uninstalled river source
-checkout, override it explicitly:
+package, and river's window-management, layer-shell, and xkb-binding protocol
+XML files. A current river install exposes the protocol location through
+`river-protocols.pc`. For an uninstalled river source checkout, override it
+explicitly:
 
 ```sh
 make river RIVER_PROTOCOLS_DIR=/path/to/river/protocol
 ```
 
-The binary is `build/debug/box2430-river`. It is an architectural/runtime
-bring-up scaffold, not yet a feature-complete Wayland Box2430. See
-`docs/WAYLAND_PHASE1.md` for scope, nested test instructions, and known
-limitations.
+The binary is `build/debug/box2430-river`. Phase 2 adds the first interactive
+FREE-mode slice, but it is not yet a feature-complete Wayland Box2430. See
+`docs/WAYLAND_PHASE1.md` for the runtime foundation and
+`docs/WAYLAND_PHASE2.md` for current interaction scope and smoke tests.
 
 A staged install can be checked without modifying the host system:
 
@@ -697,3 +698,15 @@ Use clear categories:
 Do not convert a missing development library, unavailable X server, missing
 Xephyr host display, or sandbox socket restriction into a statement about
 Box2430 correctness.
+
+## 2026-09-12 — Wayland Phase 2 FREE interaction
+
+The experimental `box2430-river` frontend now exercises Box's FREE interaction
+model rather than only lifecycle bring-up.  `river-xkb-bindings-v1` provides a
+small temporary set of focus/workspace bindings; river pointer bindings and
+client CSD requests drive cumulative pointer operations for move/resize.
+Protocol callbacks record intent and mutate Core authority only in the following
+manage sequence.  Shared stack-raise and focus-cycle target helpers now live in
+`core.c` and are used by the X11 runtime as well.  MONOCLE/tabbar,
+snap/maximize/fullscreen, SSD, and full Wayland config/command parity remain out
+of scope.  See `docs/WAYLAND_PHASE2.md`.

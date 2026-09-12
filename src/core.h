@@ -171,6 +171,9 @@ void monitor_finish_authority(Monitor *monitor);
 void workspace_attach_client(Workspace *workspace, Client *client);
 void workspace_detach_client(Workspace *workspace, Client *client);
 void workspace_promote_focus(Workspace *workspace, Client *client);
+void workspace_raise_client(Workspace *workspace, Client *client);
+Client *workspace_focus_relative_target(Workspace *workspace,
+                                        Client *current, bool forward);
 void client_reassign_workspace(Client *client, Workspace *workspace);
 Client *workspace_focus_fallback(Workspace *workspace, Client *removed);
 Client *workspace_focus_target(Workspace *workspace);

@@ -19,12 +19,15 @@ RIVER_PROTOCOLS_DIR ?= $(shell d=$$($(PKG_CONFIG) --variable=pkgdatadir river-pr
 	if [ -n "$$d" ]; then printf '%s/stable' "$$d"; else printf '%s' '/usr/share/river-protocols/stable'; fi)
 RIVER_WM_XML = $(RIVER_PROTOCOLS_DIR)/river-window-management-v1.xml
 RIVER_LAYER_XML = $(RIVER_PROTOCOLS_DIR)/river-layer-shell-v1.xml
+RIVER_XKB_XML = $(RIVER_PROTOCOLS_DIR)/river-xkb-bindings-v1.xml
 RIVER_WM_HEADER = $(RIVER_GEN_DIR)/river-window-management-v1-client-protocol.h
 RIVER_WM_CODE = $(RIVER_GEN_DIR)/river-window-management-v1-protocol.c
 RIVER_LAYER_HEADER = $(RIVER_GEN_DIR)/river-layer-shell-v1-client-protocol.h
 RIVER_LAYER_CODE = $(RIVER_GEN_DIR)/river-layer-shell-v1-protocol.c
+RIVER_XKB_HEADER = $(RIVER_GEN_DIR)/river-xkb-bindings-v1-client-protocol.h
+RIVER_XKB_CODE = $(RIVER_GEN_DIR)/river-xkb-bindings-v1-protocol.c
 RIVER_SOURCES = src/river/main.c src/river/runtime.c src/core.c \
-	$(RIVER_WM_CODE) $(RIVER_LAYER_CODE)
+	$(RIVER_WM_CODE) $(RIVER_LAYER_CODE) $(RIVER_XKB_CODE)
 SOURCES = src/main.c src/core.c src/wm.c src/ui.c src/decoration.c src/tray.c src/bspwm_compat.c src/monitor.c src/monitor_randr.c src/command.c src/config.c src/x11.c \
 	vendor/tomlc17/tomlc17.c
 OBJECTS = $(SOURCES:%.c=$(BUILD_DIR)/%.o)
@@ -47,6 +50,9 @@ river-check-deps:
 	@test -f "$(RIVER_LAYER_XML)" || { \
 		echo 'box2430: river-layer-shell-v1.xml not found.' >&2; \
 		echo 'Set RIVER_PROTOCOLS_DIR=/path/to/river/protocol or install river-protocols.' >&2; exit 1; }
+	@test -f "$(RIVER_XKB_XML)" || { \
+		echo 'box2430: river-xkb-bindings-v1.xml not found.' >&2; \
+		echo 'Set RIVER_PROTOCOLS_DIR=/path/to/river/protocol or install river-protocols.' >&2; exit 1; }
 
 $(RIVER_WM_HEADER): | river-check-deps
 	@mkdir -p $(dir $@)
@@ -64,7 +70,15 @@ $(RIVER_LAYER_CODE): | river-check-deps
 	@mkdir -p $(dir $@)
 	wayland-scanner private-code "$(RIVER_LAYER_XML)" $@
 
-$(RIVER_TARGET): $(RIVER_SOURCES) $(RIVER_WM_HEADER) $(RIVER_LAYER_HEADER) | river-check-deps
+$(RIVER_XKB_HEADER): | river-check-deps
+	@mkdir -p $(dir $@)
+	wayland-scanner client-header "$(RIVER_XKB_XML)" $@
+
+$(RIVER_XKB_CODE): | river-check-deps
+	@mkdir -p $(dir $@)
+	wayland-scanner private-code "$(RIVER_XKB_XML)" $@
+
+$(RIVER_TARGET): $(RIVER_SOURCES) $(RIVER_WM_HEADER) $(RIVER_LAYER_HEADER) $(RIVER_XKB_HEADER) | river-check-deps
 	@mkdir -p $(dir $@)
 	$(CC) -D_POSIX_C_SOURCE=200809L -Isrc -I$(RIVER_GEN_DIR) \
 		-std=c11 -Wall -Wextra -Wpedantic -Wshadow -Wformat=2 \
