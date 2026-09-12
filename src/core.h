@@ -6,6 +6,7 @@
 enum {
     BOX2430_MAX_MONITORS = 32,
     BOX2430_MAX_WORKSPACES = 32,
+    BOX2430_DEFAULT_WORKSPACE_COUNT = 9,
 };
 
 typedef enum PlacementPolicy {
@@ -164,6 +165,13 @@ typedef struct WMModel {
 bool client_workspace_is_active(const Client *client);
 bool client_should_be_visible(const Client *client);
 bool client_can_focus(const Client *client);
+bool monitor_init_authority(Monitor *monitor, unsigned int index,
+                            Rect geometry, unsigned int workspace_count);
+void monitor_finish_authority(Monitor *monitor);
+void workspace_attach_client(Workspace *workspace, Client *client);
+void workspace_detach_client(Workspace *workspace, Client *client);
+void workspace_promote_focus(Workspace *workspace, Client *client);
+void client_reassign_workspace(Client *client, Workspace *workspace);
 Client *workspace_focus_fallback(Workspace *workspace, Client *removed);
 Client *workspace_focus_target(Workspace *workspace);
 

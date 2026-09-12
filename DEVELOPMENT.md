@@ -94,6 +94,29 @@ Clean all build profiles:
 make clean
 ```
 
+### Experimental river frontend
+
+The Phase 1 Wayland bring-up is an opt-in binary and does not change the normal
+X11 build:
+
+```sh
+make river
+```
+
+This additionally requires `wayland-scanner`, the `wayland-client` development
+package, and river's protocol XML files. A current river install exposes the
+protocol location through `river-protocols.pc`. For an uninstalled river source
+checkout, override it explicitly:
+
+```sh
+make river RIVER_PROTOCOLS_DIR=/path/to/river/protocol
+```
+
+The binary is `build/debug/box2430-river`. It is an architectural/runtime
+bring-up scaffold, not yet a feature-complete Wayland Box2430. See
+`docs/WAYLAND_PHASE1.md` for scope, nested test instructions, and known
+limitations.
+
 A staged install can be checked without modifying the host system:
 
 ```sh

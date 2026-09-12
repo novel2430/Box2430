@@ -20,7 +20,8 @@ The main source layout is:
 
 | File | Responsibility |
 | --- | --- |
-| `src/main.c` | CLI parsing, fresh-session/restart distinction, WM lifecycle, and re-exec |
+| `src/core.c` / `src/core.h` | Backend-neutral Box authority, workspace orders/focus helpers, visibility/presentation policy, and topology planning |
+| `src/main.c` | X11 CLI parsing, fresh-session/restart distinction, WM lifecycle, and re-exec |
 | `src/wm.c` | Main state machine: events, clients, workspaces, focus, stacking, geometry, monitor reconciliation, dragging, ICCCM/EWMH reactions |
 | `src/ui.c` / `src/ui.h` | Borders, native bars, widget layout/drawing, status/clock text, MONOCLE tabs, snap preview |
 | `src/decoration.c` / `src/decoration.h` | FREE-only decoration decision, content/outer/titlebar geometry, layout/hit testing, sibling projection lifecycle and drawing |
@@ -31,16 +32,18 @@ The main source layout is:
 | `src/command.c` | Command validation/dispatch and child-process launch paths |
 | `src/config.c` | Built-in defaults and strict atomic TOML configuration loading |
 | `src/x11.c` | WM ownership, atoms, window metadata, struts, client lists, workarea, and ICCCM/EWMH helpers |
-| `src/box2430.h` | Shared structures, enums, constants, and internal interfaces |
+| `src/river/` | Experimental Phase 1 river protocol runtime; owns Wayland/river attachments and projects shared Core authority |
+| `src/box2430.h` | X11 runtime structures, enums, constants, and internal interfaces around the Core model |
 
 The implementation deliberately stays close to one X11 event loop and explicit C
 state transitions. See `docs/IMPLEMENTATION_STYLE.md` for the long-lived
 engineering rationale.
 
-The planned X11/Wayland authority split is specified separately in
-`docs/WAYLAND_PHASE0_CONTRACT.md`. That document is a migration contract;
-the remainder of this file continues to describe the V2.3 X11 runtime as it
-exists today.
+The X11/Wayland authority split is specified in
+`docs/WAYLAND_PHASE0_CONTRACT.md`. The first executable river frontend is
+documented in `docs/WAYLAND_PHASE1.md`. The remainder of this file still focuses
+on the mature X11 runtime unless a section explicitly discusses shared Core or
+the experimental river frontend.
 
 ## Transition, Authority, and Projection (TAP)
 

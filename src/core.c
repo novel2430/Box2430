@@ -14,6 +14,120 @@ bool client_can_focus(const Client *client)
     return client && client->focusable;
 }
 
+bool monitor_init_authority(Monitor *monitor, unsigned int index,
+                            Rect geometry, unsigned int workspace_count)
+{
+    if (!monitor || !workspace_count ||
+        workspace_count > BOX2430_MAX_WORKSPACES)
+        return false;
+
+    memset(monitor, 0, sizeof(*monitor));
+    monitor->workspaces = calloc(workspace_count, sizeof(*monitor->workspaces));
+    if (!monitor->workspaces) return false;
+
+    monitor->index = index;
+    monitor->geometry = geometry;
+    monitor->workarea = geometry;
+    for (unsigned int i = 0; i < workspace_count; ++i) {
+        Workspace *workspace = &monitor->workspaces[i];
+        workspace->monitor = monitor;
+        workspace->index = i;
+        workspace->mode = WORKSPACE_FREE;
+    }
+    monitor->active_workspace = &monitor->workspaces[0];
+    return true;
+}
+
+void monitor_finish_authority(Monitor *monitor)
+{
+    if (!monitor) return;
+    free(monitor->workspaces);
+    monitor->workspaces = NULL;
+    monitor->active_workspace = NULL;
+}
+
+void workspace_attach_client(Workspace *workspace, Client *client)
+{
+    if (!workspace || !client) return;
+
+    client->workspace_next = workspace->clients;
+    workspace->clients = client;
+
+    client->tab_prev = workspace->tab_tail;
+    client->tab_next = NULL;
+    if (workspace->tab_tail) workspace->tab_tail->tab_next = client;
+    else workspace->tab_head = client;
+    workspace->tab_tail = client;
+
+    client->stack_prev = workspace->stack_tail;
+    client->stack_next = NULL;
+    if (workspace->stack_tail) workspace->stack_tail->stack_next = client;
+    else workspace->stack_head = client;
+    workspace->stack_tail = client;
+}
+
+static void workspace_unlink_focus(Workspace *workspace, Client *client)
+{
+    bool linked = workspace && client &&
+        (workspace->focus_head == client || workspace->focus_tail == client ||
+         client->focus_prev || client->focus_next);
+    if (!linked) return;
+
+    if (client->focus_prev) client->focus_prev->focus_next = client->focus_next;
+    else workspace->focus_head = client->focus_next;
+    if (client->focus_next) client->focus_next->focus_prev = client->focus_prev;
+    else workspace->focus_tail = client->focus_prev;
+    client->focus_prev = NULL;
+    client->focus_next = NULL;
+}
+
+void workspace_promote_focus(Workspace *workspace, Client *client)
+{
+    if (!workspace || !client) return;
+    workspace_unlink_focus(workspace, client);
+    client->focus_prev = NULL;
+    client->focus_next = workspace->focus_head;
+    if (workspace->focus_head) workspace->focus_head->focus_prev = client;
+    else workspace->focus_tail = client;
+    workspace->focus_head = client;
+}
+
+void workspace_detach_client(Workspace *workspace, Client *client)
+{
+    if (!workspace || !client) return;
+
+    Client **link = &workspace->clients;
+    while (*link && *link != client) link = &(*link)->workspace_next;
+    if (*link) *link = client->workspace_next;
+
+    if (client->tab_prev) client->tab_prev->tab_next = client->tab_next;
+    else if (workspace->tab_head == client) workspace->tab_head = client->tab_next;
+    if (client->tab_next) client->tab_next->tab_prev = client->tab_prev;
+    else if (workspace->tab_tail == client) workspace->tab_tail = client->tab_prev;
+
+    if (client->stack_prev) client->stack_prev->stack_next = client->stack_next;
+    else if (workspace->stack_head == client) workspace->stack_head = client->stack_next;
+    if (client->stack_next) client->stack_next->stack_prev = client->stack_prev;
+    else if (workspace->stack_tail == client) workspace->stack_tail = client->stack_prev;
+
+    workspace_unlink_focus(workspace, client);
+    client->workspace_next = NULL;
+    client->tab_prev = NULL;
+    client->tab_next = NULL;
+    client->stack_prev = NULL;
+    client->stack_next = NULL;
+}
+
+void client_reassign_workspace(Client *client, Workspace *workspace)
+{
+    if (!client || !workspace || client->workspace == workspace) return;
+    if (client->workspace) workspace_detach_client(client->workspace, client);
+    client->workspace = workspace;
+    client->focus_prev = NULL;
+    client->focus_next = NULL;
+    workspace_attach_client(workspace, client);
+}
+
 static Client *workspace_stable_focus_fallback(Workspace *workspace,
                                                 Client *removed)
 {

@@ -11,6 +11,38 @@ static int fail(const char *message)
 
 int main(void)
 {
+    Monitor owned_monitor = {0};
+    if (!monitor_init_authority(&owned_monitor, 3, (Rect){10, 20, 640, 480}, 2))
+        return fail("core monitor authority initialization failed");
+    if (owned_monitor.index != 3 || owned_monitor.active_workspace == NULL ||
+        owned_monitor.workspaces[1].monitor != &owned_monitor ||
+        owned_monitor.workspaces[1].index != 1)
+        return fail("core monitor authority initialization lost workspace ownership");
+
+    Client owned_first = {.focusable = true};
+    Client owned_second = {.focusable = true};
+    owned_first.workspace = &owned_monitor.workspaces[0];
+    owned_second.workspace = &owned_monitor.workspaces[0];
+    workspace_attach_client(&owned_monitor.workspaces[0], &owned_first);
+    workspace_attach_client(&owned_monitor.workspaces[0], &owned_second);
+    workspace_promote_focus(&owned_monitor.workspaces[0], &owned_first);
+    if (owned_monitor.workspaces[0].tab_head != &owned_first ||
+        owned_monitor.workspaces[0].tab_tail != &owned_second ||
+        owned_monitor.workspaces[0].stack_tail != &owned_second ||
+        workspace_focus_target(&owned_monitor.workspaces[0]) != &owned_first)
+        return fail("core workspace order helpers disagree");
+
+    client_reassign_workspace(&owned_second, &owned_monitor.workspaces[1]);
+    if (owned_second.workspace != &owned_monitor.workspaces[1] ||
+        owned_monitor.workspaces[0].tab_tail != &owned_first ||
+        owned_monitor.workspaces[1].tab_head != &owned_second)
+        return fail("core workspace reassignment lost order authority");
+    workspace_detach_client(&owned_monitor.workspaces[0], &owned_first);
+    workspace_detach_client(&owned_monitor.workspaces[1], &owned_second);
+    monitor_finish_authority(&owned_monitor);
+    if (owned_monitor.workspaces != NULL || owned_monitor.active_workspace != NULL)
+        return fail("core monitor authority cleanup left workspace state attached");
+
     Monitor monitor = {0};
     Workspace workspaces[2] = {0};
     Client first = {0};

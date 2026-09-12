@@ -35,10 +35,6 @@ typedef struct MouseBinding {
     char argv[BOX2430_MAX_COMMAND_ARGS][BOX2430_MAX_COMMAND_ARG_LENGTH];
 } MouseBinding;
 
-enum {
-    BOX2430_DEFAULT_WORKSPACE_COUNT = 9,
-};
-
 typedef enum FocusMode { FOCUS_CLICK, FOCUS_SLOPPY } FocusMode;
 typedef enum ActiveWindowPolicy {
     ACTIVE_WINDOW_URGENT,

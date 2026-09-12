@@ -369,25 +369,6 @@ static unsigned long named_color(WM *wm, const char *name, unsigned long fallbac
     return fallback;
 }
 
-static bool init_monitor_state(WM *wm, Monitor *monitor, unsigned int index,
-                               Rect geometry)
-{
-    memset(monitor, 0, sizeof(*monitor));
-    monitor->workspaces = calloc(wm->config.workspace_count,
-                                  sizeof(*monitor->workspaces));
-    if (!monitor->workspaces) return false;
-    monitor->index = index;
-    monitor->geometry = geometry;
-    monitor->workarea = geometry;
-    for (unsigned int j = 0; j < wm->config.workspace_count; ++j) {
-        monitor->workspaces[j].monitor = monitor;
-        monitor->workspaces[j].index = j;
-        monitor->workspaces[j].mode = WORKSPACE_FREE;
-    }
-    monitor->active_workspace = &monitor->workspaces[0];
-    return true;
-}
-
 static bool init_monitors(WM *wm)
 {
     RandRMonitorSnapshot snapshot = {0};
@@ -400,10 +381,12 @@ static bool init_monitors(WM *wm)
     }
     wm->model.monitor_count = snapshot.count;
     for (unsigned int i = 0; i < snapshot.count; ++i) {
-        if (!init_monitor_state(wm, &wm->model.monitors[i], i,
-                                snapshot.monitors[i].geometry)) {
+        if (!monitor_init_authority(&wm->model.monitors[i], i,
+                                    snapshot.monitors[i].geometry,
+                                    wm->config.workspace_count)) {
             fprintf(stderr, "box2430: out of memory creating workspace state\n");
-            for (unsigned int j = 0; j < i; ++j) free(wm->model.monitors[j].workspaces);
+            for (unsigned int j = 0; j < i; ++j)
+                monitor_finish_authority(&wm->model.monitors[j]);
             free(wm->model.monitors);
             wm->model.monitors = NULL;
             wm->model.monitor_count = 0;
@@ -546,91 +529,6 @@ static unsigned int tab_count(const Workspace *workspace)
     return count;
 }
 
-static void append_workspace_orders(Workspace *workspace, Client *client)
-{
-    client->workspace_next = workspace->clients;
-    workspace->clients = client;
-
-    client->tab_prev = workspace->tab_tail;
-    if (workspace->tab_tail) {
-        workspace->tab_tail->tab_next = client;
-    } else {
-        workspace->tab_head = client;
-    }
-    workspace->tab_tail = client;
-
-    client->stack_prev = workspace->stack_tail;
-    if (workspace->stack_tail) {
-        workspace->stack_tail->stack_next = client;
-    } else {
-        workspace->stack_head = client;
-    }
-    workspace->stack_tail = client;
-}
-
-static void unlink_workspace_focus(Workspace *workspace, Client *client)
-{
-    bool linked = workspace->focus_head == client || workspace->focus_tail == client ||
-        client->focus_prev || client->focus_next;
-    if (!linked) return;
-
-    if (client->focus_prev) client->focus_prev->focus_next = client->focus_next;
-    else workspace->focus_head = client->focus_next;
-    if (client->focus_next) client->focus_next->focus_prev = client->focus_prev;
-    else workspace->focus_tail = client->focus_prev;
-    client->focus_prev = NULL;
-    client->focus_next = NULL;
-}
-
-static void promote_workspace_focus(Workspace *workspace, Client *client)
-{
-    unlink_workspace_focus(workspace, client);
-    client->focus_prev = NULL;
-    client->focus_next = workspace->focus_head;
-    if (workspace->focus_head) workspace->focus_head->focus_prev = client;
-    else workspace->focus_tail = client;
-    workspace->focus_head = client;
-}
-
-static void unlink_workspace_orders(Workspace *workspace, Client *client)
-{
-    Client **link = &workspace->clients;
-    while (*link && *link != client) {
-        link = &(*link)->workspace_next;
-    }
-    if (*link) {
-        *link = client->workspace_next;
-    }
-
-    if (client->tab_prev) client->tab_prev->tab_next = client->tab_next;
-    else workspace->tab_head = client->tab_next;
-    if (client->tab_next) client->tab_next->tab_prev = client->tab_prev;
-    else workspace->tab_tail = client->tab_prev;
-
-    if (client->stack_prev) client->stack_prev->stack_next = client->stack_next;
-    else workspace->stack_head = client->stack_next;
-    if (client->stack_next) client->stack_next->stack_prev = client->stack_prev;
-    else workspace->stack_tail = client->stack_prev;
-
-    unlink_workspace_focus(workspace, client);
-}
-
-/* Change the sole workspace owner and every workspace-local order without
- * performing focus, mapping, geometry, stacking, EWMH, or UI projection. */
-static void reassign_client_workspace_authority(Client *client,
-                                                Workspace *workspace)
-{
-    Workspace *old = client->workspace;
-    if (old == workspace) return;
-    unlink_workspace_orders(old, client);
-    client->workspace = workspace;
-    client->workspace_next = NULL;
-    client->tab_prev = client->tab_next = NULL;
-    client->stack_prev = client->stack_next = NULL;
-    client->focus_prev = client->focus_next = NULL;
-    append_workspace_orders(workspace, client);
-}
-
 static bool client_supports_protocol(WM *wm, Client *client, Atom protocol)
 {
     Atom *protocols = NULL;
@@ -761,7 +659,7 @@ static void client_activate(WM *wm, Client *client, Time time)
     }
 
     select_monitor_context(wm, client->workspace->monitor);
-    promote_workspace_focus(client->workspace, client);
+    workspace_promote_focus(client->workspace, client);
     set_client_urgent(wm, client, false);
     ui_client_border_refresh(wm, client);
     grab_client_buttons(wm, client, true);
@@ -1648,7 +1546,7 @@ void client_move_to_workspace(WM *wm, Client *client, Workspace *workspace,
                                          new_monitor->geometry);
         clamp_client_latent_geometry(wm, client, new_monitor->workarea);
     }
-    reassign_client_workspace_authority(client, workspace);
+    client_reassign_workspace(client, workspace);
 
     materialize_client_geometry(wm, client);
 
@@ -1657,7 +1555,7 @@ void client_move_to_workspace(WM *wm, Client *client, Workspace *workspace,
          * remembered tab/focus target before workspace activation, so a
          * MONOCLE destination maps the moved client directly rather than
          * briefly exposing the previous tab. */
-        promote_workspace_focus(workspace, client);
+        workspace_promote_focus(workspace, client);
         set_selected_monitor_authority(&wm->model, workspace->monitor);
         workspace_activate(wm, workspace->monitor, workspace);
         project_client_mapped(wm, client);
@@ -2045,7 +1943,7 @@ static void manage_window(WM *wm, Window window, bool map_window)
     client->normal_geometry = client->geometry;
     client->next = wm->model.clients;
     wm->model.clients = client;
-    append_workspace_orders(client->workspace, client);
+    workspace_attach_client(client->workspace, client);
 
     XSelectInput(wm->display, window,
                  EnterWindowMask | FocusChangeMask | PropertyChangeMask);
@@ -2091,7 +1989,7 @@ static void unmanage_client(WM *wm, Client *client, bool withdrawn)
     if (wm->drag.client == client) mouse_cancel_drag(wm);
     Workspace *workspace = client->workspace;
     resolve_focus_before_client_removal(wm, client);
-    unlink_workspace_orders(workspace, client);
+    workspace_detach_client(workspace, client);
     if (workspace->mode == WORKSPACE_MONOCLE &&
         workspace == workspace->monitor->active_workspace)
         reconcile_workspace_mapping(wm, workspace);
@@ -2152,7 +2050,7 @@ static void destroy_removed_monitor_resources(WM *wm, Monitor *old_monitors,
         Monitor *removed = &old_monitors[old_index];
         ui_bar_destroy_monitor(wm, removed);
         ui_tab_destroy_monitor(wm, removed);
-        free(removed->workspaces);
+        monitor_finish_authority(removed);
     }
 }
 
@@ -2224,11 +2122,12 @@ static void reconcile_monitors(WM *wm)
             staged[new_index].geometry = plan.new_rects[new_index];
             staged[new_index].workarea = plan.new_rects[new_index];
         } else {
-            if (!init_monitor_state(wm, &staged[new_index], new_index,
-                                    plan.new_rects[new_index])) {
+            if (!monitor_init_authority(&staged[new_index], new_index,
+                                        plan.new_rects[new_index],
+                                        wm->config.workspace_count)) {
                 fprintf(stderr, "box2430: cannot create state for added monitor\n");
                 for (unsigned int j = 0; j < new_index; ++j)
-                    if (added[j]) free(staged[j].workspaces);
+                    if (added[j]) monitor_finish_authority(&staged[j]);
                 model_free_monitor_topology_plan(&plan);
                 randr_free_monitor_snapshot(&new_snapshot);
                 return;
@@ -2251,7 +2150,7 @@ static void reconcile_monitors(WM *wm)
             Workspace *destination =
                 &staged[client_plan->new_monitor_index]
                      .workspaces[client_plan->workspace_index];
-            reassign_client_workspace_authority(client, destination);
+            client_reassign_workspace(client, destination);
         }
     }
 
@@ -2317,7 +2216,7 @@ static void reconcile_monitors(WM *wm)
         client_workspace_is_active(preferred_focus) &&
         client_can_focus(preferred_focus);
     if (preserve_preferred_focus)
-        promote_workspace_focus(preferred_focus->workspace, preferred_focus);
+        workspace_promote_focus(preferred_focus->workspace, preferred_focus);
 
     rematerialize_all_clients(wm);
     for (Client *client = wm->model.clients; client; client = client->next)
@@ -2930,7 +2829,7 @@ void wm_destroy(WM *wm)
     free_cursors(wm);
     XSync(wm->display, False);
     for (unsigned int i = 0; i < wm->model.monitor_count; ++i)
-        free(wm->model.monitors[i].workspaces);
+        monitor_finish_authority(&wm->model.monitors[i]);
     free(wm->model.monitors);
     wm->model.monitors = NULL;
     wm->model.monitor_count = 0;

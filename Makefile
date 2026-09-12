@@ -13,14 +13,64 @@ BINDIR ?= $(PREFIX)/bin
 DATADIR ?= $(PREFIX)/share
 BUILD_DIR = build/$(PROFILE)
 TARGET = $(BUILD_DIR)/box2430
+RIVER_TARGET = $(BUILD_DIR)/box2430-river
+RIVER_GEN_DIR = $(BUILD_DIR)/river-protocol
+RIVER_PROTOCOLS_DIR ?= $(shell d=$$($(PKG_CONFIG) --variable=pkgdatadir river-protocols 2>/dev/null); \
+	if [ -n "$$d" ]; then printf '%s/stable' "$$d"; else printf '%s' '/usr/share/river-protocols/stable'; fi)
+RIVER_WM_XML = $(RIVER_PROTOCOLS_DIR)/river-window-management-v1.xml
+RIVER_LAYER_XML = $(RIVER_PROTOCOLS_DIR)/river-layer-shell-v1.xml
+RIVER_WM_HEADER = $(RIVER_GEN_DIR)/river-window-management-v1-client-protocol.h
+RIVER_WM_CODE = $(RIVER_GEN_DIR)/river-window-management-v1-protocol.c
+RIVER_LAYER_HEADER = $(RIVER_GEN_DIR)/river-layer-shell-v1-client-protocol.h
+RIVER_LAYER_CODE = $(RIVER_GEN_DIR)/river-layer-shell-v1-protocol.c
+RIVER_SOURCES = src/river/main.c src/river/runtime.c src/core.c \
+	$(RIVER_WM_CODE) $(RIVER_LAYER_CODE)
 SOURCES = src/main.c src/core.c src/wm.c src/ui.c src/decoration.c src/tray.c src/bspwm_compat.c src/monitor.c src/monitor_randr.c src/command.c src/config.c src/x11.c \
 	vendor/tomlc17/tomlc17.c
 OBJECTS = $(SOURCES:%.c=$(BUILD_DIR)/%.o)
 DEPS = $(OBJECTS:.o=.d)
 
-.PHONY: all clean release sanitize test test-tools install
+.PHONY: all clean release sanitize test test-tools install river river-check-deps
 
 all: $(TARGET)
+
+river: $(RIVER_TARGET)
+
+river-check-deps:
+	@command -v wayland-scanner >/dev/null 2>&1 || { \
+		echo 'box2430: make river requires wayland-scanner' >&2; exit 1; }
+	@$(PKG_CONFIG) --exists wayland-client || { \
+		echo 'box2430: make river requires the wayland-client development package' >&2; exit 1; }
+	@test -f "$(RIVER_WM_XML)" || { \
+		echo 'box2430: river-window-management-v1.xml not found.' >&2; \
+		echo 'Set RIVER_PROTOCOLS_DIR=/path/to/river/protocol or install river-protocols.' >&2; exit 1; }
+	@test -f "$(RIVER_LAYER_XML)" || { \
+		echo 'box2430: river-layer-shell-v1.xml not found.' >&2; \
+		echo 'Set RIVER_PROTOCOLS_DIR=/path/to/river/protocol or install river-protocols.' >&2; exit 1; }
+
+$(RIVER_WM_HEADER): | river-check-deps
+	@mkdir -p $(dir $@)
+	wayland-scanner client-header "$(RIVER_WM_XML)" $@
+
+$(RIVER_WM_CODE): | river-check-deps
+	@mkdir -p $(dir $@)
+	wayland-scanner private-code "$(RIVER_WM_XML)" $@
+
+$(RIVER_LAYER_HEADER): | river-check-deps
+	@mkdir -p $(dir $@)
+	wayland-scanner client-header "$(RIVER_LAYER_XML)" $@
+
+$(RIVER_LAYER_CODE): | river-check-deps
+	@mkdir -p $(dir $@)
+	wayland-scanner private-code "$(RIVER_LAYER_XML)" $@
+
+$(RIVER_TARGET): $(RIVER_SOURCES) $(RIVER_WM_HEADER) $(RIVER_LAYER_HEADER) | river-check-deps
+	@mkdir -p $(dir $@)
+	$(CC) -D_POSIX_C_SOURCE=200809L -Isrc -I$(RIVER_GEN_DIR) \
+		-std=c11 -Wall -Wextra -Wpedantic -Wshadow -Wformat=2 \
+		$(shell $(PKG_CONFIG) --cflags wayland-client 2>/dev/null) $(CFLAGS) \
+		$(LDFLAGS) -o $@ $(RIVER_SOURCES) \
+		$(shell $(PKG_CONFIG) --libs wayland-client 2>/dev/null)
 
 release:
 	$(MAKE) PROFILE=release CFLAGS='-O2 -DNDEBUG' all
